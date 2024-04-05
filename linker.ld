@@ -1,13 +1,13 @@
-ENTRY(_start)
+ENTRY(_start32)
 
 SECTIONS {
-    . = 1M;
+	. = 1M;
 
-    .boot : {
-        KEEP(*(.multiboot))
-    }
+	.boot : {
+		KEEP(*(.multiboot))
+	}
 
-    .text : {
-        *(.text)
-    }
+	.text : {
+		*(.text)
+	}
 }
