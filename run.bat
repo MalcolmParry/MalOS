@@ -1,1 +1,1 @@
-qemu-system-x86_64 -cdrom bin/kernel.iso
+qemu-system-x86_64 -cdrom bin/kernel.iso -s

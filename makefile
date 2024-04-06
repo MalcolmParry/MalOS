@@ -12,16 +12,18 @@ $(asm_obj): bin/int/%.o : src/%.asm
 
 $(cpp_obj): bin/int/%.o : src/%.cpp
 	mkdir -p $(dir $@)
-	x86_64-elf-g++ -c $(patsubst bin/int/%.o, src/%.cpp, $@) -o $@ -ffreestanding -O2 -Wall -Wextra -fno-exceptions -fno-rtti
+	x86_64-elf-g++ -c $(patsubst bin/int/%.o, src/%.cpp, $@) -o $@ -ffreestanding -O2 -Wall -Wextra -fno-exceptions -fno-rtti -gdwarf-4 -masm=intel -m64
 
 .PHONY: build
 build: $(obj)
 	mkdir -p bin
-	x86_64-elf-ld -n -o bin/kernel.bin -T linker.ld $(obj)
-	cp bin/kernel.bin iso/boot/kernel.bin
+	x86_64-elf-ld -n -gdwarf-4 -o bin/kernel.elf -T linker.ld $(obj)
+	objcopy --only-keep-debug bin/kernel.elf bin/kernel.sym
+	objcopy --strip-debug bin/kernel.elf
+	cp bin/kernel.elf iso/boot/kernel.elf
 	grub-mkrescue /usr/lib/grub/i386-pc -o bin/kernel.iso iso
 
 .PHONY: clean
 clean:
 	rm -rf bin
-	rm iso/boot/kernel.bin
+	rm iso/boot/kernel.elf
