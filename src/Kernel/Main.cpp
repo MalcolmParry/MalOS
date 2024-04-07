@@ -69,6 +69,9 @@ namespace kernel {
 		Heap::Init();
 		//SetupIDTs();
 
+		type_t u32_id = ctypeid(u32);
+
+
 		const char src[] = "Hello dynamic allocation!\n";
 		const char src2[] = "Hello dynamic allocation 2!\n";
 		char* dst = new char[sizeof(src)];
@@ -81,7 +84,7 @@ namespace kernel {
 		delete[] dst;
 
 		char buf[20] { 0 };
-		u64tostr(buf, 0xffff, 10);
+		u64tostr(buf, u32_id, 10);
 		
 		Console::PutS(buf);
 		Console::Newline();

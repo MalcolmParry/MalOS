@@ -43,11 +43,24 @@ static_assert(sizeof(s64) == 8);
 static_assert(sizeof(f32) == 4);
 static_assert(sizeof(f64) == 8);
 
+using type_t = u64;
+
 namespace kernel {
-    extern "C" u8 error;
+	// compile time type ids
+	template<class T>
+	struct TypeIdentifier {
+		constexpr static type_t id() {
+			return (type_t) (&_id);
+		}
+	private:
+		constexpr static u8 _id {};
+	};
+
+	extern "C" u8 error;
 }
 
 namespace k = kernel;
 
+#define ctypeid(T) (k::TypeIdentifier<T>::id())
 #define kpacked __attribute__((packed))
 #define hlt __asm("hlt")
