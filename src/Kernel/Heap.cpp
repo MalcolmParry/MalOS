@@ -13,7 +13,7 @@ namespace kernel::Heap {
 
 	struct Page {
 		u8 data[pageSize];
-	};
+	} __attribute__((packed));
 
 	PageFlag header[pageCount];
 	Page heap[pageCount];

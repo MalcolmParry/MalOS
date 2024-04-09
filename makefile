@@ -12,7 +12,7 @@ $(asm_obj): bin/int/%.o : src/%.asm
 
 $(cpp_obj): bin/int/%.o : src/%.cpp
 	mkdir -p $(dir $@)
-	x86_64-elf-g++ -c $(patsubst bin/int/%.o, src/%.cpp, $@) -o $@ -ffreestanding -O2 -Wall -Wextra -fno-exceptions -fno-rtti -gdwarf-4 -masm=intel -m64
+	x86_64-elf-g++ -c $(patsubst bin/int/%.o, src/%.cpp, $@) -o $@ -ffreestanding -O3 -Wall -Wextra -fno-exceptions -fno-rtti -gdwarf-4 -masm=intel -m64
 
 .PHONY: build
 build: $(obj)

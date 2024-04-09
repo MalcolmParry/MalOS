@@ -11,7 +11,7 @@ outb:
 global inb
 inb:
 	mov edx, edi
-	xor eax, eax
+	xor rax, rax
 
 	in al, dx
 	ret

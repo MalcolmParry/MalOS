@@ -25,21 +25,19 @@ namespace kernel::Console {
 	}
 
 	using Color = _::Color;
- 
-	#pragma pack (1)
+
 	struct Char {
 		char c;
 		u8 color;
-	};
+	} __attribute__((packed));
 	
-	#pragma pack (1)
 	struct Line {
 		Char c[80];
 
 		Char& operator[](u8 i) {
 			return c[i];
 		}
-	};
+	} __attribute__((packed));
 
 	Line* const videoMemory = (Line*) 0xb8000;
 	constexpr u8 width = 80;
