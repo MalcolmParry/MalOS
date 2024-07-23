@@ -1,3 +1,5 @@
+#pragma once
+
 #include "Core.hpp"
 
 namespace kernel {
@@ -6,6 +8,7 @@ namespace kernel {
 
 	void memset(void* dst, u8 src, u64 n);
 	void memcpy(void* dst, const void* src, u64 n);
+	void memmove(void* dst, const void* src, u64 n);
 
 	u32 strlen(const char* str);
 	void strcat(char* dst, const char* src);

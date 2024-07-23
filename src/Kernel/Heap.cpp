@@ -1,15 +1,15 @@
 #include "Heap.hpp"
 
 namespace kernel::Heap {
+	constexpr u32 pageSize = 8;
+	constexpr u32 pageCount = 1024;
+
 	enum PageFlag : u8 {
 		PageFlagFree,
 		PageFlagUsed,
 		PageFlagStart,
 		PageFlagEnd
 	};
-
-	constexpr u32 pageSize = 8;
-	constexpr u32 pageCount = 1024;
 
 	struct Page {
 		u8 data[pageSize];
@@ -24,7 +24,7 @@ namespace kernel::Heap {
 		}
 	}
 
-	void* Alloc(size_t size) {
+	void* Alloc(u64 size) {
 		u32 toAllocate = size / pageSize;
 		if (size % pageSize != 0) {
 			toAllocate++;
@@ -65,6 +65,39 @@ namespace kernel::Heap {
 		}
 
 		return (void*) &heap[freeStart];
+	}
+	
+	void* Realloc(void* ptr, u64 size) {
+		u64 heapOffset = ((u64) ptr) - ((u64) &heap);
+		u64 start = heapOffset / pageSize;
+		u64 origSize = 0;
+		
+		for (; header[origSize + start] != PageFlagFree; origSize++) {}
+
+		if (origSize > size) {
+			header[start+size-1] = PageFlagEnd;
+			for (u64 i = size; i < origSize; i++) {
+				header[start + i] = PageFlagFree;
+			}
+		}
+
+		u64 extraSize = 0;
+		for (; header[start+origSize+extraSize] == PageFlagFree; extraSize++) {}
+
+		if (origSize + extraSize < size) {
+			void* ret = Alloc(size);
+			memcpy(ret, ptr, origSize);
+			Free(ptr);
+			return ret;
+		}
+
+		header[start] = PageFlagStart;
+		header[start + size - 1] = PageFlagEnd;
+		for (u64 i = origSize - 1; i < size - 1; i++) {
+			header[start + i] = PageFlagUsed;
+		}
+
+		return ptr;
 	}
 
 	void Free(void* ptr) {

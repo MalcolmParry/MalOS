@@ -22,6 +22,10 @@ namespace kernel {
 			((u8*) dst)[i] = ((u8*) src)[i];
 		}
 	}
+	
+	void memmove(void* dst, const void* src, u64 n) {
+		memcpy(dst, src, n);
+	}
 
 	u32 strlen(const char* str) {
 		u32 len = 0;

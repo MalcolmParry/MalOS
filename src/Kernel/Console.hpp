@@ -22,9 +22,16 @@ namespace kernel::Console {
 			LightBrown = 14,
 			White = 15,
 		};
+
+		enum CursorType {
+			None,
+			Block,
+			Underline
+		};
 	}
 
 	using Color = _::Color;
+	using CursorType = _::CursorType;
 
 	struct Char {
 		char c;
@@ -54,7 +61,6 @@ namespace kernel::Console {
 	void PutS(const char* str);
 	void Newline(bool updateCursor = true);
 	void Scroll();
-	void SetCursor(u8 x, u8 y);
 	void UpdateCursor();
-	void SetCursorShown(bool visible);
+	void SetCursorType(CursorType type);
 }

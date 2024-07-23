@@ -12,6 +12,7 @@ namespace kernel::Console {
 		y = 0;
 		UpdateCursor();
 		Clear();
+		SetCursorType(CursorType::Underline);
 	}
 	
 	void ClearLine(u8 y) {
@@ -82,12 +83,19 @@ namespace kernel::Console {
 		outb(0x3d5, (u8) ((pos >> 8) & 0xff));
 	}
 	
-	void SetCursorShown(bool visible) {
-		if (visible) {
-
-		} else {
+	void SetCursorType(CursorType type) {
+		if (type == CursorType::None) {
 			outb(0x3d4, 0x0a);
 			outb(0x3d5, 0x20);
+			return;
 		}
+
+		u8 startScanline = (type == CursorType::Block) ? 0 : 14;
+		
+		outb(0x3d4, 0x0a);
+		outb(0x3d5, (inb(0x3d5) & 0xc0) | startScanline);
+
+		outb(0x3d4, 0x0b);
+		outb(0x3d5, (inb(0x3d5) & 0xe0) | 15);
 	}
 }

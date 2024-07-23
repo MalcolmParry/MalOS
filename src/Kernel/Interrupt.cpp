@@ -27,7 +27,7 @@ namespace kernel {
 	IDT idts[256];
 	IDTR idtr;
 	
-	extern "C" void isr_undef_wrap();
+	extern "C" void _irq_undef();
 
 	void SetupIDT(IDT& idt, u64 isr, ISRType type, bool present) {
 		idt.offset1 = isr & U16_MAX;
@@ -41,7 +41,7 @@ namespace kernel {
 
 	void InitInterrupts() {
 		for (u16 i = 0; i < 256; i++) {
-			SetupIDT(idts[i], (u64) isr_undef_wrap, InterruptGate, true);
+			SetupIDT(idts[i], (u64) _irq_undef, InterruptGate, true);
 		}
 		
 		idtr.length = sizeof(idts) - 1;
@@ -49,8 +49,8 @@ namespace kernel {
 		__asm volatile ("lidt %0" : : "m"(idtr));
 	}
 
-	extern "C" void isr_undef() {
+	extern "C" void irq_undef() {
 		Console::PutS("Undefined interrupt.\n");
-		hlt;
+		hlt();
 	}
 }

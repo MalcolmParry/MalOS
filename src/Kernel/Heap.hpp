@@ -1,8 +1,12 @@
+#pragma once
+
 #include "Core.hpp"
+#include "Utils.hpp"
 
 namespace kernel::Heap {
 	void Init();
-	void* Alloc(size_t size);
+	void* Alloc(u64 size);
+	void* Realloc(void* ptr, u64 size);
 	void Free(void* ptr);
 }
 

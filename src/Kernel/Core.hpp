@@ -62,4 +62,4 @@ namespace kernel {
 namespace k = kernel;
 
 #define ctypeid(T) (k::TypeIdentifier<T>::id())
-#define hlt __asm("hlt")
+#define hlt() __asm("hlt")
