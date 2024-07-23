@@ -4,7 +4,7 @@ show  disassemble-next-line
 
 set arch i386:x86-64:intel
 target remote localhost:1234
-symbol-file bin/kernel.sym
+symbol-file bin/Kernel.sym
 
 define cdump
 	dump memory dump.bin ($arg0) ($arg0 + $arg1)
