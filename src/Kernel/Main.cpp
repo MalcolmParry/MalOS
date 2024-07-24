@@ -6,11 +6,15 @@
 #include "Interrupt.hpp"
 
 namespace kernel {
-	extern "C" void kernel_main() {
-		cli();
-		Console::Init();
-		Heap::Init();
-		InitInterrupts();
-		sti();
-	}
+    extern "C" void kernel_main() {
+        cli();
+        Console::Init();
+        Heap::Init();
+        InitInterrupts();
+        sti();
+
+        interupt(49);
+
+        hlt();
+    }
 }

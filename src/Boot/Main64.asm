@@ -15,9 +15,7 @@ _start64:
 	or rax, 1 << 9
 	mov cr4, rax
 
-	call kernel_main
-
-	int 49
+	jmp kernel_main
 
 halt:
 	hlt
