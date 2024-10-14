@@ -6,9 +6,10 @@ export fn KernelMain() noreturn {
     Interrupt.Disable();
     Console.Init();
     Interrupt.Init();
-    Interrupt.Enable();
+    //Interrupt.Enable();
 
-    //Core.int(0x80);
+    Core.int(0x80);
+    //@panic("fsugdfs");
 
     Core.hlt();
 }

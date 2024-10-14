@@ -1,15 +1,17 @@
 const Core = @import("Core.zig");
 const Console = @import("Console.zig");
-const buildtin = @import("builtin");
 
 const IDT = packed struct {
     offset1: u16,
     selector: u16,
     ist: u8,
-    typeAttribs: u8,
+    gateType: u4,
+    padding1: u1,
+    dpl: u2,
+    present: u1,
     offset2: u16,
     offset3: u32,
-    padding: u32,
+    padding2: u32,
 };
 
 const IDTR = packed struct {
@@ -27,9 +29,8 @@ const ISR: type = fn () callconv(.Interrupt) void;
 var idts: [256]IDT = undefined;
 var idtr: IDTR = undefined;
 
-fn SetupIDT(index: u8, isr: *const ISR, isrType: ISRType, present: bool) void {
+fn SetupIDT(index: u8, isr: *const ISR, isrType: ISRType, dpl: u2, present: bool) void {
     const intIsr: u64 = @intFromPtr(isr);
-    const iPresent: u8 = if (present) 1 else 0;
 
     idts[index] = .{
         .offset1 = @truncate(intIsr),
@@ -37,18 +38,21 @@ fn SetupIDT(index: u8, isr: *const ISR, isrType: ISRType, present: bool) void {
         .offset3 = @truncate(intIsr >> 32),
         .selector = 8,
         .ist = 0,
-        .typeAttribs = @intFromEnum(isrType) | (iPresent << 7),
-        .padding = 0,
+        .gateType = @intFromEnum(isrType),
+        .dpl = dpl,
+        .present = if (present) 1 else 0,
+        .padding1 = 0,
+        .padding2 = 0,
     };
 }
 
 pub fn Init() void {
     for (0..256) |i| {
-        SetupIDT(@intCast(i), &ISRUnknown, .Interrupt, true);
+        SetupIDT(@intCast(i), &ISRUnknown, .Interrupt, 0, true);
     }
 
-    SetupIDT(0x03, &ISR03, .Interrupt, true);
-    SetupIDT(0x80, &ISR80, .Interrupt, true);
+    SetupIDT(0x03, &ISR03, .Interrupt, 0, true);
+    SetupIDT(0x80, &ISR80, .Interrupt, 0, true);
 
     idtr.size = @sizeOf([256]IDT) - 1;
     idtr.base = &idts;
