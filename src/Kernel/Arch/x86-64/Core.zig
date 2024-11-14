@@ -1,6 +1,7 @@
 pub fn hlt() noreturn {
-    asm volatile ("hlt");
-    unreachable;
+    while (true) {
+        asm volatile ("hlt");
+    }
 }
 
 pub fn int(x: u8) void {
@@ -8,6 +9,14 @@ pub fn int(x: u8) void {
         :
         : [x] "N" (x),
     );
+}
+
+pub fn sti() void {
+    asm volatile ("sti");
+}
+
+pub fn cli() void {
+    asm volatile ("cli");
 }
 
 pub fn out(port: u16, data: anytype) void {
