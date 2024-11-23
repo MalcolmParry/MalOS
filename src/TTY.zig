@@ -16,6 +16,8 @@ pub const cursor = struct {
 
 pub const Writer = std.io.Writer(void, anyerror, WriteCallback);
 pub fn Print(comptime format: []const u8, args: anytype) void {
+    @setCold(true); // stop inlining bc hrd to debug
+
     std.fmt.format(Writer{ .context = {} }, format, args) catch |x| {
         PrintS("Printing Error: ");
         PrintS(@errorName(x));

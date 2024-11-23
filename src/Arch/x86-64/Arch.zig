@@ -1,4 +1,41 @@
-pub fn hlt() noreturn {
+pub const VGA = @import("VGA.zig");
+pub const Interrupt = @import("Interrupt.zig");
+pub const Multiboot = @import("Multiboot.zig");
+
+pub const PAGE_SIZE = 1024 * 4;
+
+pub const InitBootInfo = Multiboot.InitBootInfo;
+
+pub const CPUState = packed struct {
+    cr3: u64,
+    rbp: u64,
+
+    rax: u64,
+    rbx: u64,
+    rcx: u64,
+    rdx: u64,
+    rsi: u64,
+    rdi: u64,
+    r8: u64,
+    r9: u64,
+    r10: u64,
+    r11: u64,
+    r12: u64,
+    r13: u64,
+    r14: u64,
+    r15: u64,
+
+    intCode: u64,
+    errorCode: u64,
+
+    rip: u64,
+    cs: u64,
+    flags: u64,
+    rsp: u64,
+    ss: u64,
+};
+
+pub fn halt() noreturn {
     while (true) {
         asm volatile ("hlt");
     }
@@ -11,12 +48,8 @@ pub fn int(x: u8) void {
     );
 }
 
-pub fn sti() void {
-    asm volatile ("sti");
-}
-
-pub fn cli() void {
-    asm volatile ("cli");
+pub fn syscall() void {
+    asm volatile ("int $0x80" ::: "rax");
 }
 
 pub fn out(port: u16, data: anytype) void {
@@ -54,7 +87,7 @@ pub fn in(comptime Type: type, port: u16) Type {
             : [result] "={eax}" (-> Type),
             : [port] "N{dx}" (port),
         ),
-        else => @compileError("Invalid data type. Expected u8, u16, ore u32, found " ++ @typeName(Type)),
+        else => @compileError("Invalid data type. Expected u8, u16, or u32, found " ++ @typeName(Type)),
     };
 }
 

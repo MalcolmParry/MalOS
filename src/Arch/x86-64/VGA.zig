@@ -1,4 +1,4 @@
-const Core = @import("Core.zig");
+const Arch = @import("Arch.zig");
 
 pub const Color = enum(u4) {
     Black = 0,
@@ -36,7 +36,7 @@ pub const size = struct {
     pub const y: u8 = 25;
 };
 
-pub const videoMemory: *[size.y][size.x]Char = @ptrFromInt(0xb8000);
+pub const videoMemory: *[size.y][size.x]Char = @ptrFromInt(0xffff_ffff_c00b_8000);
 
 pub const bgColor: Color = .Black;
 pub const fgColor: Color = .Green;
@@ -47,25 +47,25 @@ pub fn PutC(x: u8, y: u8, c: u8) void {
 
 pub fn SetCursorType(t: CursorType) void {
     if (t == .None) {
-        Core.out(0x3d4, @as(u8, 0x0a));
-        Core.out(0x3d5, @as(u8, 0x20));
+        Arch.out(0x3d4, @as(u8, 0x0a));
+        Arch.out(0x3d5, @as(u8, 0x20));
         return;
     }
 
     const startScanline: u8 = if (t == .Block) 0 else 14;
 
-    Core.out(0x3d4, @as(u8, 0x0a));
-    Core.out(0x3d5, (Core.in(u8, 0x3d5) & 0xc0) | startScanline);
+    Arch.out(0x3d4, @as(u8, 0x0a));
+    Arch.out(0x3d5, (Arch.in(u8, 0x3d5) & 0xc0) | startScanline);
 
-    Core.out(0x3d4, @as(u8, 0x0b));
-    Core.out(0x3d5, (Core.in(u8, 0x3d5) & 0xe0) | 15);
+    Arch.out(0x3d4, @as(u8, 0x0b));
+    Arch.out(0x3d5, (Arch.in(u8, 0x3d5) & 0xe0) | 15);
 }
 
 pub fn SetCursorPos(x: u8, y: u8) void {
-    const pos: u16 = size.x * y + x;
+    const pos: u16 = @as(u16, @intCast(size.x)) * y + x;
 
-    Core.out(0x3d4, @as(u8, 0x0f));
-    Core.out(0x3d5, @as(u8, @intCast(pos)));
-    Core.out(0x3d4, @as(u8, 0x0e));
-    Core.out(0x3d5, @as(u8, @intCast(pos >> 8)));
+    Arch.out(0x3d4, @as(u8, 0x0f));
+    Arch.out(0x3d5, @as(u8, @truncate(pos)));
+    Arch.out(0x3d4, @as(u8, 0x0e));
+    Arch.out(0x3d5, @as(u8, @truncate(pos >> 8)));
 }

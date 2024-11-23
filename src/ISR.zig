@@ -5,18 +5,15 @@ pub export fn ISR(intNum: u8) callconv(.SysV) void {
     switch (intNum) {
         else => {
             TTY.Print("Interrupt {d}\n", .{intNum});
-            Arch.cli();
-            Arch.hlt();
+            Arch.Interrupt.Disable();
+            Arch.halt();
         },
     }
 }
 
-// return value is in rax
-pub export fn Syscall(rax: u64, rbx: u64, rdx: u64, rcx: u64) callconv(.SysV) u64 {
-    _ = rax;
-    _ = rbx;
-    _ = rcx;
-    _ = rdx;
+pub fn Syscall(func: u64, args: [6]u64) u64 {
+    _ = func;
+    _ = args;
 
     TTY.Print("syscall\n", .{});
 

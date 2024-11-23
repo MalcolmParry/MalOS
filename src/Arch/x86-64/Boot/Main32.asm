@@ -1,33 +1,22 @@
 global _start32
+global multibootInfo
 extern _start64
 
-section .text
+KERNEL_VIRT_BASE equ 0xffff_ffff_c000_0000
+
+section .boot
 bits 32
 _start32:
-	mov ebp, stack.top
+	mov ebp, stack.top - KERNEL_VIRT_BASE
 	mov esp, ebp
 
-	call check_multiboot
-	call check_cpuid
-	call check_long_mode
-
-	call setup_page_tables
-	call enable_paging
-
-	lgdt [gdt64.ptr]
-	jmp gdt64.code:_start64
-
-	hlt
-
-check_multiboot:
+	mov [multibootInfo - KERNEL_VIRT_BASE], ebx
+	
+	; check if loaded with multiboot2 loader
 	cmp eax, 0x36d7_6289
 	jne .no_multiboot
-	ret
-.no_multiboot:
-	mov eax, no_multiboot_str
-	jmp error
 
-check_cpuid:
+	; check if the cpu supports cpuid instruction
 	pushfd
 	pop eax
 	mov ecx, eax
@@ -40,12 +29,8 @@ check_cpuid:
 	popfd
 	cmp eax, ecx
 	je .no_cpuid
-	ret
-.no_cpuid:
-	mov eax, no_cpuid_str
-	jmp error
 
-check_long_mode:
+	; check if long mode is supported (if have 64 bit cpu)
 	mov eax, 0x8000_0000
 	cpuid
 	cmp eax, 0x8000_0001
@@ -56,19 +41,16 @@ check_long_mode:
 	test edx, 1 << 29
 	jz .no_long_mode
 
-	ret
-.no_long_mode:
-	mov eax, no_long_mode_str
-	jmp error
-
-setup_page_tables:
+	; setup page tables
 	mov eax, page_table_l3
 	or eax, 0b11 ; present, writable
 	mov [page_table_l4], eax
+	mov [page_table_l4 + 511 * 8], eax
 
 	mov eax, page_table_l2
 	or eax, 0b11 ; present, writable
 	mov [page_table_l3], eax
+	mov [page_table_l3 + 511 * 8], eax
 
 	xor ecx, ecx
 .loop:
@@ -81,9 +63,7 @@ setup_page_tables:
 	cmp ecx, 512
 	jne .loop
 
-	ret
-
-enable_paging:
+	; enable paging
 	mov eax, page_table_l4
 	mov cr3, eax
 
@@ -100,7 +80,17 @@ enable_paging:
 	or eax, 1 << 31
 	mov cr0, eax
 
-	ret
+	lgdt [gdt64.ptr]
+	jmp gdt64.code:trampoline
+.no_multiboot:
+	mov eax, no_multiboot_str
+	jmp error
+.no_cpuid:
+	mov eax, no_cpuid_str
+	jmp error
+.no_long_mode:
+	mov eax, no_long_mode_str
+	jmp error
 
 error: ; void error(char* str: eax)
 	mov edx, 0xb8000
@@ -117,7 +107,14 @@ error: ; void error(char* str: eax)
 	hlt
 	jmp .end
 
-section .data
+bits 64
+trampoline:
+	mov rbp, stack.top
+	mov rsp, rbp
+
+	mov rax, _start64
+	jmp rax
+
 no_multiboot_str:
 	db "The OS was not loaded with a multiboot 2 complient bootloader.", 0
 no_cpuid_str:
@@ -125,20 +122,6 @@ no_cpuid_str:
 no_long_mode_str:
 	db "Long mode is not supported.", 0
 
-section .bss
-align 1024 * 4
-page_table_l4:
-	resb 1024 * 4
-page_table_l3:
-	resb 1024 * 4
-page_table_l2:
-	resb 1024 * 4
-stack:
-.bottom:
-	resb 1024 * 16
-.top:
-
-section .rodata
 gdt64:
 	.null: equ $ - gdt64
 		dq 0
@@ -147,3 +130,24 @@ gdt64:
 	.ptr:
 		dw $ - gdt64 - 1
 		dq gdt64
+
+
+section .boot_bss nobits
+align 1024 * 4
+page_table_l4: ; 512 GB per entry
+	resb 512 * 8
+page_table_l3: ; 1 GB per entry
+	resb 512 * 8
+page_table_l2: ; 2 MB per entry
+	resb 512 * 8
+
+section .bss
+align 16
+stack:
+.bottom:
+	resb 1024 * 16
+.top:
+
+section .data
+multibootInfo:
+	dq 0
