@@ -15,7 +15,7 @@ var fixedAllocBuffer: [1024]u8 = undefined;
 var fixedAllocStruct = std.heap.FixedBufferAllocator.init(&fixedAllocBuffer);
 var fixedAlloc = fixedAllocStruct.allocator();
 
-export fn KernelMain() noreturn {
+export fn KernelMain() callconv(Arch.BootCallConv) noreturn {
     Arch.Interrupt.Disable();
     Arch.Interrupt.Init();
     TTY.Clear();

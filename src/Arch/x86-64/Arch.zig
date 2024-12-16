@@ -1,9 +1,12 @@
+const std = @import("std");
+
 pub const VGA = @import("VGA.zig");
 pub const Interrupt = @import("Interrupt.zig");
 pub const Multiboot = @import("Multiboot.zig");
 
 pub const PAGE_SIZE = 1024 * 4;
 
+pub const BootCallConv = std.builtin.CallingConvention.SysV;
 pub const InitBootInfo = Multiboot.InitBootInfo;
 
 pub const CPUState = packed struct {

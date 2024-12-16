@@ -46,7 +46,7 @@ pub fn InitBootInfo(alloc: std.mem.Allocator) !void {
 
     while (tagAddr < limit) {
         const tag: *Tag = @ptrFromInt(tagAddr);
-        tagAddr += (@as(u64, tag.size) + 7) & 0xffff_ffff_ffff_fff8;
+        tagAddr += (tag.size + 7) & ~@as(u64, 7);
 
         TTY.Print("{}\n", .{tag.t});
 
