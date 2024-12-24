@@ -15,7 +15,7 @@ $(x86-64_asm_obj): bin/int/asm/%.o : src/%.asm
 $(zig_obj): $(shell find src/ -name *.zig)
 	@echo "Compiling zig files"
 	@mkdir -p bin/int/zig
-	@zig build-obj -O ReleaseSafe -target x86_64-freestanding src/Main.zig -femit-bin=$(zig_obj) -freference-trace -mcmodel=kernel
+	@zig build-obj -O ReleaseSafe -target x86_64-freestanding src/Main.zig -femit-bin=$(zig_obj) -freference-trace -mcmodel=kernel -fcompiler-rt
 
 .PHONY: build_x86-64
 build_x86-64: $(x86-64_obj)
@@ -31,7 +31,7 @@ build_x86-64: $(x86-64_obj)
 
 .PHONY: run_x86-64
 run_x86-64:
-	@qemu-system-x86_64 -drive file=bin/Kernel.iso,format=raw
+	@qemu-system-x86_64 -drive file=bin/Kernel.iso,format=raw -m 1G
 
 .PHONY: debug_x86
 debug_x86-64:
@@ -41,6 +41,7 @@ debug_x86-64:
 clean:
 	@rm -rf bin
 	@rm build/x86-64/iso/boot/Kernel.elf 2> /dev/null || :
+	@rm build/x86-64/iso/boot/SymTable.mod 2> /dev/null || :
 
 .PHONY: build
 build: build_x86-64

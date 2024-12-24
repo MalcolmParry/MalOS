@@ -1,3 +1,4 @@
 bin/
 build/x86-64/iso/boot/Kernel.elf
+build/x86-64/iso/boot/SymTable.mod
 cache/

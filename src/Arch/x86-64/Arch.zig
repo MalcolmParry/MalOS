@@ -94,16 +94,16 @@ pub fn in(comptime Type: type, port: u16) Type {
     };
 }
 
-export fn memcpy(dest: [*]u8, src: [*]u8, size: usize) callconv(.C) void {
-    for (0..size) |i| {
-        dest[i] = src[i];
-    }
-}
-
-export fn memset(dest: [*]u8, value: u32, size: usize) callconv(.C) [*]u8 {
-    for (0..size) |i| {
-        dest[i] = @intCast(value);
-    }
-
-    return dest;
-}
+//export fn memcpy(dest: [*]u8, src: [*]u8, size: usize) callconv(.C) void {
+//    for (0..size) |i| {
+//        dest[i] = src[i];
+//    }
+//}
+//
+//export fn memset(dest: [*]u8, value: u32, size: usize) callconv(.C) [*]u8 {
+//    for (0..size) |i| {
+//        dest[i] = @intCast(value);
+//    }
+//
+//    return dest;
+//}
