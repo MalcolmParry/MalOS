@@ -1,24 +1,20 @@
 const Arch = @import("Arch.zig");
+const std = @import("std");
 
-pub const PAGE_SIZE = Arch.PAGE_SIZE;
+pub const pageSize = Arch.pageSize;
+pub const Page = [pageSize]u8;
 
-pub const Range = struct {
-    start: u64,
-    size: u64,
-};
+var fixedAllocBuffer: [1024 * 8]u8 = undefined;
+var fixedAllocStruct = std.heap.FixedBufferAllocator.init(&fixedAllocBuffer);
+pub var fixedAlloc = fixedAllocStruct.allocator();
 
-pub const Map = struct {
-    virt: Range,
-    phys: ?Range,
-};
+pub var kernelStart: ?*anyopaque = null;
+pub var kernelEnd: ?*anyopaque = null;
+pub var kernelVirtBase: ?*anyopaque = null;
+pub var modules: ?[]Module = null;
+pub var memoryBlocks: ?[][]allowzero Page = null;
 
 pub const Module = struct {
-    region: Range,
+    data: []const u8,
     name: []const u8,
 };
-
-//pub const MemProfile = struct {
-//    kernel: Map,
-//    pages: u64,
-//    modules: []Module,
-//};

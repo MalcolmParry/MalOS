@@ -38,7 +38,7 @@ pub const size = struct {
 
 pub const videoMemory: *[size.y][size.x]Char = @ptrFromInt(0xffff_ffff_c00b_8000);
 
-pub const bgColor: Color = .Black;
+pub const bgColor: Color = .DarkGrey;
 pub const fgColor: Color = .Green;
 
 pub fn PutC(x: u8, y: u8, c: u8) void {

@@ -1,5 +1,5 @@
 global _start64
-extern KernelMain
+extern KernelEntry
 
 section .text
 bits 64
@@ -19,7 +19,7 @@ _start64:
 	; 16 byte aligned stack is required for some instructions
 	; and zig assumes that rsp is 16 byte aligned prior to call
 	; and call adds 8 bytes to stack
-	call KernelMain
+	call KernelEntry
 
 	; definitely shouldn't happen
 	; bc KernelMain is noreturn
