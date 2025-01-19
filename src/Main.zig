@@ -19,9 +19,9 @@ fn KernelMain() !void {
         TTY.Print("Start: {x}, End: {x}, Size: {x}\n", .{ @intFromPtr(block.ptr), @intFromPtr(block.ptr) + @as(u64, block.len * 4096), block.len * 4096 });
     }
 
-    TTY.Print("KernelStart: {x}\n", .{@intFromPtr(Mem.kernelStart)});
-    TTY.Print("KernelEnd: {x}\n", .{@intFromPtr(Mem.kernelEnd)});
-    TTY.Print("KernelVirtBase: {x}\n", .{@intFromPtr(Mem.kernelVirtBase)});
+    TTY.Print("KernelStart: {x}\n", .{@intFromPtr(Mem.kernelStart.?)});
+    TTY.Print("KernelEnd: {x}\n", .{@intFromPtr(Mem.kernelEnd.?)});
+    TTY.Print("KernelVirtBase: {x}\n", .{Mem.kernelVirtBase});
 
     //Arch.Interrupt.Enable();
     Arch.halt();

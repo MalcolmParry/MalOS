@@ -1,4 +1,5 @@
 const Arch = @import("Arch.zig");
+const Mem = @import("../../Memory.zig");
 
 pub const Color = enum(u4) {
     Black = 0,
@@ -36,7 +37,7 @@ pub const size = struct {
     pub const y: u8 = 25;
 };
 
-pub const videoMemory: *[size.y][size.x]Char = @ptrFromInt(0xffff_ffff_c00b_8000);
+pub const videoMemory: *[size.y][size.x]Char = @ptrFromInt(0xb_8000 + Mem.kernelVirtBase);
 
 pub const bgColor: Color = .DarkGrey;
 pub const fgColor: Color = .Green;

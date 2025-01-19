@@ -29,13 +29,15 @@ build_x86-64: $(x86-64_obj)
 	@grub-mkrescue /usr/lib/grub/i386-pc -o bin/Kernel.iso build/x86-64/iso 2> /dev/null
 	@echo "Success"
 
+x86-64_run_cmd = qemu-system-x86_64 -drive file=bin/Kernel.iso,format=raw -display gtk -m 1G
+
 .PHONY: run_x86-64
 run_x86-64:
-	@qemu-system-x86_64 -drive file=bin/Kernel.iso,format=raw -m 1G
+	$(x86-64_run_cmd)
 
 .PHONY: debug_x86
 debug_x86-64:
-	@qemu-system-x86_64 -drive file=bin/Kernel.iso,format=raw -S -s
+	$(x86-64_run_cmd) -S -s
 
 .PHONY: clean
 clean:

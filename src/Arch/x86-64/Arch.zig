@@ -5,6 +5,7 @@ pub const Interrupt = @import("Interrupt.zig");
 pub const Multiboot = @import("Multiboot.zig");
 
 pub const pageSize = 1024 * 4;
+pub const kernelVirtBase: u64 = 0xffff_ffff_c000_0000;
 
 pub const BootCallConv = std.builtin.CallingConvention.SysV;
 pub const InitBootInfo = Multiboot.InitBootInfo;

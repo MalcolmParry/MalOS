@@ -91,12 +91,10 @@ fn BootInfoIterate() BootInfoInterater {
 
 extern var __KERNEL_START__: anyopaque;
 extern var __KERNEL_END__: anyopaque;
-extern var __KERNEL_VIRT_BASE__: anyopaque;
 
 pub fn InitBootInfo(alloc: std.mem.Allocator) !void {
-    Mem.kernelVirtBase = &__KERNEL_VIRT_BASE__;
-    Mem.kernelStart = &__KERNEL_START__;
-    Mem.kernelEnd = @ptrFromInt(@intFromPtr(&__KERNEL_END__) - @intFromPtr(Mem.kernelVirtBase.?));
+    Mem.kernelStart = @ptrCast(&__KERNEL_START__);
+    Mem.kernelEnd = @ptrFromInt(@intFromPtr(&__KERNEL_END__) - Mem.kernelVirtBase);
 
     var moduleCount: u32 = 0;
     var mmapCount: u32 = 0;
@@ -149,7 +147,7 @@ pub fn InitBootInfo(alloc: std.mem.Allocator) !void {
         }
     }
 
-    Mem.memoryBlocks = try alloc.alloc([]allowzero Mem.Page, mmapCount);
+    Mem.memoryBlocks = try alloc.alloc([]allowzero align(Mem.pageSize) Mem.Phys(Mem.Page), mmapCount);
     var mmapIndex: u32 = 0;
 
     iter.reset();
@@ -174,7 +172,10 @@ pub fn InitBootInfo(alloc: std.mem.Allocator) !void {
                     }
 
                     const len: u64 = end - start;
-                    const block: []allowzero Mem.Page = @as([*]allowzero Mem.Page, @ptrFromInt(start))[0..(len / 4096)];
+                    var block: []allowzero align(Mem.pageSize) Mem.Phys(Mem.Page) = undefined;
+                    block.ptr = @ptrFromInt(start);
+                    block.len = len / 4096;
+
                     Mem.memoryBlocks.?[mmapIndex] = block;
 
                     mmapIndex += 1;
