@@ -93,28 +93,17 @@ extern var __KERNEL_START__: anyopaque;
 extern var __KERNEL_END__: anyopaque;
 
 pub fn InitBootInfo(alloc: std.mem.Allocator) !void {
-    Mem.kernelStart = @ptrCast(&__KERNEL_START__);
-    Mem.kernelEnd = @ptrFromInt(@intFromPtr(&__KERNEL_END__) - Mem.kernelVirtBase);
+    Mem.memReserved = std.ArrayList(Mem.PhysRange).init(alloc);
+    Mem.kernelRange = .{ .base = @intFromPtr(&__KERNEL_START__), .length = @intFromPtr(&__KERNEL_END__) - @intFromPtr(&__KERNEL_START__) - Mem.kernelVirtBase + 1 };
+    try Mem.memReserved.append(Mem.kernelRange);
 
     var moduleCount: u32 = 0;
-    var mmapCount: u32 = 0;
 
     var iter = BootInfoIterate();
     while (iter.next()) |tag| {
         switch (tag.t) {
             .Module => {
                 moduleCount += 1;
-            },
-            .MMap => {
-                const mmap: *align(1) Tag.MMap = @ptrFromInt(@intFromPtr(tag) + @sizeOf(Tag));
-
-                var entry: *align(1) Tag.MMap.Entry = @ptrFromInt(@intFromPtr(mmap) + @sizeOf(Tag.MMap));
-                while (@intFromPtr(entry) < iter.tagAddr) : (entry = @ptrFromInt(@intFromPtr(entry) + mmap.entrySize)) {
-                    if (entry.t != .Available)
-                        continue;
-
-                    mmapCount += 1;
-                }
             },
             else => {},
         }
@@ -136,7 +125,7 @@ pub fn InitBootInfo(alloc: std.mem.Allocator) !void {
                 const start: [*]u8 = @ptrFromInt(module.start);
                 const len: u32 = module.end - module.start + 1;
 
-                Mem.modules.?[moduleIndex] = .{
+                Mem.modules[moduleIndex] = .{
                     .data = try alloc.dupe(u8, start[0..len]),
                     .name = try alloc.dupe(u8, name),
                 };
@@ -147,8 +136,8 @@ pub fn InitBootInfo(alloc: std.mem.Allocator) !void {
         }
     }
 
-    Mem.memoryBlocks = try alloc.alloc([]allowzero align(Mem.pageSize) Mem.Phys(Mem.Page), mmapCount);
-    var mmapIndex: u32 = 0;
+    var memStart: u64 = std.math.maxInt(u64);
+    var memEnd: u64 = 0;
 
     iter.reset();
     while (iter.next()) |tag| {
@@ -160,28 +149,27 @@ pub fn InitBootInfo(alloc: std.mem.Allocator) !void {
 
                 var entry: *align(1) Tag.MMap.Entry = @ptrFromInt(@intFromPtr(mmap) + @sizeOf(Tag.MMap));
                 while (@intFromPtr(entry) < iter.tagAddr) : (entry = @ptrFromInt(@intFromPtr(entry) + mmap.entrySize)) {
-                    if (entry.t != .Available)
-                        continue;
+                    if (entry.t == .Available) {
+                        const entryEnd = entry.base + entry.length - 1;
 
-                    const start: u64 = std.mem.alignForward(usize, entry.base, Arch.pageSize);
-                    const end: u64 = std.mem.alignBackward(usize, entry.base + entry.length, Arch.pageSize);
+                        if (entry.base < memStart)
+                            memStart = entry.base;
 
-                    if (end <= start) {
-                        Mem.memoryBlocks.?.len -= 1;
+                        if (entryEnd > memEnd)
+                            memEnd = entryEnd;
+
                         continue;
                     }
 
-                    const len: u64 = end - start;
-                    var block: []allowzero align(Mem.pageSize) Mem.Phys(Mem.Page) = undefined;
-                    block.ptr = @ptrFromInt(start);
-                    block.len = len / 4096;
-
-                    Mem.memoryBlocks.?[mmapIndex] = block;
-
-                    mmapIndex += 1;
+                    try Mem.memReserved.append(.{ .base = entry.base, .length = entry.length });
                 }
             },
             else => {},
         }
     }
+
+    Mem.memAvailable = .{
+        .base = memStart,
+        .length = memEnd - memStart + 1,
+    };
 }

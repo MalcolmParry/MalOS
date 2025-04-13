@@ -17,13 +17,18 @@ var fixedAllocBuffer: [1024 * 8]u8 = undefined;
 var fixedAllocStruct = std.heap.FixedBufferAllocator.init(&fixedAllocBuffer);
 pub var fixedAlloc = fixedAllocStruct.allocator();
 
-pub var kernelStart: ?*Phys(anyopaque) = null;
-pub var kernelEnd: ?*Phys(anyopaque) = null;
+pub var kernelRange: PhysRange = undefined;
 pub const kernelVirtBase: u64 = Arch.kernelVirtBase;
-pub var modules: ?[]Module = null;
-pub var memoryBlocks: ?[][]allowzero align(pageSize) Phys(Page) = null;
+pub var modules: []Module = undefined;
+pub var memReserved: std.ArrayList(PhysRange) = undefined;
+pub var memAvailable: PhysRange = undefined;
 
 pub const Module = struct {
     data: []const u8,
     name: []const u8,
+};
+
+pub const PhysRange = struct {
+    base: u64,
+    length: u64,
 };

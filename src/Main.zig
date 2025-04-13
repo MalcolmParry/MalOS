@@ -11,17 +11,19 @@ fn KernelMain() !void {
     TTY.Clear();
 
     try Arch.InitBootInfo(Mem.fixedAlloc);
-    for (Mem.modules.?) |module| {
+    for (Mem.modules) |module| {
         TTY.Print("\nName: {s}, Start: {x}, Length: {x}\n", .{ module.name, @intFromPtr(module.data.ptr), module.data.len });
     }
 
-    for (Mem.memoryBlocks.?) |block| {
-        TTY.Print("Start: {x}, End: {x}, Size: {x}\n", .{ @intFromPtr(block.ptr), @intFromPtr(block.ptr) + @as(u64, block.len * 4096), block.len * 4096 });
+    for (Mem.memReserved.items) |block| {
+        TTY.Print("Start: {x}, End: {x}, Size: {x}\n", .{ block.base, block.base + block.length - 1, block.length });
     }
 
-    TTY.Print("KernelStart: {x}\n", .{@intFromPtr(Mem.kernelStart.?)});
-    TTY.Print("KernelEnd: {x}\n", .{@intFromPtr(Mem.kernelEnd.?)});
+    TTY.Print("KernelStart: {x}\n", .{Mem.kernelRange.base});
+    TTY.Print("KernelEnd: {x}\n", .{Mem.kernelRange.base + Mem.kernelRange.length - 1});
     TTY.Print("KernelVirtBase: {x}\n", .{Mem.kernelVirtBase});
+    TTY.Print("MemStart: {x}\n", .{Mem.memAvailable.base});
+    TTY.Print("MemEnd: {x}\n", .{Mem.memAvailable.base + Mem.memAvailable.length - 1});
 
     //Arch.Interrupt.Enable();
     Arch.halt();
