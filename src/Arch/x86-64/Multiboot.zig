@@ -65,7 +65,7 @@ const Tag = packed struct {
     size: u32,
 };
 
-const BootInfoInterater = struct {
+const BootInfoIterater = struct {
     tagAddr: u64,
 
     fn next(this: *@This()) ?*align(1) Tag {
@@ -83,8 +83,8 @@ const BootInfoInterater = struct {
     }
 };
 
-fn BootInfoIterate() BootInfoInterater {
-    var result: BootInfoInterater = undefined;
+fn BootInfoIterate() BootInfoIterater {
+    var result: BootInfoIterater = undefined;
     result.reset();
     return result;
 }
