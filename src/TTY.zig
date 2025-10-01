@@ -39,7 +39,7 @@ const vtable: std.io.Writer.VTable = .{
 
 var buffer: [256]u8 = undefined;
 pub var writer = std.Io.Writer{ .vtable = &vtable, .buffer = &buffer };
-pub fn Print(comptime format: []const u8, args: anytype) void {
+fn Print(comptime format: []const u8, args: anytype) void {
     writer.print(format, args) catch |x| {
         PrintS("Printing Error: ");
         PrintS(@errorName(x));
@@ -48,6 +48,22 @@ pub fn Print(comptime format: []const u8, args: anytype) void {
     };
 
     writer.flush() catch @panic("error while flushing tty");
+}
+
+pub fn Log(
+    comptime message_level: std.log.Level,
+    comptime scope: @Type(.enum_literal),
+    comptime format: []const u8,
+    args: anytype,
+) void {
+    Arch.VGA.SetColorFromLogLevel(message_level);
+    if (scope == std.log.default_log_scope) {
+        Print(format, args);
+        return;
+    }
+
+    Print("{s}: ", .{@tagName(scope)});
+    Print(format, args);
 }
 
 var shouldUpdateCursor: bool = true;

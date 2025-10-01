@@ -5,6 +5,7 @@ const std = @import("std");
 
 pub const panic = @import("Panic.zig").panic;
 pub const std_options: std.Options = .{
+    .logFn = TTY.Log,
     .page_size_min = Mem.pageSize,
     .page_size_max = Mem.pageSize,
 };
@@ -21,22 +22,21 @@ fn KernelMain() !void {
 
     try Arch.InitBootInfo(Mem.fixedAlloc);
     for (Mem.modules) |module| {
-        TTY.Print("\nName: {s}, Start: {x}, Length: {x}\n", .{ module.name, @intFromPtr(module.data.ptr), module.data.len });
+        std.log.info("\nName: {s}, Start: {x}, Length: {x}\n", .{ module.name, @intFromPtr(module.data.ptr), module.data.len });
     }
 
     for (Mem.memReserved.items) |block| {
-        TTY.Print("Start: {x}, End: {x}, Size: {x}\n", .{ block.base, block.base + block.length - 1, block.length });
+        std.log.info("Start: {x}, End: {x}, Size: {x}\n", .{ block.base, block.base + block.length - 1, block.length });
     }
 
-    TTY.Print("KernelStart: {x}\n", .{Mem.kernelRange.base});
-    TTY.Print("KernelEnd: {x}\n", .{Mem.kernelRange.base + Mem.kernelRange.length - 1});
-    TTY.Print("KernelVirtBase: {x}\n", .{Mem.kernelVirtBase});
-    TTY.Print("MemStart: {x}\n", .{Mem.memAvailable.base});
-    TTY.Print("MemEnd: {x}\n", .{Mem.memAvailable.base + Mem.memAvailable.length - 1});
+    std.log.info("KernelStart: {x}\n", .{Mem.kernelRange.base});
+    std.log.info("KernelEnd: {x}\n", .{Mem.kernelRange.base + Mem.kernelRange.length - 1});
+    std.log.info("KernelVirtBase: {x}\n", .{Mem.kernelVirtBase});
+    std.log.info("MemStart: {x}\n", .{Mem.memAvailable.base});
+    std.log.info("MemEnd: {x}\n", .{Mem.memAvailable.base + Mem.memAvailable.length - 1});
 
     //Arch.Interrupt.Enable();
-    // Arch.halt();
-    @panic("hello");
+    Arch.halt();
 }
 
 export fn KernelEntry() callconv(Arch.BootCallConv) noreturn {

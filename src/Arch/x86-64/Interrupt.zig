@@ -1,6 +1,6 @@
+const std = @import("std");
 const Arch = @import("Arch.zig");
 const ISR = @import("../../ISR.zig");
-const TTY = @import("../../TTY.zig");
 
 const IDT = packed struct {
     offset1: u16,
@@ -73,7 +73,7 @@ pub fn Init() void {
 }
 
 export fn Handler(state: *Arch.CPUState) callconv(.{ .x86_64_sysv = .{} }) void {
-    TTY.Print("interrupt 0x{x}\n", .{state.intCode});
+    std.log.info("interrupt 0x{x}\n", .{state.intCode});
 
     if (state.intCode != 0x80) Arch.halt();
 }
