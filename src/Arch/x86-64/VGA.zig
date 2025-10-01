@@ -1,3 +1,4 @@
+const std = @import("std");
 const Arch = @import("Arch.zig");
 const Mem = @import("../../Memory.zig");
 
@@ -7,16 +8,16 @@ pub const Color = enum(u4) {
     Green = 2,
     Cyan = 3,
     Red = 4,
-    Magenta = 5,
+    Purple = 5,
     Brown = 6,
-    LightGrey = 7,
-    DarkGrey = 8,
+    Gray = 7,
+    DarkGray = 8,
     LightBlue = 9,
     LightGreen = 10,
     LightCyan = 11,
     LightRed = 12,
-    LightMagenta = 13,
-    LightBrown = 14,
+    LightPurple = 13,
+    Yellow = 14,
     White = 15,
 };
 
@@ -39,11 +40,19 @@ pub const size = struct {
 
 pub const videoMemory: *[size.y][size.x]Char = @ptrFromInt(0xb_8000 + Mem.kernelVirtBase);
 
-pub const bgColor: Color = .DarkGrey;
-pub const fgColor: Color = .Green;
+pub var bgColor: Color = .DarkGray;
+pub var fgColor: Color = .Green;
 
 pub fn PutC(x: u8, y: u8, c: u8) void {
     videoMemory.*[y][x] = .{ .char = c, .fg = fgColor, .bg = bgColor };
+}
+
+pub fn SetColorFromLogLevel(logLevel: std.log.Level) void {
+    fgColor = switch (logLevel) {
+        .info, .debug => .Green,
+        .warn => .Yellow,
+        .err => .LightRed,
+    };
 }
 
 pub fn SetCursorType(t: CursorType) void {

@@ -22,8 +22,8 @@ build: $(obj)
 	@mkdir -p $(proj)/bin
 	@echo "Linking $(patsubst $(proj)/%, %, $(obj))"
 	@ld -n -g -o $(proj)/bin/Kernel.elf -T ./Linker.ld $(obj)
-	#@objcopy --only-keep-debug bin/Kernel.elf bin/Kernel.sym
-	#@objcopy --strip-debug bin/Kernel.elf
+	# @objcopy --only-keep-debug $(proj)/bin/Kernel.elf $(proj)/bin/Kernel.sym
+	# @objcopy --strip-debug $(proj)/bin/Kernel.elf
 	@cp $(proj)/bin/Kernel.elf ./iso/boot/Kernel.elf
 	@echo "Making iso"
 	@grub-mkrescue /usr/lib/grub/i386-pc -o $(proj)/bin/Kernel.iso $(proj)/build/x86-64/iso 2> /dev/null

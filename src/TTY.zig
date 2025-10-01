@@ -14,15 +14,40 @@ pub const cursor = struct {
     var y: u8 = 0;
 };
 
-pub const Writer = std.io.Writer(void, anyerror, WriteCallback);
-pub fn Print(comptime format: []const u8, args: anytype) void {
-    @setCold(true); // stop inlining bc hrd to debug
+fn Drain(this: *std.Io.Writer, data: []const []const u8, splat: usize) !usize {
+    PrintS(this.buffer[0..this.end]);
+    this.end = 0;
+    var written: usize = 0;
 
-    std.fmt.format(Writer{ .context = {} }, format, args) catch |x| {
+    for (data[0 .. data.len - 1]) |x| {
+        PrintS(x);
+        written += x.len;
+    }
+
+    const pattern = data[data.len - 1];
+    for (0..splat) |_| {
+        PrintS(pattern);
+        written += pattern.len;
+    }
+
+    return written;
+}
+
+const vtable: std.io.Writer.VTable = .{
+    .drain = &Drain,
+};
+
+var buffer: [256]u8 = undefined;
+pub var writer = std.Io.Writer{ .vtable = &vtable, .buffer = &buffer };
+pub fn Print(comptime format: []const u8, args: anytype) void {
+    writer.print(format, args) catch |x| {
         PrintS("Printing Error: ");
         PrintS(@errorName(x));
         PrintC('\n');
+        @panic("printing error");
     };
+
+    writer.flush() catch @panic("error while flushing tty");
 }
 
 var shouldUpdateCursor: bool = true;

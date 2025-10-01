@@ -13,7 +13,7 @@ pub fn Phys(comptime Child: type) type {
     };
 }
 
-var fixedAllocBuffer: [1024 * 8]u8 = undefined;
+var fixedAllocBuffer: [1024 * 1024]u8 = undefined;
 var fixedAllocStruct = std.heap.FixedBufferAllocator.init(&fixedAllocBuffer);
 pub var fixedAlloc = fixedAllocStruct.allocator();
 
@@ -31,4 +31,29 @@ pub const Module = struct {
 pub const PhysRange = struct {
     base: u64,
     length: u64,
+
+    pub fn AlignInwards(this: @This(), alignment: u16) @This() {
+        return .{
+            .base = std.mem.alignForward(u64, this.base, alignment),
+            .length = std.mem.alignBackward(u64, this.length, alignment),
+        };
+    }
+
+    pub fn AlignOutwards(this: @This(), alignment: u16) @This() {
+        return .{
+            .base = std.mem.alignBackward(u64, this.base, alignment),
+            .length = std.mem.alignForward(u64, this.length, alignment),
+        };
+    }
+
+    pub fn End(this: @This()) u64 {
+        return this.base + this.length - 1;
+    }
+
+    pub fn FromStartAndEnd(start: u64, end: u64) @This() {
+        return .{
+            .base = start,
+            .length = end - start + 1,
+        };
+    }
 };

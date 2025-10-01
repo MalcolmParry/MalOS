@@ -4,6 +4,15 @@ const Mem = @import("Memory.zig");
 const std = @import("std");
 
 pub const panic = @import("Panic.zig").panic;
+pub const std_options: std.Options = .{
+    .page_size_min = Mem.pageSize,
+    .page_size_max = Mem.pageSize,
+};
+pub const os = struct {
+    pub const heap = struct {
+        pub const page_allocator = null;
+    };
+};
 
 fn KernelMain() !void {
     Arch.Interrupt.Disable();
@@ -26,7 +35,8 @@ fn KernelMain() !void {
     TTY.Print("MemEnd: {x}\n", .{Mem.memAvailable.base + Mem.memAvailable.length - 1});
 
     //Arch.Interrupt.Enable();
-    Arch.halt();
+    // Arch.halt();
+    @panic("hello");
 }
 
 export fn KernelEntry() callconv(Arch.BootCallConv) noreturn {

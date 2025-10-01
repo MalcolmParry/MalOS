@@ -7,7 +7,7 @@ pub const Multiboot = @import("Multiboot.zig");
 pub const pageSize = 1024 * 4;
 pub const kernelVirtBase: u64 = 0xffff_ffff_c000_0000;
 
-pub const BootCallConv = std.builtin.CallingConvention.SysV;
+pub const BootCallConv = std.builtin.CallingConvention{ .x86_64_sysv = .{ .incoming_stack_alignment = 16 } };
 pub const InitBootInfo = Multiboot.InitBootInfo;
 
 pub const CPUState = packed struct {
@@ -53,7 +53,7 @@ pub fn int(x: u8) void {
 }
 
 pub fn syscall() void {
-    asm volatile ("int $0x80" ::: "rax");
+    asm volatile ("int $0x80" ::: .{ .rax = true });
 }
 
 pub fn out(port: u16, data: anytype) void {

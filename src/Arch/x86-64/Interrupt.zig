@@ -72,13 +72,13 @@ pub fn Init() void {
     );
 }
 
-export fn Handler(state: *Arch.CPUState) callconv(.SysV) void {
+export fn Handler(state: *Arch.CPUState) callconv(.{ .x86_64_sysv = .{} }) void {
     TTY.Print("interrupt 0x{x}\n", .{state.intCode});
 
     if (state.intCode != 0x80) Arch.halt();
 }
 
-export fn CommonStub() callconv(.Naked) void {
+export fn CommonStub() callconv(.naked) void {
     asm volatile (
         \\ pushq %r15
         \\ pushq %r14
@@ -140,9 +140,9 @@ export fn CommonStub() callconv(.Naked) void {
     );
 }
 
-fn GenerateInterruptStub(comptime intNum: u8) fn () callconv(.Naked) void {
+fn GenerateInterruptStub(comptime intNum: u8) fn () callconv(.naked) void {
     return struct {
-        fn func() callconv(.Naked) void {
+        fn func() callconv(.naked) void {
             asm volatile (
                 \\ cli
             );

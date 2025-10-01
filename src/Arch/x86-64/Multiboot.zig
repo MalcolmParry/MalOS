@@ -93,9 +93,9 @@ extern var __KERNEL_START__: anyopaque;
 extern var __KERNEL_END__: anyopaque;
 
 pub fn InitBootInfo(alloc: std.mem.Allocator) !void {
-    Mem.memReserved = std.ArrayList(Mem.PhysRange).init(alloc);
-    Mem.kernelRange = .{ .base = @intFromPtr(&__KERNEL_START__), .length = @intFromPtr(&__KERNEL_END__) - @intFromPtr(&__KERNEL_START__) - Mem.kernelVirtBase + 1 };
-    try Mem.memReserved.append(Mem.kernelRange);
+    Mem.memReserved = try std.ArrayList(Mem.PhysRange).initCapacity(alloc, 5);
+    Mem.kernelRange = Mem.PhysRange.FromStartAndEnd(@intFromPtr(&__KERNEL_START__), @intFromPtr(&__KERNEL_END__) - Mem.kernelVirtBase);
+    try Mem.memReserved.append(alloc, Mem.kernelRange);
 
     var moduleCount: u32 = 0;
 
@@ -161,15 +161,12 @@ pub fn InitBootInfo(alloc: std.mem.Allocator) !void {
                         continue;
                     }
 
-                    try Mem.memReserved.append(.{ .base = entry.base, .length = entry.length });
+                    try Mem.memReserved.append(alloc, .{ .base = entry.base, .length = entry.length });
                 }
             },
             else => {},
         }
     }
 
-    Mem.memAvailable = .{
-        .base = memStart,
-        .length = memEnd - memStart + 1,
-    };
+    Mem.memAvailable = Mem.PhysRange.FromStartAndEnd(memStart, memEnd);
 }
