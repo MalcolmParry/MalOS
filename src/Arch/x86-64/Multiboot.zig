@@ -125,6 +125,8 @@ pub fn InitBootInfo(alloc: std.mem.Allocator) !void {
                 const start: [*]u8 = @ptrFromInt(module.start);
                 const len: u32 = module.end - module.start + 1;
 
+                std.log.info("module loaded: {s}\n", .{name});
+
                 Mem.modules[moduleIndex] = .{
                     .data = try alloc.dupe(u8, start[0..len]),
                     .name = try alloc.dupe(u8, name),
@@ -165,6 +167,14 @@ pub fn InitBootInfo(alloc: std.mem.Allocator) !void {
                 }
             },
             else => {},
+        }
+    }
+
+    iter.reset();
+    while (iter.next()) |tag| {
+        switch (tag.t) {
+            .MMap, .Module => {},
+            else => std.log.info("multiboot tag: {s}\n", .{@tagName(tag.t)}),
         }
     }
 
