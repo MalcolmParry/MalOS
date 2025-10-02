@@ -37,7 +37,7 @@ const vtable: std.io.Writer.VTable = .{
     .drain = &Drain,
 };
 
-var buffer: [256]u8 = undefined;
+var buffer: [64]u8 = undefined;
 pub var writer = std.Io.Writer{ .vtable = &vtable, .buffer = &buffer };
 fn Print(comptime format: []const u8, args: anytype) void {
     writer.print(format, args) catch |x| {
