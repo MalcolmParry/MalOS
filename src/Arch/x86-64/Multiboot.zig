@@ -83,35 +83,17 @@ const BootInfoIterater = struct {
     }
 };
 
-fn BootInfoIterate() BootInfoIterater {
-    var result: BootInfoIterater = undefined;
-    result.reset();
-    return result;
-}
-
 extern var __KERNEL_START__: anyopaque;
 extern var __KERNEL_END__: anyopaque;
+
+var physModules: [Mem.maxModules]Mem.PhysModule = undefined;
 
 pub fn InitBootInfo(alloc: std.mem.Allocator) !void {
     Mem.memReserved = try std.ArrayList(Mem.PhysRange).initCapacity(alloc, 5);
     Mem.kernelRange = Mem.PhysRange.FromStartAndEnd(@intFromPtr(&__KERNEL_START__), @intFromPtr(&__KERNEL_END__) - Mem.kernelVirtBase);
-    try Mem.memReserved.append(alloc, Mem.kernelRange);
 
-    var moduleCount: u32 = 0;
-
-    var iter = BootInfoIterate();
-    while (iter.next()) |tag| {
-        switch (tag.t) {
-            .Module => {
-                moduleCount += 1;
-            },
-            else => {},
-        }
-    }
-
-    Mem.modules = try alloc.alloc(Mem.Module, moduleCount);
     var moduleIndex: u32 = 0;
-
+    var iter: BootInfoIterater = undefined;
     iter.reset();
     while (iter.next()) |tag| {
         switch (tag.t) {
@@ -122,13 +104,10 @@ pub fn InitBootInfo(alloc: std.mem.Allocator) !void {
                 const nameEnd: *u8 = @ptrFromInt(@intFromPtr(tag) + tag.size - 1);
                 const name: []u8 = nameStart[0 .. @intFromPtr(nameEnd) - @intFromPtr(nameStart)];
 
-                const start: [*]u8 = @ptrFromInt(module.start);
                 const len: u32 = module.end - module.start + 1;
 
-                std.log.info("module loaded: {s}\n", .{name});
-
-                Mem.modules[moduleIndex] = .{
-                    .data = try alloc.dupe(u8, start[0..len]),
+                physModules[moduleIndex] = .{
+                    .physData = .{ .base = module.start, .length = len },
                     .name = try alloc.dupe(u8, name),
                 };
 
@@ -138,6 +117,7 @@ pub fn InitBootInfo(alloc: std.mem.Allocator) !void {
         }
     }
 
+    Mem.physModules = physModules[0..moduleIndex];
     var memStart: u64 = std.math.maxInt(u64);
     var memEnd: u64 = 0;
 
@@ -153,6 +133,7 @@ pub fn InitBootInfo(alloc: std.mem.Allocator) !void {
                 while (@intFromPtr(entry) < iter.tagAddr) : (entry = @ptrFromInt(@intFromPtr(entry) + mmap.entrySize)) {
                     if (entry.t == .Available) {
                         const entryEnd = entry.base + entry.length - 1;
+                        std.log.info("mem free: 0x{x} - 0x{x}\n", .{ entry.base, entry.base + entry.length });
 
                         if (entry.base < memStart)
                             memStart = entry.base;
@@ -161,6 +142,8 @@ pub fn InitBootInfo(alloc: std.mem.Allocator) !void {
                             memEnd = entryEnd;
 
                         continue;
+                    } else {
+                        std.log.info("mem not free: 0x{x} - 0x{x}\n", .{ entry.base, entry.base + entry.length });
                     }
 
                     try Mem.memReserved.append(alloc, .{ .base = entry.base, .length = entry.length });

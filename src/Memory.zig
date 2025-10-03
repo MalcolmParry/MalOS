@@ -13,18 +13,16 @@ pub fn Phys(comptime Child: type) type {
     };
 }
 
-var fixedAllocBuffer: [1024 * 1024]u8 = undefined;
-var fixedAllocStruct = std.heap.FixedBufferAllocator.init(&fixedAllocBuffer);
-pub var fixedAlloc = fixedAllocStruct.allocator();
-
 pub var kernelRange: PhysRange = undefined;
 pub const kernelVirtBase: u64 = Arch.kernelVirtBase;
-pub var modules: []Module = undefined;
 pub var memReserved: std.ArrayList(PhysRange) = undefined;
 pub var memAvailable: PhysRange = undefined;
 
-pub const Module = struct {
-    data: []const u8,
+pub const maxModules = 8;
+pub var physModules: []PhysModule = undefined;
+
+pub const PhysModule = struct {
+    physData: PhysRange,
     name: []const u8,
 };
 
