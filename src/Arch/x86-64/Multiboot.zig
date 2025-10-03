@@ -36,6 +36,8 @@ const Tag = packed struct {
         end: u32,
     };
 
+    const LoadBaseAddr = u32;
+
     const Type = enum(u32) {
         End,
         CMDLine,
@@ -93,6 +95,9 @@ pub fn InitBootInfo(alloc: std.mem.Allocator) !void {
     Mem.kernelRange = Mem.PhysRange.FromStartAndEnd(@intFromPtr(&__KERNEL_START__), @intFromPtr(&__KERNEL_END__) - Mem.kernelVirtBase);
 
     var moduleIndex: u32 = 0;
+    var memStart: u64 = std.math.maxInt(u64);
+    var memEnd: u64 = 0;
+
     var iter: BootInfoIterater = undefined;
     iter.reset();
     while (iter.next()) |tag| {
@@ -113,17 +118,6 @@ pub fn InitBootInfo(alloc: std.mem.Allocator) !void {
 
                 moduleIndex += 1;
             },
-            else => {},
-        }
-    }
-
-    Mem.physModules = physModules[0..moduleIndex];
-    var memStart: u64 = std.math.maxInt(u64);
-    var memEnd: u64 = 0;
-
-    iter.reset();
-    while (iter.next()) |tag| {
-        switch (tag.t) {
             .MMap => {
                 const mmap: *align(1) Tag.MMap = @ptrFromInt(@intFromPtr(tag) + @sizeOf(Tag));
 
@@ -149,17 +143,14 @@ pub fn InitBootInfo(alloc: std.mem.Allocator) !void {
                     try Mem.memReserved.append(alloc, .{ .base = entry.base, .length = entry.length });
                 }
             },
-            else => {},
-        }
-    }
-
-    iter.reset();
-    while (iter.next()) |tag| {
-        switch (tag.t) {
-            .MMap, .Module => {},
+            .LoadBaseAddr => {
+                const loadBaseAddr: *align(1) Tag.LoadBaseAddr = @ptrFromInt(@intFromPtr(tag) + @sizeOf(Tag));
+                std.debug.assert(loadBaseAddr.* == Mem.kernelRange.base);
+            },
             else => std.log.info("multiboot tag: {s}\n", .{@tagName(tag.t)}),
         }
     }
 
+    Mem.physModules = physModules[0..moduleIndex];
     Mem.memAvailable = Mem.PhysRange.FromStartAndEnd(memStart, memEnd);
 }
