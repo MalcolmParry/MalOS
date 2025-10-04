@@ -1,6 +1,7 @@
 const Arch = @import("Arch.zig");
 const TTY = @import("TTY.zig");
 const Mem = @import("Memory.zig");
+const PMM = @import("PMM.zig");
 const std = @import("std");
 
 pub const panic = @import("Panic.zig").panic;
@@ -9,6 +10,7 @@ pub const std_options: std.Options = .{
     .page_size_min = Mem.pageSize,
     .page_size_max = Mem.pageSize,
 };
+
 pub const os = struct {
     pub const heap = struct {
         pub const page_allocator = null;
@@ -19,22 +21,33 @@ var fixedAllocBuffer: [512]u8 = undefined;
 var fixedAllocStruct = std.heap.FixedBufferAllocator.init(&fixedAllocBuffer);
 pub var fixedAlloc = fixedAllocStruct.allocator();
 
+const x: u32 = 5;
+
 fn KernelMain() !void {
     Arch.Interrupt.Disable();
     Arch.Interrupt.Init();
     TTY.Clear();
 
+    const px: *u32 = @constCast(&x);
+    px.* = 2; // TODO: get this to cause an error
+
     Arch.InitBootInfo(fixedAlloc);
     for (Mem.physModules) |module| {
-        std.log.info("Module '{s}' at 0x{x} - 0x{x}\n", .{ module.name, module.physData.base, module.physData.base + module.physData.length });
+        std.log.info("Module '{s}' at {f}\n", .{ module.name, module.physData });
     }
 
     for (Mem.availableRanges.items) |range| {
-        std.log.info("Available: 0x{x} - 0x{x}\n", .{ range.base, range.base + range.length });
+        std.log.info("Available: {f}\n", .{range});
     }
 
-    std.log.info("Kernel 0x{x} - 0x{x}\n", .{ Mem.kernelRange.base, Mem.kernelRange.base + Mem.kernelRange.length });
+    std.log.info("Kernel {f}\n", .{Mem.kernelRange});
     std.log.info("KernelVirtBase: {x}\n", .{Mem.kernelVirtBase});
+
+    PMM.PreInit();
+    for (PMM.bitmapRanges.items, PMM.dataRanges.items) |bitmapRange, dataRange| {
+        std.log.info("Bitmap: {f}\n", .{bitmapRange});
+        std.log.info("DataRange: {f}\n\n", .{dataRange});
+    }
 
     //Arch.Interrupt.Enable();
     Arch.halt();

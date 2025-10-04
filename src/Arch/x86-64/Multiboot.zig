@@ -96,8 +96,7 @@ pub fn InitBootInfo(alloc: std.mem.Allocator) void {
     Mem.kernelRange = Mem.PhysRange.FromStartAndEnd(@intFromPtr(&__KERNEL_START__), @intFromPtr(&__KERNEL_END__));
 
     var moduleIndex: u32 = 0;
-    var availableRanges = std.ArrayList(Mem.PhysRange).fromOwnedSlice(&rawAvailableRanges);
-    availableRanges.items.len = 0;
+    var availableRanges = std.ArrayList(Mem.PhysRange).initBuffer(&rawAvailableRanges);
 
     var iter: BootInfoIterater = undefined;
     iter.reset();
@@ -204,6 +203,11 @@ fn ReserveRegion(availableRanges: *std.ArrayList(Mem.PhysRange), reserved: Mem.P
         }
 
         availableRanges.items[i] = .{ .base = start, .length = end - start };
+        if (availableRanges.items[i].length <= Mem.pageSize) {
+            _ = availableRanges.swapRemove(i);
+            continue;
+        }
+
         i += 1;
     }
 }

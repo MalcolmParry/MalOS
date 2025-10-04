@@ -57,4 +57,8 @@ pub const PhysRange = struct {
     pub fn AddrInRange(this: @This(), addr: u64) bool {
         return (addr >= this.base) and (addr <= this.End());
     }
+
+    pub fn format(this: @This(), writer: *std.Io.Writer) !void {
+        try writer.print("0x{x} - 0x{x}", .{ this.base, this.base + this.length });
+    }
 };
