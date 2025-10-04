@@ -89,14 +89,14 @@ extern var __KERNEL_START__: anyopaque;
 extern var __KERNEL_END__: anyopaque;
 
 var physModules: [Mem.maxModules]Mem.PhysModule = undefined;
+var rawAvailableRanges: [Mem.maxAvailableRanges]Mem.PhysRange = undefined;
 
-pub fn InitBootInfo(alloc: std.mem.Allocator) !void {
-    Mem.memReserved = try std.ArrayList(Mem.PhysRange).initCapacity(alloc, 5);
-    Mem.kernelRange = Mem.PhysRange.FromStartAndEnd(@intFromPtr(&__KERNEL_START__), @intFromPtr(&__KERNEL_END__) - Mem.kernelVirtBase);
+pub fn InitBootInfo(alloc: std.mem.Allocator) void {
+    Mem.kernelRange = Mem.PhysRange.FromStartAndEnd(@intFromPtr(&__KERNEL_START__), @intFromPtr(&__KERNEL_END__));
 
     var moduleIndex: u32 = 0;
-    var memStart: u64 = std.math.maxInt(u64);
-    var memEnd: u64 = 0;
+    var availableRanges = std.ArrayList(Mem.PhysRange).fromOwnedSlice(&rawAvailableRanges);
+    availableRanges.items.len = 0;
 
     var iter: BootInfoIterater = undefined;
     iter.reset();
@@ -113,44 +113,88 @@ pub fn InitBootInfo(alloc: std.mem.Allocator) !void {
 
                 physModules[moduleIndex] = .{
                     .physData = .{ .base = module.start, .length = len },
-                    .name = try alloc.dupe(u8, name),
+                    .name = alloc.dupe(u8, name) catch @panic("out of memory"),
                 };
 
                 moduleIndex += 1;
             },
             .MMap => {
                 const mmap: *align(1) Tag.MMap = @ptrFromInt(@intFromPtr(tag) + @sizeOf(Tag));
-
-                std.debug.assert(mmap.version == 0);
+                if (mmap.version != 0)
+                    @panic("wrong mmap version");
 
                 var entry: *align(1) Tag.MMap.Entry = @ptrFromInt(@intFromPtr(mmap) + @sizeOf(Tag.MMap));
                 while (@intFromPtr(entry) < iter.tagAddr) : (entry = @ptrFromInt(@intFromPtr(entry) + mmap.entrySize)) {
-                    if (entry.t == .Available) {
-                        const entryEnd = entry.base + entry.length - 1;
-                        std.log.info("mem free: 0x{x} - 0x{x}\n", .{ entry.base, entry.base + entry.length });
+                    if (entry.t == .ACPIReclaimable)
+                        std.log.info("ACPI Reclaimable memory at 0x{x} - 0x{x}\n", .{ entry.base, entry.base + entry.length });
 
-                        if (entry.base < memStart)
-                            memStart = entry.base;
-
-                        if (entryEnd > memEnd)
-                            memEnd = entryEnd;
-
+                    if (entry.t != .Available)
                         continue;
-                    } else {
-                        std.log.info("mem not free: 0x{x} - 0x{x}\n", .{ entry.base, entry.base + entry.length });
-                    }
 
-                    try Mem.memReserved.append(alloc, .{ .base = entry.base, .length = entry.length });
+                    std.log.info("mem free: 0x{x} - 0x{x}\n", .{ entry.base, entry.base + entry.length });
+                    var start: usize = std.mem.alignForward(usize, entry.base, Arch.pageSize);
+                    const end: usize = std.mem.alignBackward(usize, entry.base + entry.length, Arch.pageSize);
+
+                    const minAvailableMemory = 64 * 1024;
+                    if (start < minAvailableMemory)
+                        start = minAvailableMemory;
+
+                    if (start >= end)
+                        continue;
+
+                    const range: Mem.PhysRange = .{
+                        .base = start,
+                        .length = end - start,
+                    };
+
+                    availableRanges.appendBounded(range) catch @panic("not enough memory ranges");
                 }
             },
             .LoadBaseAddr => {
                 const loadBaseAddr: *align(1) Tag.LoadBaseAddr = @ptrFromInt(@intFromPtr(tag) + @sizeOf(Tag));
-                std.debug.assert(loadBaseAddr.* == Mem.kernelRange.base);
+                if (loadBaseAddr.* != Mem.kernelRange.base)
+                    @panic("wrong kernel load address");
             },
             else => std.log.info("multiboot tag: {s}\n", .{@tagName(tag.t)}),
         }
     }
 
+    for (availableRanges.items) |range| {
+        std.log.info("Range 0x{x} - 0x{x}\n", .{ range.base, range.base + range.length });
+    }
+
+    ReserveRegion(&availableRanges, Mem.kernelRange.AlignOutwards(Mem.pageSize));
+
+    for (availableRanges.items) |range| {
+        std.log.info("Range2 0x{x} - 0x{x}\n", .{ range.base, range.base + range.length });
+    }
+
     Mem.physModules = physModules[0..moduleIndex];
-    Mem.memAvailable = Mem.PhysRange.FromStartAndEnd(memStart, memEnd);
+    Mem.availableRanges = availableRanges.items;
+}
+
+fn ReserveRegion(availableRanges: *std.ArrayList(Mem.PhysRange), reserved: Mem.PhysRange) void {
+    var i: u32 = 0;
+    while (i < availableRanges.items.len) {
+        const range = availableRanges.items[i];
+        var start = range.base;
+        var end = range.base + range.length;
+
+        if (reserved.AddrInRange(start))
+            start = reserved.End() + 1;
+
+        if (reserved.AddrInRange(end))
+            end = reserved.base;
+
+        start = std.mem.alignForward(usize, start, Mem.pageSize);
+        end = std.mem.alignBackward(usize, end, Mem.pageSize);
+
+        if (start >= end) {
+            _ = availableRanges.swapRemove(i);
+            continue;
+        }
+
+        availableRanges.items[i] = .{ .base = start, .length = end - start };
+        i += 1;
+    }
 }

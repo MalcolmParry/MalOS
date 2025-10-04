@@ -15,11 +15,10 @@ pub fn Phys(comptime Child: type) type {
 
 pub var kernelRange: PhysRange = undefined;
 pub const kernelVirtBase: u64 = Arch.kernelVirtBase;
-pub var memReserved: std.ArrayList(PhysRange) = undefined;
-pub var memAvailable: PhysRange = undefined;
-
 pub const maxModules = 8;
 pub var physModules: []PhysModule = undefined;
+pub const maxAvailableRanges = 16;
+pub var availableRanges: []PhysRange = undefined;
 
 pub const PhysModule = struct {
     physData: PhysRange,
@@ -53,5 +52,9 @@ pub const PhysRange = struct {
             .base = start,
             .length = end - start + 1,
         };
+    }
+
+    pub fn AddrInRange(this: @This(), addr: u64) bool {
+        return (addr >= this.base) and (addr <= this.End());
     }
 };

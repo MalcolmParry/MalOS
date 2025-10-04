@@ -24,7 +24,7 @@ fn KernelMain() !void {
     Arch.Interrupt.Init();
     TTY.Clear();
 
-    try Arch.InitBootInfo(fixedAlloc);
+    Arch.InitBootInfo(fixedAlloc);
     for (Mem.physModules) |module| {
         std.log.info("Name: '{s}', Start: 0x{x}, Length: 0x{x}\n", .{ module.name, module.physData.base, module.physData.length });
     }
