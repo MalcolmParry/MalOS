@@ -26,18 +26,15 @@ fn KernelMain() !void {
 
     Arch.InitBootInfo(fixedAlloc);
     for (Mem.physModules) |module| {
-        std.log.info("Name: '{s}', Start: 0x{x}, Length: 0x{x}\n", .{ module.name, module.physData.base, module.physData.length });
+        std.log.info("Module '{s}' at 0x{x} - 0x{x}\n", .{ module.name, module.physData.base, module.physData.base + module.physData.length });
     }
 
-    // for (Mem.memReserved.items) |block| {
-    //     std.log.info("Start: {x}, End: {x}, Size: {x}\n", .{ block.base, block.base + block.length - 1, block.length });
-    // }
-    //
-    std.log.info("KernelStart: {x}\n", .{Mem.kernelRange.base});
-    std.log.info("KernelEnd: {x}\n", .{Mem.kernelRange.base + Mem.kernelRange.length - 1});
+    for (Mem.availableRanges.items) |range| {
+        std.log.info("Available: 0x{x} - 0x{x}\n", .{ range.base, range.base + range.length });
+    }
+
+    std.log.info("Kernel 0x{x} - 0x{x}\n", .{ Mem.kernelRange.base, Mem.kernelRange.base + Mem.kernelRange.length });
     std.log.info("KernelVirtBase: {x}\n", .{Mem.kernelVirtBase});
-    // std.log.info("MemStart: {x}\n", .{Mem.memAvailable.base});
-    // std.log.info("MemEnd: {x}\n", .{Mem.memAvailable.base + Mem.memAvailable.length - 1});
 
     //Arch.Interrupt.Enable();
     Arch.halt();

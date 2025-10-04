@@ -79,3 +79,10 @@ pub fn SetCursorPos(x: u8, y: u8) void {
     Arch.out(0x3d4, @as(u8, 0x0e));
     Arch.out(0x3d5, @as(u8, @truncate(pos >> 8)));
 }
+
+pub fn GetPhysRange() Mem.PhysRange {
+    return .{
+        .base = 0xb8000,
+        .length = @sizeOf(Char) * @as(usize, size.x) * size.y,
+    };
+}

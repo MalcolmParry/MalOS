@@ -18,7 +18,7 @@ pub const kernelVirtBase: u64 = Arch.kernelVirtBase;
 pub const maxModules = 8;
 pub var physModules: []PhysModule = undefined;
 pub const maxAvailableRanges = 16;
-pub var availableRanges: []PhysRange = undefined;
+pub var availableRanges: std.ArrayList(PhysRange) = undefined;
 
 pub const PhysModule = struct {
     physData: PhysRange,
@@ -44,13 +44,13 @@ pub const PhysRange = struct {
     }
 
     pub fn End(this: @This()) u64 {
-        return this.base + this.length - 1;
+        return this.base + this.length;
     }
 
     pub fn FromStartAndEnd(start: u64, end: u64) @This() {
         return .{
             .base = start,
-            .length = end - start + 1,
+            .length = end - start,
         };
     }
 

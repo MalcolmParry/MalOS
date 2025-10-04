@@ -1,6 +1,7 @@
 const Mem = @import("../../Memory.zig");
 const std = @import("std");
 const TTY = @import("../../TTY.zig");
+const VGA = @import("VGA.zig");
 const Arch = @import("Arch.zig");
 
 extern var multibootInfo: *Info;
@@ -131,7 +132,7 @@ pub fn InitBootInfo(alloc: std.mem.Allocator) void {
                     if (entry.t != .Available)
                         continue;
 
-                    std.log.info("mem free: 0x{x} - 0x{x}\n", .{ entry.base, entry.base + entry.length });
+                    // std.log.info("mem free: 0x{x} - 0x{x}\n", .{ entry.base, entry.base + entry.length });
                     var start: usize = std.mem.alignForward(usize, entry.base, Arch.pageSize);
                     const end: usize = std.mem.alignBackward(usize, entry.base + entry.length, Arch.pageSize);
 
@@ -159,39 +160,47 @@ pub fn InitBootInfo(alloc: std.mem.Allocator) void {
         }
     }
 
-    for (availableRanges.items) |range| {
-        std.log.info("Range 0x{x} - 0x{x}\n", .{ range.base, range.base + range.length });
-    }
-
-    ReserveRegion(&availableRanges, Mem.kernelRange.AlignOutwards(Mem.pageSize));
-
-    for (availableRanges.items) |range| {
-        std.log.info("Range2 0x{x} - 0x{x}\n", .{ range.base, range.base + range.length });
-    }
-
     Mem.physModules = physModules[0..moduleIndex];
-    Mem.availableRanges = availableRanges.items;
+
+    ReserveRegion(&availableRanges, Mem.kernelRange);
+    ReserveRegion(&availableRanges, VGA.GetPhysRange());
+    for (Mem.physModules) |module| {
+        ReserveRegion(&availableRanges, module.physData);
+    }
+
+    Mem.availableRanges = availableRanges;
 }
 
 fn ReserveRegion(availableRanges: *std.ArrayList(Mem.PhysRange), reserved: Mem.PhysRange) void {
+    const resAligned = reserved.AlignOutwards(Mem.pageSize);
+
     var i: u32 = 0;
     while (i < availableRanges.items.len) {
         const range = availableRanges.items[i];
         var start = range.base;
         var end = range.base + range.length;
 
-        if (reserved.AddrInRange(start))
-            start = reserved.End() + 1;
+        if (resAligned.AddrInRange(start))
+            start = resAligned.End();
 
-        if (reserved.AddrInRange(end))
-            end = reserved.base;
-
-        start = std.mem.alignForward(usize, start, Mem.pageSize);
-        end = std.mem.alignBackward(usize, end, Mem.pageSize);
+        if (resAligned.AddrInRange(end))
+            end = resAligned.base;
 
         if (start >= end) {
             _ = availableRanges.swapRemove(i);
             continue;
+        }
+
+        const newRange: Mem.PhysRange = .{ .base = start, .length = end - start };
+
+        if (newRange.AddrInRange(resAligned.base)) {
+            const additional: Mem.PhysRange = .{
+                .base = resAligned.End(),
+                .length = end - resAligned.End(),
+            };
+
+            availableRanges.appendBounded(additional) catch @panic("not enough memory ranges");
+            end = resAligned.base;
         }
 
         availableRanges.items[i] = .{ .base = start, .length = end - start };
