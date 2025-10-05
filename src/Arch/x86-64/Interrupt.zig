@@ -3,16 +3,20 @@ const Arch = @import("Arch.zig");
 const ISR = @import("../../ISR.zig");
 
 const IDT = packed struct {
+    // part of the ISR ptr
     offset1: u16,
-    selector: u16,
-    ist: u8,
-    gateType: u4,
-    padding1: u1,
+    /// code segment to use
+    selector: u16 = 8,
+    ist: u3,
+    padding3: u5 = 0,
+    gateType: GateType,
+    padding1: u1 = 0,
+    /// ring 0 for kernel, 3 for userspace
     dpl: u2,
-    present: u1,
+    present: bool,
     offset2: u16,
     offset3: u32,
-    padding2: u32,
+    padding2: u32 = 0,
 };
 
 const IDTR = packed struct {
@@ -20,9 +24,10 @@ const IDTR = packed struct {
     base: *[256]IDT,
 };
 
-const ISRType = enum(u4) {
+const GateType = enum(u4) {
     Interrupt = 0b1110,
     Trap = 0b1111,
+    Task = 0b0101,
 };
 
 var idts: [256]IDT = undefined;
@@ -36,7 +41,7 @@ pub fn Disable() void {
     asm volatile ("cli");
 }
 
-fn SetupIDT(comptime index: u8, isrType: ISRType, dpl: u2, present: bool) void {
+fn SetupIDT(comptime index: u8, isrType: GateType, dpl: u2, present: bool) void {
     const isrPtr = &GenerateInterruptStub(index);
     const isr: u64 = @intFromPtr(isrPtr);
 
@@ -44,19 +49,17 @@ fn SetupIDT(comptime index: u8, isrType: ISRType, dpl: u2, present: bool) void {
         .offset1 = @truncate(isr),
         .offset2 = @truncate(isr >> 16),
         .offset3 = @truncate(isr >> 32),
-        .selector = 8,
         .ist = 0,
-        .gateType = @intFromEnum(isrType),
+        .gateType = isrType,
         .dpl = dpl,
-        .present = if (present) 1 else 0,
-        .padding1 = 0,
-        .padding2 = 0,
+        .present = present,
     };
 }
 
 pub fn Init() void {
+    @branchHint(.cold); // stop from inlining
     inline for (0..32) |i| {
-        SetupIDT(i, .Trap, 0, true);
+        SetupIDT(i, .Interrupt, 0, true);
     }
 
     inline for (32..256) |i| {
@@ -75,7 +78,7 @@ pub fn Init() void {
 export fn Handler(state: *Arch.CPUState) callconv(.{ .x86_64_sysv = .{} }) void {
     std.log.info("interrupt 0x{x}\n", .{state.intCode});
 
-    if (state.intCode != 0x80) Arch.halt();
+    Arch.SpinWait();
 }
 
 export fn CommonStub() callconv(.naked) void {
@@ -147,7 +150,7 @@ fn GenerateInterruptStub(comptime intNum: u8) fn () callconv(.naked) void {
                 \\ cli
             );
 
-            if (intNum != 8 and !(intNum >= 10 and intNum <= 14) and intNum != 17) {
+            if (intNum != 8 and !(intNum >= 10 and intNum <= 14) and intNum != 17 and intNum != 21) {
                 asm volatile (
                     \\ pushq $0
                 );

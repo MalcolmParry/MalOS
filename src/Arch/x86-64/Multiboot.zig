@@ -4,7 +4,8 @@ const TTY = @import("../../TTY.zig");
 const VGA = @import("VGA.zig");
 const Arch = @import("Arch.zig");
 
-extern var multibootInfo: *Info;
+extern var physMultibootInfo: *Mem.Phys(Info);
+var multibootInfo: *Info = undefined;
 
 const Info = packed struct {
     totalSize: u32,
@@ -93,6 +94,7 @@ var physModules: [Mem.maxModules]Mem.PhysModule = undefined;
 var rawAvailableRanges: [Mem.maxAvailableRanges]Mem.PhysRange = undefined;
 
 pub fn InitBootInfo(alloc: std.mem.Allocator) void {
+    multibootInfo = @ptrFromInt(@intFromPtr(physMultibootInfo) + Mem.kernelVirtBase);
     Mem.kernelRange = Mem.PhysRange.FromStartAndEnd(@intFromPtr(&__KERNEL_START__), @intFromPtr(&__KERNEL_END__));
 
     var moduleIndex: u32 = 0;

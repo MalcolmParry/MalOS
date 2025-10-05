@@ -8,5 +8,5 @@ pub fn panic(str: []const u8, trace: ?*std.builtin.StackTrace, returnAddress: ?u
 
     std.log.err("\n{s}\n", .{str});
     Arch.Interrupt.Disable();
-    Arch.halt();
+    Arch.SpinWait();
 }

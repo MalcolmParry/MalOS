@@ -1,5 +1,5 @@
 global _start32
-global multibootInfo
+global physMultibootInfo
 extern _start64
 
 KERNEL_VIRT_BASE equ 0xffff_ffff_c000_0000
@@ -10,7 +10,7 @@ _start32:
 	mov ebp, stack.top - KERNEL_VIRT_BASE
 	mov esp, ebp
 
-	mov [multibootInfo - KERNEL_VIRT_BASE], ebx
+	mov [physMultibootInfo - KERNEL_VIRT_BASE], ebx
 	
 	; check if loaded with multiboot2 loader
 	cmp eax, 0x36d7_6289
@@ -131,7 +131,9 @@ gdt64:
 		dw $ - gdt64 - 1
 		dq gdt64
 
-
+global page_table_l4
+global page_table_l3
+global page_table_l2
 section .boot_bss nobits
 align 1024 * 4
 page_table_l4: ; 512 GB per entry
@@ -149,5 +151,5 @@ stack:
 .top:
 
 section .data
-multibootInfo:
+physMultibootInfo:
 	dq 0

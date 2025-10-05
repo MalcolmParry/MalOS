@@ -57,27 +57,27 @@ pub fn SetColorFromLogLevel(logLevel: std.log.Level) void {
 
 pub fn SetCursorType(t: CursorType) void {
     if (t == .None) {
-        Arch.out(0x3d4, @as(u8, 0x0a));
-        Arch.out(0x3d5, @as(u8, 0x20));
+        Arch.Out(0x3d4, @as(u8, 0x0a));
+        Arch.Out(0x3d5, @as(u8, 0x20));
         return;
     }
 
     const startScanline: u8 = if (t == .Block) 0 else 14;
 
-    Arch.out(0x3d4, @as(u8, 0x0a));
-    Arch.out(0x3d5, (Arch.in(u8, 0x3d5) & 0xc0) | startScanline);
+    Arch.Out(0x3d4, @as(u8, 0x0a));
+    Arch.Out(0x3d5, (Arch.in(u8, 0x3d5) & 0xc0) | startScanline);
 
-    Arch.out(0x3d4, @as(u8, 0x0b));
-    Arch.out(0x3d5, (Arch.in(u8, 0x3d5) & 0xe0) | 15);
+    Arch.Out(0x3d4, @as(u8, 0x0b));
+    Arch.Out(0x3d5, (Arch.in(u8, 0x3d5) & 0xe0) | 15);
 }
 
 pub fn SetCursorPos(x: u8, y: u8) void {
     const pos: u16 = @as(u16, @intCast(size.x)) * y + x;
 
-    Arch.out(0x3d4, @as(u8, 0x0f));
-    Arch.out(0x3d5, @as(u8, @truncate(pos)));
-    Arch.out(0x3d4, @as(u8, 0x0e));
-    Arch.out(0x3d5, @as(u8, @truncate(pos >> 8)));
+    Arch.Out(0x3d4, @as(u8, 0x0f));
+    Arch.Out(0x3d5, @as(u8, @truncate(pos)));
+    Arch.Out(0x3d4, @as(u8, 0x0e));
+    Arch.Out(0x3d5, @as(u8, @truncate(pos >> 8)));
 }
 
 pub fn GetPhysRange() Mem.PhysRange {

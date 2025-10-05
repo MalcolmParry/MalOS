@@ -21,15 +21,10 @@ var fixedAllocBuffer: [512]u8 = undefined;
 var fixedAllocStruct = std.heap.FixedBufferAllocator.init(&fixedAllocBuffer);
 pub var fixedAlloc = fixedAllocStruct.allocator();
 
-const x: u32 = 5;
-
 fn KernelMain() !void {
+    TTY.Clear();
     Arch.Interrupt.Disable();
     Arch.Interrupt.Init();
-    TTY.Clear();
-
-    const px: *u32 = @constCast(&x);
-    px.* = 2; // TODO: get this to cause an error
 
     Arch.InitBootInfo(fixedAlloc);
     for (Mem.physModules) |module| {
@@ -48,9 +43,14 @@ fn KernelMain() !void {
         std.log.info("Bitmap: {f}\n", .{bitmapRange});
         std.log.info("DataRange: {f}\n\n", .{dataRange});
     }
+    Arch.Paging.PreInit();
+
+    const x: u32 = 5;
+    const px: *u32 = @constCast(&x);
+    px.* = 2; // TODO: get this to cause an error
 
     //Arch.Interrupt.Enable();
-    Arch.halt();
+    Arch.SpinWait();
 }
 
 export fn KernelEntry() callconv(Arch.BootCallConv) noreturn {

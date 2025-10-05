@@ -11,6 +11,9 @@ pub const BootCallConv = Arch.BootCallConv;
 
 pub const Interrupt = Arch.Interrupt;
 pub const VGA = Arch.VGA;
+pub const Paging = Arch.Paging;
 
 pub const InitBootInfo = Arch.InitBootInfo;
-pub const halt = Arch.halt;
+pub const Halt = Arch.Halt;
+pub const SpinWait = Arch.SpinWait;
+pub const Syscall = Arch.Syscall;

@@ -3,6 +3,7 @@ const std = @import("std");
 pub const VGA = @import("VGA.zig");
 pub const Interrupt = @import("Interrupt.zig");
 pub const Multiboot = @import("Multiboot.zig");
+pub const Paging = @import("Paging.zig");
 
 pub const pageSize = 1024 * 4;
 pub const kernelVirtBase: u64 = 0xffff_ffff_c000_0000;
@@ -39,9 +40,13 @@ pub const CPUState = packed struct {
     ss: u64,
 };
 
-pub fn halt() noreturn {
+pub fn Halt() void {
+    asm volatile ("hlt");
+}
+
+pub fn SpinWait() noreturn {
     while (true) {
-        asm volatile ("hlt");
+        Halt();
     }
 }
 
@@ -52,11 +57,11 @@ pub fn int(x: u8) void {
     );
 }
 
-pub fn syscall() void {
+pub fn Syscall() void {
     asm volatile ("int $0x80" ::: .{ .rax = true });
 }
 
-pub fn out(port: u16, data: anytype) void {
+pub fn Out(port: u16, data: anytype) void {
     switch (@TypeOf(data)) {
         u8 => asm volatile ("outb %[data], %[port]"
             :
@@ -77,7 +82,7 @@ pub fn out(port: u16, data: anytype) void {
     }
 }
 
-pub fn in(comptime Type: type, port: u16) Type {
+pub fn In(comptime Type: type, port: u16) Type {
     return switch (Type) {
         u8 => asm volatile ("inb %[port], %[result]"
             : [result] "={al}" (-> Type),

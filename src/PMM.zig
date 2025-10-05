@@ -14,7 +14,7 @@ pub fn PreInit() void {
 
         const bitmapRange: Mem.PhysRange = .{
             .base = wholeRange.base,
-            .length = std.mem.alignForward(usize, bitmapWidth, @sizeOf(usize)), // std.DynamicBitSetUnmanaged uses masks of @sizeOf(usize)
+            .length = std.mem.alignForward(usize, bitmapWidth, @sizeOf(usize)), // std.DynamicBitSetUnmanaged works in chunks of @sizeOf(usize)
         };
         const bitmapRangeAligned = bitmapRange.AlignOutwards(Mem.pageSize);
 

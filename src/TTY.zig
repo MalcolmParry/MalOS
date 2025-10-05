@@ -125,6 +125,7 @@ pub fn ClearLine(y: u8) void {
 }
 
 pub fn Clear() void {
+    @branchHint(.cold); // stop from inlining
     for (0..size.y) |y| {
         ClearLine(@intCast(y));
     }
@@ -134,6 +135,8 @@ pub fn Scroll() void {
     for (0..size.y - 1) |i| {
         @memcpy(&Arch.VGA.videoMemory.*[i], &Arch.VGA.videoMemory.*[i + 1]);
     }
+
+    ClearLine(size.y - 1);
 
     if (cursor.y != 0) {
         cursor.y -= 1;
