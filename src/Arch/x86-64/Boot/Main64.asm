@@ -12,7 +12,8 @@ _start64:
 	mov gs, ax
 
 	mov rax, cr4
-	or rax, 1 << 9
+	; allow simd stuff, enable global pages
+	or rax, (1 << 9) | (1 << 7)
 	mov cr4, rax
 	
 	; have to use call instruction instead of jmp bc
@@ -27,3 +28,9 @@ _start64:
 .halt:
 	hlt
 	jmp .halt
+
+section .rodata
+; testing if paging can stop code from executing here
+global functionInRodata
+functionInRodata:
+	ret

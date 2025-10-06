@@ -21,6 +21,8 @@ var fixedAllocBuffer: [512]u8 = undefined;
 var fixedAllocStruct = std.heap.FixedBufferAllocator.init(&fixedAllocBuffer);
 pub var fixedAlloc = fixedAllocStruct.allocator();
 
+extern fn functionInRodata() callconv(.{ .x86_64_sysv = .{} }) void;
+
 fn KernelMain() !void {
     TTY.Clear();
     Arch.Interrupt.Disable();
@@ -48,6 +50,9 @@ fn KernelMain() !void {
     const x: u32 = 5;
     const px: *u32 = @constCast(&x);
     px.* = 2; // TODO: get this to cause an error
+
+    // TODO: get this to causes error
+    functionInRodata();
 
     //Arch.Interrupt.Enable();
     Arch.SpinWait();
