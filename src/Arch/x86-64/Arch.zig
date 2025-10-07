@@ -6,7 +6,7 @@ pub const Multiboot = @import("Multiboot.zig");
 pub const Paging = @import("Paging.zig");
 
 pub const pageSize = 1024 * 4;
-pub const kernelVirtBase: u64 = 0xffff_ffff_c000_0000;
+pub const kernelVirtBase: u64 = 0xffff_ffff_8000_0000;
 
 pub const BootCallConv = std.builtin.CallingConvention{ .x86_64_sysv = .{ .incoming_stack_alignment = 16 } };
 pub const InitBootInfo = Multiboot.InitBootInfo;

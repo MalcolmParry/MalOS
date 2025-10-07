@@ -11,7 +11,7 @@ SECTIONS {
 	. = 1M;
 
 	__KERNEL_START__ = .;
-	__KERNEL_VIRT_BASE__ = 0xffffffffc0000000;
+	__KERNEL_VIRT_BASE__ = 0xffffffff80000000;
 	
 	.boot : {
 		. = ALIGN(8);

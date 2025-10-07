@@ -56,9 +56,6 @@ pub fn PreInit() void {
     GDT.InitGDT();
 
     TempMap();
-
-    @memset(l4Page[0..255], Tables.Entry.Blank);
-    @memset(l3Page[0..255], Tables.Entry.Blank);
     @memset(&l2Starter, Tables.Entry.Blank);
 
     InvalidatePages();
@@ -73,7 +70,7 @@ fn TempMap() void {
         entry.* = .{
             .present = true,
             .writable = true,
-            .user = true,
+            .user = false,
             .writeThough = false,
             .disableCache = false,
             .isHuge = true,
@@ -82,10 +79,10 @@ fn TempMap() void {
         };
     }
 
-    l3Page[255] = .{
+    l3Page[510] = .{
         .present = true,
         .writable = true,
-        .user = true,
+        .user = false,
         .writeThough = false,
         .disableCache = false,
         .isHuge = false,
@@ -93,16 +90,20 @@ fn TempMap() void {
         .disableExecute = false,
     };
 
-    l4Page[255] = .{
+    l4Page[511] = .{
         .present = true,
         .writable = true,
-        .user = true,
+        .user = false,
         .writeThough = false,
         .disableCache = false,
         .isHuge = false,
         .address = @intCast(@intFromPtr(l3PagePhys) >> 12),
         .disableExecute = false,
     };
+
+    @memset(l4Page[0..511], Tables.Entry.Blank);
+    @memset(l3Page[0..510], Tables.Entry.Blank);
+    l3Page[511] = Tables.Entry.Blank;
 }
 
 fn SetCr3(physAddr: u64) void {

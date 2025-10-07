@@ -51,10 +51,10 @@ fn KernelMain() !void {
     const px: *u32 = @constCast(&x);
     px.* = 2; // TODO: get this to cause an error
 
-    // TODO: get this to causes error
+    // TODO: get this to cause error
     functionInRodata();
 
-    //Arch.Interrupt.Enable();
+    // Arch.Interrupt.Enable();
     Arch.SpinWait();
 }
 
