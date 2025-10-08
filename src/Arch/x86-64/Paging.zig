@@ -7,7 +7,7 @@ const Tables = struct {
         present: bool,
         writable: bool,
         user: bool,
-        writeThough: bool, // ?
+        writeThrough: bool, // ?
         disableCache: bool,
         // cpu sets this, should be set to false by default
         accessed: bool = false,
@@ -22,7 +22,7 @@ const Tables = struct {
             .present = false,
             .writable = false,
             .user = false,
-            .writeThough = false,
+            .writeThrough = false,
             .disableCache = false,
             .isHuge = false,
             .address = 0,
@@ -36,6 +36,8 @@ const Tables = struct {
     const L1 = [512]Entry; // each entry is 4kb
 };
 
+pub const kernelHeapStart = Mem.kernelVirtBase + 4096 * 512 * 512;
+
 const l4PagePhys = @extern(*Tables.L4, .{ .name = "page_table_l4" });
 var l4Page: *Tables.L4 = undefined;
 
@@ -46,6 +48,7 @@ const l2PagePhys = @extern(*Tables.L2, .{ .name = "page_table_l2" });
 var l2Page: *Tables.L2 = undefined;
 
 var l2Starter: Tables.L2 = undefined;
+var l1Starter: Tables.L1 = undefined;
 
 pub fn PreInit() void {
     @branchHint(.cold); // stop from inlining
@@ -55,8 +58,27 @@ pub fn PreInit() void {
 
     GDT.InitGDT();
 
-    TempMap();
+    TempMapKernel();
+    l1Starter[0] = .{
+        .present = true,
+        .writable = true,
+        .user = false,
+        .writeThrough = false,
+        .disableCache = false,
+        .isHuge = false,
+        .address = 
+    };
     @memset(&l2Starter, Tables.Entry.Blank);
+    l3Page[511] = .{
+        .present = true,
+        .writable = true,
+        .user = false,
+        .writeThrough = false,
+        .disableCache = false,
+        .isHuge = false,
+        .address = @intCast((@intFromPtr(&l2Starter) - Mem.kernelVirtBase) / Mem.pageSize),
+        .disableExecute = false,
+    };
 
     InvalidatePages();
 }
@@ -65,13 +87,13 @@ pub fn InvalidatePages() void {
     SetCr3(@intFromPtr(l4PagePhys));
 }
 
-fn TempMap() void {
+fn TempMapKernel() void {
     for (l2Page, 0..) |*entry, i| {
         entry.* = .{
             .present = true,
             .writable = true,
             .user = false,
-            .writeThough = false,
+            .writeThrough = false,
             .disableCache = false,
             .isHuge = true,
             .address = @as(u40, @intCast(i)) * 512,
@@ -83,7 +105,7 @@ fn TempMap() void {
         .present = true,
         .writable = true,
         .user = false,
-        .writeThough = false,
+        .writeThrough = false,
         .disableCache = false,
         .isHuge = false,
         .address = @intCast(@intFromPtr(l2PagePhys) >> 12),
@@ -94,7 +116,7 @@ fn TempMap() void {
         .present = true,
         .writable = true,
         .user = false,
-        .writeThough = false,
+        .writeThrough = false,
         .disableCache = false,
         .isHuge = false,
         .address = @intCast(@intFromPtr(l3PagePhys) >> 12),
@@ -110,6 +132,6 @@ fn SetCr3(physAddr: u64) void {
     asm volatile (
         \\mov %[addr], %%cr3
         :
-        : [addr] "rax" (physAddr),
+        : [addr] "rdi" (physAddr),
     );
 }
