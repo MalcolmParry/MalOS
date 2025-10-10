@@ -131,9 +131,6 @@ gdt64:
 		dw $ - gdt64 - 1
 		dq gdt64
 
-global page_table_l4
-global page_table_l3
-global page_table_l2
 section .boot_bss nobits
 align 1024 * 4
 page_table_l4: ; 512 GB per entry

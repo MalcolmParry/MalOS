@@ -1,9 +1,10 @@
 const std = @import("std");
 const GDT = @import("GDT.zig");
 const Mem = @import("../../Memory.zig");
+const VMM = @import("../../VMM.zig");
 
-const Tables = struct {
-    const Entry = packed struct {
+pub const Tables = struct {
+    pub const Entry = packed struct {
         present: bool,
         writable: bool,
         user: bool,
@@ -31,7 +32,50 @@ const Tables = struct {
     };
 
     // each entry is 512gb
-    const L4 = extern struct { entries: [512]Entry, tables: [512]?*L3 };
+    pub const L4 = extern struct {
+        entries: [512]Entry,
+        tables: [512]?*L3,
+
+        pub fn MapPage(this: *Tables.L4, phys: *align(Mem.pageSize) Mem.Phys(Mem.Page), virt: *align(Mem.pageSize) Mem.Page, pageFlags: VMM.PageFlags, alloc: std.mem.Allocator) !void {
+            const indices = GetIndicesFromVirtAddr(virt);
+
+            const l4 = this;
+            const l3 = blk: {
+                if (l4.tables[indices[3]]) |x| {
+                    break :blk x;
+                } else {
+                    break :blk try alloc.alignedAlloc(Tables.L3, Mem.pageSize, 1);
+                }
+            };
+
+            const l2 = blk: {
+                if (l3.tables[indices[2]]) |x| {
+                    break :blk x;
+                } else {
+                    break :blk try alloc.alignedAlloc(Tables.L2, Mem.pageSize, 1);
+                }
+            };
+
+            const l1 = blk: {
+                if (l2.tables[indices[1]]) |x| {
+                    break :blk x;
+                } else {
+                    break :blk try alloc.alignedAlloc(Tables.L1, Mem.pageSize, 1);
+                }
+            };
+
+            l1[indices[0]] = .{
+                .present = pageFlags.present,
+                .writable = pageFlags.writable,
+                .user = !pageFlags.kernelOnly,
+                .writeThrough = pageFlags.cacheMode == .WriteThrough,
+                .disableCache = pageFlags.cacheMode == .Disabled,
+                .isHuge = false,
+                .address = @intCast(@intFromPtr(phys) / Mem.pageSize),
+                .disableExecute = !pageFlags.executable,
+            };
+        }
+    };
 
     // each entry is 1gb
     const L3 = extern struct { entries: [512]Entry, tables: [512]?*L2 };
@@ -42,16 +86,37 @@ const Tables = struct {
     // each entry is 4kb
     const L1 = [512]Entry;
 
-    fn GetVirtAddrFromIndicies(l4: usize, l3: usize, l2: usize, l1: usize) usize {
-        const addr: usize = (l1 << 12) | (l2 << 21) | (l3 << 30) | (l4 << 39);
+    fn GetVirtAddrFromindices(l4: u9, l3: u9, l2: u9, l1: u9) *align(Mem.pageSize) Mem.Page {
+        const ul4: usize = l4;
+        const ul3: usize = l3;
+        const ul2: usize = l2;
+        const ul1: usize = l1;
+
+        const addr: usize = (ul1 << 12) | (ul2 << 21) | (ul3 << 30) | (ul4 << 39);
         const mask: usize = @truncate(std.math.maxInt(usize) <<| 48);
-        return addr | if (l4 > 0) mask else 0;
+        const full: usize = addr | if (l4 & (1 << 8) > 1) mask else 0;
+        return @ptrFromInt(full);
+    }
+
+    fn GetIndicesFromVirtAddr(addr: *align(Mem.pageSize) Mem.Page) [4]u9 {
+        const addrI = @intFromPtr(addr);
+        const l4 = (addrI >> 39) & 0x1ff;
+        const l3 = (addrI >> 30) & 0x1ff;
+        const l2 = (addrI >> 21) & 0x1ff;
+        const l1 = (addrI >> 12) & 0x1ff;
+        return .{
+            @intCast(l1),
+            @intCast(l2),
+            @intCast(l3),
+            @intCast(l4),
+        };
     }
 };
 
 pub const kernelHeapStart = Mem.kernelVirtBase + 4096 * 512 * 512;
+var freeL1Entries: usize = 0;
 
-var l4Table: Tables.L4 align(4096) = undefined;
+pub var l4Table: Tables.L4 align(4096) = undefined;
 var l3KernelTable: Tables.L3 align(4096) = undefined;
 var l2KernelTable: Tables.L2 align(4096) = undefined;
 
@@ -66,6 +131,7 @@ pub fn PreInit() void {
     @memset(&l1KernelHeapStarter, Tables.Entry.Blank);
     @memset(&l2KernelHeap.entries, Tables.Entry.Blank);
     @memset(&l2KernelHeap.tables, null);
+    freeL1Entries = 512;
 
     l2KernelHeap.tables[0] = &l1KernelHeapStarter;
     l2KernelHeap.entries[0] = .{
@@ -92,10 +158,6 @@ pub fn PreInit() void {
     };
 
     InvalidatePages();
-}
-
-pub fn InvalidatePages() void {
-    SetCr3(@intFromPtr(&l4Table) - Mem.kernelVirtBase);
 }
 
 fn TempMapKernel() void {
@@ -145,6 +207,10 @@ fn TempMapKernel() void {
 
     l3KernelTable.entries[511] = Tables.Entry.Blank;
     l3KernelTable.tables[511] = null;
+}
+
+pub fn InvalidatePages() void {
+    SetCr3(@intFromPtr(&l4Table) - Mem.kernelVirtBase);
 }
 
 fn SetCr3(physAddr: u64) void {
