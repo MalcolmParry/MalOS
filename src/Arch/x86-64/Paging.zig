@@ -14,7 +14,8 @@ pub const Tables = struct {
         accessed: bool = false,
         available: bool = false,
         isHuge: bool,
-        available2: u4 = 0,
+        global: bool,
+        available2: u3 = 0,
         address: u40, // address divided by 4096
         available3: u11 = 0,
         disableExecute: bool,
@@ -26,6 +27,7 @@ pub const Tables = struct {
             .writeThrough = false,
             .disableCache = false,
             .isHuge = false,
+            .global = false,
             .address = 0,
             .disableExecute = false,
         };
@@ -44,7 +46,22 @@ pub const Tables = struct {
                 if (l4.tables[indices[3]]) |x| {
                     break :blk x;
                 } else {
-                    break :blk try alloc.alignedAlloc(Tables.L3, Mem.pageSize, 1);
+                    const result: *Tables.L3 = try alloc.alignedAlloc(Tables.L3, Mem.pageSize, 1);
+                    @memset(&result.entries, Tables.Entry.Blank);
+                    @memset(&result.tables, null);
+
+                    l4.tables[indices[3]] = result;
+                    l4.entries[indices[3]] = .{
+                        .present = true,
+                        .writable = true,
+                        .user = false,
+                        .writeThrough = false,
+                        .disableCache = false,
+                        .isHuge = false,
+                        .global = false,
+                        .address = @intCast((@intFromPtr(&result.entries) - Mem.kernelVirtBase) / Mem.pageSize),
+                        .disableExecute = false,
+                    };
                 }
             };
 
@@ -52,7 +69,22 @@ pub const Tables = struct {
                 if (l3.tables[indices[2]]) |x| {
                     break :blk x;
                 } else {
-                    break :blk try alloc.alignedAlloc(Tables.L2, Mem.pageSize, 1);
+                    const result: *Tables.L2 = try alloc.alignedAlloc(Tables.L2, Mem.pageSize, 1);
+                    @memset(&result.entries, Tables.Entry.Blank);
+                    @memset(&result.tables, null);
+
+                    l3.tables[indices[2]] = result;
+                    l3.entries[indices[2]] = .{
+                        .present = true,
+                        .writable = true,
+                        .user = false,
+                        .writeThrough = false,
+                        .disableCache = false,
+                        .isHuge = false,
+                        .global = false,
+                        .address = @intCast((@intFromPtr(&result.entries) - Mem.kernelVirtBase) / Mem.pageSize),
+                        .disableExecute = false,
+                    };
                 }
             };
 
@@ -60,7 +92,22 @@ pub const Tables = struct {
                 if (l2.tables[indices[1]]) |x| {
                     break :blk x;
                 } else {
-                    break :blk try alloc.alignedAlloc(Tables.L1, Mem.pageSize, 1);
+                    const result: *Tables.L1 = try alloc.alignedAlloc(Tables.L1, Mem.pageSize, 1);
+                    @memset(&result.entries, Tables.Entry.Blank);
+                    @memset(&result.tables, null);
+
+                    l2.tables[indices[1]] = result;
+                    l2.entries[indices[1]] = .{
+                        .present = true,
+                        .writable = true,
+                        .user = false,
+                        .writeThrough = false,
+                        .disableCache = false,
+                        .isHuge = false,
+                        .global = false,
+                        .address = @intCast((@intFromPtr(&result.entries) - Mem.kernelVirtBase) / Mem.pageSize),
+                        .disableExecute = false,
+                    };
                 }
             };
 
@@ -71,6 +118,7 @@ pub const Tables = struct {
                 .writeThrough = pageFlags.cacheMode == .WriteThrough,
                 .disableCache = pageFlags.cacheMode == .Disabled,
                 .isHuge = false,
+                .global = pageFlags.global,
                 .address = @intCast(@intFromPtr(phys) / Mem.pageSize),
                 .disableExecute = !pageFlags.executable,
             };
@@ -141,6 +189,7 @@ pub fn PreInit() void {
         .writeThrough = false,
         .disableCache = false,
         .isHuge = false,
+        .global = false,
         .address = @intCast((@intFromPtr(&l1KernelHeapStarter) - Mem.kernelVirtBase) / Mem.pageSize),
         .disableExecute = false,
     };
@@ -153,6 +202,7 @@ pub fn PreInit() void {
         .writeThrough = false,
         .disableCache = false,
         .isHuge = false,
+        .global = false,
         .address = @intCast((@intFromPtr(&l2KernelHeap.entries) - Mem.kernelVirtBase) / Mem.pageSize),
         .disableExecute = false,
     };
@@ -170,6 +220,7 @@ fn TempMapKernel() void {
             .writeThrough = false,
             .disableCache = false,
             .isHuge = true,
+            .global = true,
             .address = @as(u40, @intCast(i)) * 512,
             .disableExecute = false,
         };
@@ -183,6 +234,7 @@ fn TempMapKernel() void {
         .writeThrough = false,
         .disableCache = false,
         .isHuge = false,
+        .global = false,
         .address = @intCast((@intFromPtr(&l2KernelTable.entries) - Mem.kernelVirtBase) >> 12),
         .disableExecute = false,
     };
@@ -195,6 +247,7 @@ fn TempMapKernel() void {
         .writeThrough = false,
         .disableCache = false,
         .isHuge = false,
+        .global = false,
         .address = @intCast((@intFromPtr(&l3KernelTable.entries) - Mem.kernelVirtBase) >> 12),
         .disableExecute = false,
     };

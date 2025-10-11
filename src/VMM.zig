@@ -17,4 +17,5 @@ pub const PageFlags = struct {
     executable: bool = false,
     kernelOnly: bool = true,
     cacheMode: CacheMode,
+    global: bool = false,
 };
