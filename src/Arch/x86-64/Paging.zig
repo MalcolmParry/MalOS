@@ -3,7 +3,9 @@ const GDT = @import("GDT.zig");
 const Mem = @import("../../Memory.zig");
 const VMM = @import("../../VMM.zig");
 
-pub const Tables = struct {
+pub const Table = struct {
+    pub const Index = u9;
+
     pub const Entry = packed struct {
         present: bool,
         writable: bool,
@@ -38,7 +40,7 @@ pub const Tables = struct {
         entries: [512]Entry,
         tables: [512]?*L3,
 
-        pub fn MapPage(this: *Tables.L4, phys: *align(Mem.pageSize) Mem.Phys(Mem.Page), virt: *align(Mem.pageSize) Mem.Page, pageFlags: VMM.PageFlags, alloc: std.mem.Allocator) !void {
+        pub fn MapPage(this: *Table.L4, phys: *align(Mem.pageSize) Mem.Phys(Mem.Page), virt: *align(Mem.pageSize) Mem.Page, pageFlags: VMM.PageFlags, alloc: std.mem.Allocator) !void {
             const indices = GetIndicesFromVirtAddr(virt);
 
             const l4 = this;
@@ -46,8 +48,8 @@ pub const Tables = struct {
                 if (l4.tables[indices[3]]) |x| {
                     break :blk x;
                 } else {
-                    const result: *Tables.L3 = try alloc.alignedAlloc(Tables.L3, Mem.pageSize, 1);
-                    @memset(&result.entries, Tables.Entry.Blank);
+                    const result: *Table.L3 = try alloc.alignedAlloc(Table.L3, Mem.pageSize, 1);
+                    @memset(&result.entries, Table.Entry.Blank);
                     @memset(&result.tables, null);
 
                     l4.tables[indices[3]] = result;
@@ -69,8 +71,8 @@ pub const Tables = struct {
                 if (l3.tables[indices[2]]) |x| {
                     break :blk x;
                 } else {
-                    const result: *Tables.L2 = try alloc.alignedAlloc(Tables.L2, Mem.pageSize, 1);
-                    @memset(&result.entries, Tables.Entry.Blank);
+                    const result: *Table.L2 = try alloc.alignedAlloc(Table.L2, Mem.pageSize, 1);
+                    @memset(&result.entries, Table.Entry.Blank);
                     @memset(&result.tables, null);
 
                     l3.tables[indices[2]] = result;
@@ -92,8 +94,8 @@ pub const Tables = struct {
                 if (l2.tables[indices[1]]) |x| {
                     break :blk x;
                 } else {
-                    const result: *Tables.L1 = try alloc.alignedAlloc(Tables.L1, Mem.pageSize, 1);
-                    @memset(&result.entries, Tables.Entry.Blank);
+                    const result: *Table.L1 = try alloc.alignedAlloc(Table.L1, Mem.pageSize, 1);
+                    @memset(&result.entries, Table.Entry.Blank);
                     @memset(&result.tables, null);
 
                     l2.tables[indices[1]] = result;
@@ -134,7 +136,7 @@ pub const Tables = struct {
     // each entry is 4kb
     const L1 = [512]Entry;
 
-    fn GetVirtAddrFromindices(l4: u9, l3: u9, l2: u9, l1: u9) *align(Mem.pageSize) Mem.Page {
+    fn GetVirtAddrFromindices(l4: Index, l3: Index, l2: Index, l1: Index) *align(Mem.pageSize) Mem.Page {
         const ul4: usize = l4;
         const ul3: usize = l3;
         const ul2: usize = l2;
@@ -146,7 +148,7 @@ pub const Tables = struct {
         return @ptrFromInt(full);
     }
 
-    fn GetIndicesFromVirtAddr(addr: *align(Mem.pageSize) Mem.Page) [4]u9 {
+    fn GetIndicesFromVirtAddr(addr: *align(Mem.pageSize) Mem.Page) [4]Index {
         const addrI = @intFromPtr(addr);
         const l4 = (addrI >> 39) & 0x1ff;
         const l3 = (addrI >> 30) & 0x1ff;
@@ -164,20 +166,20 @@ pub const Tables = struct {
 pub const kernelHeapStart = Mem.kernelVirtBase + 4096 * 512 * 512;
 var freeL1Entries: usize = 0;
 
-pub var l4Table: Tables.L4 align(4096) = undefined;
-var l3KernelTable: Tables.L3 align(4096) = undefined;
-var l2KernelTable: Tables.L2 align(4096) = undefined;
+pub var l4Table: Table.L4 align(4096) = undefined;
+var l3KernelTable: Table.L3 align(4096) = undefined;
+var l2KernelTable: Table.L2 align(4096) = undefined;
 
-var l2KernelHeap: Tables.L2 align(4096) = undefined;
-var l1KernelHeapStarter: Tables.L1 align(4096) = undefined;
+var l2KernelHeap: Table.L2 align(4096) = undefined;
+var l1KernelHeapStarter: Table.L1 align(4096) = undefined;
 
 pub fn PreInit() void {
     @branchHint(.cold); // stop from inlining
     GDT.InitGDT();
 
     TempMapKernel();
-    @memset(&l1KernelHeapStarter, Tables.Entry.Blank);
-    @memset(&l2KernelHeap.entries, Tables.Entry.Blank);
+    @memset(&l1KernelHeapStarter, Table.Entry.Blank);
+    @memset(&l2KernelHeap.entries, Table.Entry.Blank);
     @memset(&l2KernelHeap.tables, null);
     freeL1Entries = 512;
 
@@ -252,13 +254,13 @@ fn TempMapKernel() void {
         .disableExecute = false,
     };
 
-    @memset(l4Table.entries[0..511], Tables.Entry.Blank);
+    @memset(l4Table.entries[0..511], Table.Entry.Blank);
     @memset(l4Table.tables[0..511], null);
 
-    @memset(l3KernelTable.entries[0..510], Tables.Entry.Blank);
+    @memset(l3KernelTable.entries[0..510], Table.Entry.Blank);
     @memset(l3KernelTable.tables[0..510], null);
 
-    l3KernelTable.entries[511] = Tables.Entry.Blank;
+    l3KernelTable.entries[511] = Table.Entry.Blank;
     l3KernelTable.tables[511] = null;
 }
 
