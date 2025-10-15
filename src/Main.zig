@@ -41,11 +41,11 @@ fn KernelMain() !void {
     std.log.info("Kernel {f}\n", .{Mem.kernelRange});
     std.log.info("KernelVirtBase: {x}\n", .{Mem.kernelVirtBase});
 
-    PMM.PreInit();
-    for (PMM.bitmapRanges.items, PMM.dataRanges.items) |bitmapRange, dataRange| {
-        std.log.info("Bitmap: {f}\n", .{bitmapRange});
-        std.log.info("DataRange: {f}\n\n", .{dataRange});
-    }
+    PMM.TempInit();
+    // for (PMM.bitmapRanges.items, PMM.dataRanges.items) |bitmapRange, dataRange| {
+    //     std.log.info("Bitmap: {f}\n", .{bitmapRange});
+    //     std.log.info("DataRange: {f}\n\n", .{dataRange});
+    // }
     Arch.Paging.PreInit();
 
     const px: *u32 = @constCast(&x);

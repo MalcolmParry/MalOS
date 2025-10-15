@@ -1,27 +1,49 @@
 const std = @import("std");
 const Mem = @import("Memory.zig");
 
-pub const maxBitmaps = 8;
-var bitmapsRangesRaw: [maxBitmaps]Mem.PhysRange = undefined;
-var dataRangesRaw: [maxBitmaps]Mem.PhysRange = undefined;
-pub var bitmapRanges: std.ArrayList(Mem.PhysRange) = .initBuffer(&bitmapsRangesRaw);
-pub var dataRanges: std.ArrayList(Mem.PhysRange) = .initBuffer(&dataRangesRaw);
+pub var totalPages: usize = 0;
 
-pub fn PreInit() void {
-    for (Mem.availableRanges.items) |wholeRange| {
-        const pagesInRange = wholeRange.length / Mem.pageSize;
-        const bitmapWidth = std.mem.alignForward(usize, pagesInRange, 8) / 8;
-
-        const bitmapRange: Mem.PhysRange = .{
-            .base = wholeRange.base,
-            .length = std.mem.alignForward(usize, bitmapWidth, @sizeOf(usize)), // std.DynamicBitSetUnmanaged works in chunks of @sizeOf(usize)
-        };
-        const bitmapRangeAligned = bitmapRange.AlignOutwards(Mem.pageSize);
-
-        bitmapRanges.appendBounded(bitmapRange) catch @panic("out of memory");
-        dataRanges.appendBounded(.{
-            .base = bitmapRangeAligned.base + bitmapRangeAligned.length,
-            .length = wholeRange.length - bitmapRangeAligned.length,
-        }) catch @panic("out of memory");
+pub fn TempInit() void {
+    for (Mem.availableRanges.items) |range| {
+        totalPages += range.PagesInside();
     }
+
+    std.mem.sort(Mem.PhysRange, Mem.availableRanges.items, @as(u8, 0), struct {
+        fn lessThan(_: u8, lhs: Mem.PhysRange, rhs: Mem.PhysRange) bool {
+            return lhs.base < rhs.base;
+        }
+    }.lessThan);
+
+    tempAlloc.isEnabled = true;
+    tempAlloc.currentPtr = Mem.availableRanges.items[0].base;
+    tempAlloc.currentRangeIndex = 0;
 }
+
+pub fn AllocatePage() !*Mem.Phys(Mem.Page) {
+    if (tempAlloc.isEnabled) return tempAlloc.AllocatePage();
+
+    @panic("not implemented");
+}
+
+const tempAlloc = struct {
+    var isEnabled: bool = true;
+    var currentPtr: ?usize = null;
+    var currentRangeIndex: usize = undefined;
+
+    fn AllocatePage() !*align(Mem.pageSize) Mem.Phys(Mem.Page) {
+        if (currentPtr == null) return error.OutOfMemory;
+
+        const result = currentPtr;
+        currentPtr.? += Mem.pageSize;
+        if (!Mem.availableRanges.items[currentRangeIndex].AddrInRange(currentPtr.?)) {
+            currentRangeIndex += 1;
+            if (currentRangeIndex >= Mem.availableRanges.items.len) {
+                currentPtr = null;
+                return @ptrFromInt(result);
+            }
+            currentPtr.? = Mem.availableRanges.items[currentRangeIndex].base;
+        }
+
+        return @ptrFromInt(result);
+    }
+};

@@ -143,7 +143,7 @@ pub const Table = struct {
         const ul1: usize = l1;
 
         const addr: usize = (ul1 << 12) | (ul2 << 21) | (ul3 << 30) | (ul4 << 39);
-        const mask: usize = @truncate(std.math.maxInt(usize) <<| 48);
+        const mask: usize = @truncate(std.math.boolMask(usize, true) <<| 48);
         const full: usize = addr | if (l4 & (1 << 8) > 1) mask else 0;
         return @ptrFromInt(full);
     }
