@@ -14,18 +14,18 @@ pub fn TempInit() void {
         }
     }.lessThan);
 
-    tempAlloc.isEnabled = true;
-    tempAlloc.currentPtr = Mem.availableRanges.items[0].base;
-    tempAlloc.currentRangeIndex = 0;
+    TempAlloc.isEnabled = true;
+    TempAlloc.currentPtr = Mem.availableRanges.items[0].base;
+    TempAlloc.currentRangeIndex = 0;
 }
 
-pub fn AllocatePage() !*Mem.Phys(Mem.Page) {
-    if (tempAlloc.isEnabled) return tempAlloc.AllocatePage();
+pub fn AllocatePage() !*align(Mem.pageSize) Mem.Phys(Mem.Page) {
+    if (TempAlloc.isEnabled) return TempAlloc.AllocatePage();
 
     @panic("not implemented");
 }
 
-const tempAlloc = struct {
+const TempAlloc = struct {
     var isEnabled: bool = true;
     var currentPtr: ?usize = null;
     var currentRangeIndex: usize = undefined;
@@ -33,7 +33,7 @@ const tempAlloc = struct {
     fn AllocatePage() !*align(Mem.pageSize) Mem.Phys(Mem.Page) {
         if (currentPtr == null) return error.OutOfMemory;
 
-        const result = currentPtr;
+        const result = currentPtr.?;
         currentPtr.? += Mem.pageSize;
         if (!Mem.availableRanges.items[currentRangeIndex].AddrInRange(currentPtr.?)) {
             currentRangeIndex += 1;

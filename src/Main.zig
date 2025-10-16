@@ -48,7 +48,21 @@ fn KernelMain() !void {
     // }
     Arch.Paging.PreInit();
 
-    const px: *u32 = @constCast(&x);
+    const page = try PMM.AllocatePage();
+    std.log.info("PMM Allocation: 0x{x}", .{@intFromPtr(page)});
+    try Arch.Paging.l4Table.MapPage(page, @ptrFromInt(Arch.Paging.kernelHeapStart), .{
+        .present = true,
+        .cacheMode = .Full,
+        .executable = true,
+        .global = false,
+        .kernelOnly = true,
+        .writable = true,
+    }, std.testing.failing_allocator);
+    Arch.Paging.InvalidatePages();
+    const virt: *volatile u32 = @ptrFromInt(Arch.Paging.kernelHeapStart);
+    virt.* = 5;
+
+    const px: *volatile u32 = @constCast(&x);
     px.* = 2; // TODO: get this to cause an error
 
     // TODO: get this to cause error

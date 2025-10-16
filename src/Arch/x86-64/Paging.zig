@@ -48,7 +48,7 @@ pub const Table = struct {
                 if (l4.tables[indices[3]]) |x| {
                     break :blk x;
                 } else {
-                    const result: *Table.L3 = try alloc.alignedAlloc(Table.L3, Mem.pageSize, 1);
+                    const result: *Table.L3 = &(try alloc.alignedAlloc(Table.L3, .fromByteUnits(Mem.pageSize), 1))[0];
                     @memset(&result.entries, Table.Entry.Blank);
                     @memset(&result.tables, null);
 
@@ -64,6 +64,8 @@ pub const Table = struct {
                         .address = @intCast((@intFromPtr(&result.entries) - Mem.kernelVirtBase) / Mem.pageSize),
                         .disableExecute = false,
                     };
+
+                    break :blk result;
                 }
             };
 
@@ -71,7 +73,7 @@ pub const Table = struct {
                 if (l3.tables[indices[2]]) |x| {
                     break :blk x;
                 } else {
-                    const result: *Table.L2 = try alloc.alignedAlloc(Table.L2, Mem.pageSize, 1);
+                    const result: *Table.L2 = &(try alloc.alignedAlloc(Table.L2, .fromByteUnits(Mem.pageSize), 1))[0];
                     @memset(&result.entries, Table.Entry.Blank);
                     @memset(&result.tables, null);
 
@@ -87,6 +89,8 @@ pub const Table = struct {
                         .address = @intCast((@intFromPtr(&result.entries) - Mem.kernelVirtBase) / Mem.pageSize),
                         .disableExecute = false,
                     };
+
+                    break :blk result;
                 }
             };
 
@@ -94,9 +98,8 @@ pub const Table = struct {
                 if (l2.tables[indices[1]]) |x| {
                     break :blk x;
                 } else {
-                    const result: *Table.L1 = try alloc.alignedAlloc(Table.L1, Mem.pageSize, 1);
-                    @memset(&result.entries, Table.Entry.Blank);
-                    @memset(&result.tables, null);
+                    const result: *Table.L1 = &(try alloc.alignedAlloc(Table.L1, .fromByteUnits(Mem.pageSize), 1))[0];
+                    @memset(result, Table.Entry.Blank);
 
                     l2.tables[indices[1]] = result;
                     l2.entries[indices[1]] = .{
@@ -107,9 +110,11 @@ pub const Table = struct {
                         .disableCache = false,
                         .isHuge = false,
                         .global = false,
-                        .address = @intCast((@intFromPtr(&result.entries) - Mem.kernelVirtBase) / Mem.pageSize),
+                        .address = @intCast((@intFromPtr(result) - Mem.kernelVirtBase) / Mem.pageSize),
                         .disableExecute = false,
                     };
+
+                    break :blk result;
                 }
             };
 
@@ -143,7 +148,7 @@ pub const Table = struct {
         const ul1: usize = l1;
 
         const addr: usize = (ul1 << 12) | (ul2 << 21) | (ul3 << 30) | (ul4 << 39);
-        const mask: usize = @truncate(std.math.boolMask(usize, true) <<| 48);
+        const mask: usize = @truncate(std.math.boolMask(usize, true) << 48);
         const full: usize = addr | if (l4 & (1 << 8) > 1) mask else 0;
         return @ptrFromInt(full);
     }
@@ -160,6 +165,10 @@ pub const Table = struct {
             @intCast(l3),
             @intCast(l4),
         };
+    }
+
+    fn Init(comptime T: type, table: *T) void {
+        @memset(std.mem.asBytes(table), 0);
     }
 };
 
@@ -178,9 +187,8 @@ pub fn PreInit() void {
     GDT.InitGDT();
 
     TempMapKernel();
-    @memset(&l1KernelHeapStarter, Table.Entry.Blank);
-    @memset(&l2KernelHeap.entries, Table.Entry.Blank);
-    @memset(&l2KernelHeap.tables, null);
+    Table.Init(Table.L2, &l2KernelHeap);
+    Table.Init(Table.L1, &l1KernelHeapStarter);
     freeL1Entries = 512;
 
     l2KernelHeap.tables[0] = &l1KernelHeapStarter;
