@@ -172,7 +172,7 @@ pub const Table = struct {
     }
 };
 
-pub const kernelHeapStart = Mem.kernelVirtBase + 4096 * 512 * 512;
+pub const kernelHeapStart = Mem.kernelVirtBase - 4096 * 512 * 512;
 var freeL1Entries: usize = 0;
 
 pub var l4Table: Table.L4 align(4096) = undefined;
@@ -204,8 +204,8 @@ pub fn PreInit() void {
         .disableExecute = false,
     };
 
-    l3KernelTable.tables[511] = &l2KernelHeap;
-    l3KernelTable.entries[511] = .{
+    l3KernelTable.tables[510] = &l2KernelHeap;
+    l3KernelTable.entries[510] = .{
         .present = true,
         .writable = true,
         .user = false,
@@ -236,8 +236,8 @@ fn TempMapKernel() void {
         };
     }
 
-    l3KernelTable.tables[510] = &l2KernelTable;
-    l3KernelTable.entries[510] = .{
+    l3KernelTable.tables[511] = &l2KernelTable;
+    l3KernelTable.entries[511] = .{
         .present = true,
         .writable = true,
         .user = false,
@@ -265,11 +265,8 @@ fn TempMapKernel() void {
     @memset(l4Table.entries[0..511], Table.Entry.Blank);
     @memset(l4Table.tables[0..511], null);
 
-    @memset(l3KernelTable.entries[0..510], Table.Entry.Blank);
-    @memset(l3KernelTable.tables[0..510], null);
-
-    l3KernelTable.entries[511] = Table.Entry.Blank;
-    l3KernelTable.tables[511] = null;
+    @memset(l3KernelTable.entries[0..511], Table.Entry.Blank);
+    @memset(l3KernelTable.tables[0..511], null);
 }
 
 pub fn InvalidatePages() void {

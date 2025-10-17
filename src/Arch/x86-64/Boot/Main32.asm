@@ -2,7 +2,7 @@ global _start32
 global physMultibootInfo
 extern _start64
 
-KERNEL_VIRT_BASE equ 0xffff_ffff_8000_0000
+KERNEL_VIRT_BASE equ 0xffff_ffff_c000_0000
 
 section .boot
 bits 32
@@ -50,7 +50,7 @@ _start32:
 	mov eax, page_table_l2
 	or eax, 0b11 ; present, writable
 	mov [page_table_l3], eax
-	mov [page_table_l3 + 510 * 8], eax
+	mov [page_table_l3 + 511 * 8], eax
 
 	xor ecx, ecx
 .loop:
