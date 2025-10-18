@@ -2,6 +2,7 @@ const std = @import("std");
 const GDT = @import("GDT.zig");
 const Mem = @import("../../Memory.zig");
 const VMM = @import("../../VMM.zig");
+const PMM = @import("../../PMM.zig");
 
 pub const Table = struct {
     pub const Index = u9;
@@ -130,6 +131,18 @@ pub const Table = struct {
                 .disableExecute = !pageFlags.executable,
             };
         }
+
+        pub fn IsAvailable(this: *@This(), page: *Mem.Page) bool {
+            const indices = GetIndicesFromVirtAddr(page);
+            const l4 = this;
+            const l3 = l4.tables[indices[3]] orelse return true;
+            const l2 = l3.tables[indices[2]] orelse return true;
+            if (l2.entries[1].present and l2.entries[1].isHuge)
+                return false;
+
+            const l1 = l2.tables[indices[1]] orelse return true;
+            return !l1[indices[0]].present;
+        }
     };
 
     // each entry is 1gb
@@ -218,7 +231,66 @@ pub fn PreInit() void {
     };
 
     InvalidatePages();
+
+    const heap: [*]Mem.Page = @ptrFromInt(kernelHeapStart);
+    var pageAllocator = PageAllocator.Create(&l4Table, heap[0 .. 512 * 512]);
+    const alloc = pageAllocator.allocator();
+    const page: *Mem.Page = alloc.create(Mem.Page) catch @panic("thing");
+    const thing: *volatile u8 = @ptrCast(page);
+    thing.* = 5;
 }
+
+pub const PageAllocator = struct {
+    table: *Table.L4,
+    allowedRange: []Mem.Page,
+    lastAllocIndex: usize,
+
+    pub fn Create(table: *Table.L4, allowedRange: []Mem.Page) @This() {
+        return .{
+            .table = table,
+            .allowedRange = allowedRange,
+            .lastAllocIndex = 0,
+        };
+    }
+
+    pub fn allocator(this: *@This()) std.mem.Allocator {
+        return .{
+            .ptr = this,
+            .vtable = &.{
+                .alloc = alloc,
+                .resize = std.mem.Allocator.noResize,
+                .remap = std.mem.Allocator.noRemap,
+                .free = std.mem.Allocator.noFree,
+            },
+        };
+    }
+
+    pub fn alloc(ctx: *anyopaque, size: usize, alignment: std.mem.Alignment, retAddr: usize) ?[*]u8 {
+        const this: *@This() = @ptrCast(@alignCast(ctx));
+        std.debug.assert(alignment.toByteUnits() <= Mem.pageSize);
+        _ = retAddr;
+
+        const pageCount = std.mem.alignForward(usize, size, Mem.pageSize) / Mem.pageSize;
+        if (pageCount == 0)
+            return null;
+
+        const virtStart: [*]Mem.Page = @ptrCast(&this.allowedRange[this.lastAllocIndex]);
+        for (0..pageCount) |i| {
+            const phys = PMM.AllocatePage() catch return null;
+            this.table.MapPage(phys, @alignCast(&virtStart[i]), .{
+                .present = true,
+                .cacheMode = .Full,
+                .executable = true,
+                .global = false,
+                .kernelOnly = true,
+                .writable = true,
+            }, std.testing.failing_allocator) catch return null;
+        }
+
+        this.lastAllocIndex += pageCount;
+        return @ptrCast(std.mem.asBytes(&virtStart[0]));
+    }
+};
 
 fn TempMapKernel() void {
     for (&l2KernelTable.entries, &l2KernelTable.tables, 0..) |*entry, *table, i| {
