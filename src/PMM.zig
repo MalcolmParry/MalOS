@@ -25,6 +25,11 @@ pub fn AllocatePage() !*align(Mem.pageSize) Mem.Phys(Mem.Page) {
     @panic("not implemented");
 }
 
+pub fn FreePage(page: *align(Mem.pageSize) Mem.Phys(Mem.Page)) void {
+    _ = page;
+    @panic("not implemented");
+}
+
 const TempAlloc = struct {
     var isEnabled: bool = true;
     var currentPtr: ?usize = null;

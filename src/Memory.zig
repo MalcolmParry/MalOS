@@ -3,6 +3,9 @@ const std = @import("std");
 
 pub const pageSize = Arch.pageSize;
 pub const Page = [pageSize]u8;
+pub const PagePtr = *align(pageSize) Page;
+pub const PageManyPtr = [*]align(pageSize) Page;
+pub const PageSlice = []align(pageSize) Page;
 
 pub fn Phys(comptime Child: type) type {
     return opaque {
