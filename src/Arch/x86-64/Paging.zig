@@ -241,11 +241,18 @@ pub fn PreInit() void {
     InvalidatePages();
 
     const heap: [*]align(Mem.pageSize) Mem.Page = @ptrFromInt(kernelHeapStart);
-    var pageAllocator = PageAllocator.Create(&l4Table, heap[0 .. 512 * 512]);
+    var pageAllocator = PageAllocator.Create(&l4Table, heap[0 .. 512 * 512], std.testing.failing_allocator);
     const alloc = pageAllocator.allocator();
-    const page: *Mem.Page = alloc.create(Mem.Page) catch @panic("thing");
-    const thing: *volatile u8 = @ptrCast(page);
-    thing.* = 5;
+
+    var pagesAllocated: usize = 0;
+    var lastAlloc: usize = 0;
+    while (true) {
+        const allocation = alloc.alloc(u8, 1) catch break;
+        pagesAllocated += 1;
+        lastAlloc = @intFromPtr(allocation.ptr);
+    }
+
+    std.log.info("Pages Allocated {}\nLast Alloc 0x{x}\n", .{ pagesAllocated, lastAlloc });
 }
 
 pub const PageAllocator = struct {
@@ -277,8 +284,8 @@ pub const PageAllocator = struct {
             .ptr = this,
             .vtable = &.{
                 .alloc = alloc,
-                .resize = std.mem.Allocator.noResize,
-                .remap = std.mem.Allocator.noRemap,
+                .resize = resize,
+                .remap = remap,
                 .free = free,
             },
         };
@@ -328,17 +335,18 @@ pub const PageAllocator = struct {
         return true;
     }
 
-    fn InternalFree(this: *@This(), pages: Mem.PageSlice) !void {
+    fn InternalFree(this: *@This(), pages: Mem.PageSlice) void {
         for (pages) |*page| {
             const indices = Table.GetIndicesFromVirtAddr(page);
             const l4 = this.table;
-            const l3 = l4.tables[indices[3]] orelse return error.MemoryNotAllocated;
-            const l2 = l3.tables[indices[2]] orelse return error.MemoryNotAllocated;
-            const l1 = l2.tables[indices[1]] orelse return error.MemoryNotAllocated;
-            if (!l1[indices[0]].present) return error.MemoryNotAllocated;
+            const l3 = l4.tables[indices[3]] orelse @panic("called free on memory which isn't mapped");
+            const l2 = l3.tables[indices[2]] orelse @panic("called free on memory which isn't mapped");
+            const l1 = l2.tables[indices[1]] orelse @panic("called free on memory which isn't mapped");
+            if (!l1[indices[0]].present) @panic("called free on memory which isn't mapped");
             const phys: usize = l1[indices[0]].address * Mem.pageSize;
-            PMM.FreePage(phys);
+            PMM.FreePage(@ptrFromInt(phys));
             l1[indices[0]] = Table.Entry.Blank;
+            if (&this.lastAllocEnd[0] == &pages.ptr[pages.len]) this.lastAllocEnd = pages.ptr;
         }
     }
 
@@ -358,19 +366,17 @@ pub const PageAllocator = struct {
         _ = retAddr;
 
         const pageCount = std.mem.alignForward(usize, newLen, Mem.pageSize) / Mem.pageSize;
-        const memPageAligned = memory.ptr[0..std.mem.alignForward(usize, memory.len, Mem.pageSize)];
-        return this.InternalResize(memPageAligned, pageCount) catch false;
+        return this.InternalResize(Mem.PageSliceFromBytes(memory), pageCount) catch false;
     }
 
     pub fn remap(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, newLen: usize, retAddr: usize) ?[*]u8 {
-        const this: *@This() = @ptrCast(@alignCast(ctx));
         if (resize(ctx, memory, alignment, newLen, retAddr)) return memory.ptr;
         if (memory.len >= newLen) @panic("case should have been handled by resize");
 
         const newAlloc = alloc(ctx, newLen, alignment, retAddr) orelse return null;
         @memcpy(newAlloc[0..memory.len], memory);
-        free(ctx, memory, alignment,, retAddr);
-        return newAlloc.ptr;
+        free(ctx, memory, alignment, retAddr);
+        return newAlloc;
     }
 
     pub fn free(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, retAddr: usize) void {
@@ -378,8 +384,7 @@ pub const PageAllocator = struct {
         std.debug.assert(alignment.toByteUnits() <= Mem.pageSize);
         _ = retAddr;
 
-        const memPageAligned = memory.ptr[0..std.mem.alignForward(usize, memory.len, Mem.pageSize)];
-        this.InternalFree(memPageAligned) catch @panic("called free on memory which isn't mapped");
+        this.InternalFree(Mem.PageSliceFromBytes(memory));
     }
 };
 

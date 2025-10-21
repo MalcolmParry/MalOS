@@ -7,6 +7,20 @@ pub const PagePtr = *align(pageSize) Page;
 pub const PageManyPtr = [*]align(pageSize) Page;
 pub const PageSlice = []align(pageSize) Page;
 
+pub fn PageAlign(addr: usize) usize {
+    return std.mem.alignForward(usize, addr, pageSize);
+}
+
+pub fn PagesInLength(length: usize) usize {
+    return PageAlign(length) / pageSize;
+}
+
+pub fn PageSliceFromBytes(bytes: []u8) PageSlice {
+    const pageManyPtr: PageManyPtr = @ptrCast(@alignCast(bytes.ptr));
+    const pages = PagesInLength(bytes.len);
+    return pageManyPtr[0..pages];
+}
+
 pub fn Phys(comptime Child: type) type {
     return opaque {
         fn GetVirt(this: *@This()) *Child {
