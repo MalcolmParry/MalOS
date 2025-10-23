@@ -7,6 +7,11 @@ pub const PagePtr = *align(pageSize) Page;
 pub const PageManyPtr = [*]align(pageSize) Page;
 pub const PageSlice = []align(pageSize) Page;
 
+pub const PhysPage = Phys(Page);
+pub const PhysPagePtr = *align(pageSize) PhysPage;
+pub const PhysPageManyPtr = [*]align(pageSize) PhysPage;
+pub const PhysPageSlice = []align(pageSize) PhysPage;
+
 pub fn PageAlign(addr: usize) usize {
     return std.mem.alignForward(usize, addr, pageSize);
 }

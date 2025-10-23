@@ -19,13 +19,13 @@ pub fn TempInit() void {
     TempAlloc.currentRangeIndex = 0;
 }
 
-pub fn AllocatePage() !*align(Mem.pageSize) Mem.Phys(Mem.Page) {
+pub fn AllocatePage() !Mem.PhysPagePtr {
     if (TempAlloc.isEnabled) return TempAlloc.AllocatePage();
 
     @panic("not implemented");
 }
 
-pub fn FreePage(page: *align(Mem.pageSize) Mem.Phys(Mem.Page)) void {
+pub fn FreePage(page: Mem.PhysPagePtr) void {
     _ = page;
     @panic("not implemented");
 }
@@ -35,7 +35,7 @@ const TempAlloc = struct {
     var currentPtr: ?usize = null;
     var currentRangeIndex: usize = undefined;
 
-    fn AllocatePage() !*align(Mem.pageSize) Mem.Phys(Mem.Page) {
+    fn AllocatePage() !Mem.PhysPagePtr {
         if (currentPtr == null) return error.OutOfMemory;
 
         const result = currentPtr.?;
