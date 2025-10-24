@@ -57,7 +57,6 @@ fn SetupIDT(comptime index: u8, isrType: GateType, dpl: u2, present: bool) void 
 }
 
 pub fn Init() void {
-    @branchHint(.cold); // stop from inlining
     inline for (0..32) |i| {
         SetupIDT(i, .Interrupt, 0, true);
     }

@@ -125,7 +125,6 @@ pub fn ClearLine(y: u8) void {
 }
 
 pub fn Clear() void {
-    @branchHint(.cold); // stop from inlining
     for (0..size.y) |y| {
         ClearLine(@intCast(y));
     }

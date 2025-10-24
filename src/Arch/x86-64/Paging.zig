@@ -36,88 +36,73 @@ pub const Table = struct {
         };
     };
 
+    const Reserve = struct {
+        var l3: ?*align(Mem.pageSize) L3 = null;
+        var l2: ?*align(Mem.pageSize) L2 = null;
+        var l1: ?*align(Mem.pageSize) L1 = null;
+        var allocating: bool = false;
+
+        fn Allocate(alloc: std.mem.Allocator) !void {
+            if (allocating) return;
+            allocating = true;
+
+            if (l3 == null) l3 = &(try alloc.alignedAlloc(L3, .fromByteUnits(Mem.pageSize), 1))[0];
+            if (l2 == null) l2 = &(try alloc.alignedAlloc(L2, .fromByteUnits(Mem.pageSize), 1))[0];
+            if (l1 == null) l1 = &(try alloc.alignedAlloc(L1, .fromByteUnits(Mem.pageSize), 1))[0];
+
+            allocating = false;
+        }
+    };
+
+    fn GetOrCreateTable(l4: *L4, T: type, table: *T, index: usize) !*GetLowerType(T) {
+        const lowerT = GetLowerType(T);
+
+        if (table.tables[index]) |lower|
+            return lower;
+
+        const res = switch (lowerT) {
+            L3 => &Reserve.l3,
+            L2 => &Reserve.l2,
+            L1 => &Reserve.l1,
+            else => @panic("wrong type"),
+        };
+        if (res.* == null) @panic("nuh uh");
+        const lower = res.*.?;
+        res.* = null;
+
+        table.tables[index] = lower;
+        table.entries[index] = .{
+            .present = true,
+            .writable = true,
+            .user = false,
+            .writeThrough = false,
+            .disableCache = false,
+            .isHuge = false,
+            .global = false,
+            .address = @intCast(@intFromPtr(l4.GetPhysAddrFromVirt(@ptrCast(lower))) / Mem.pageSize),
+            .disableExecute = false,
+        };
+
+        InitEmpty(lowerT, lower);
+        return lower;
+    }
+
     // each entry is 512gb
     pub const L4 = extern struct {
         entries: [512]Entry,
         tables: [512]?*L3,
 
-        pub fn MapPage(this: *Table.L4, phys: Mem.PhysPagePtr, virt: Mem.PagePtr, pageFlags: VMM.PageFlags, alloc: std.mem.Allocator) !void {
+        pub fn MapPage(this: *Table.L4, phys: Mem.PhysPagePtr, virt: Mem.PagePtr, pageFlags: VMM.PageFlags, canOverwrite: bool, alloc: std.mem.Allocator) !void {
             const indices = GetIndicesFromVirtAddr(virt);
 
             const l4 = this;
-            const l3 = blk: {
-                if (l4.tables[indices[3]]) |x| {
-                    break :blk x;
-                } else {
-                    const result: *Table.L3 = &(try alloc.alignedAlloc(Table.L3, .fromByteUnits(Mem.pageSize), 1))[0];
-                    @memset(&result.entries, Table.Entry.Blank);
-                    @memset(&result.tables, null);
+            const l3 = try GetOrCreateTable(l4, L4, l4, indices[3]);
+            const l2 = try GetOrCreateTable(l4, L3, l3, indices[2]);
+            const l1 = try GetOrCreateTable(l4, L2, l2, indices[1]);
+            try Reserve.Allocate(alloc);
 
-                    l4.tables[indices[3]] = result;
-                    l4.entries[indices[3]] = .{
-                        .present = true,
-                        .writable = true,
-                        .user = false,
-                        .writeThrough = false,
-                        .disableCache = false,
-                        .isHuge = false,
-                        .global = false,
-                        .address = @intCast((@intFromPtr(&result.entries) - Mem.kernelVirtBase) / Mem.pageSize),
-                        .disableExecute = false,
-                    };
-
-                    break :blk result;
-                }
-            };
-
-            const l2 = blk: {
-                if (l3.tables[indices[2]]) |x| {
-                    break :blk x;
-                } else {
-                    const result: *Table.L2 = &(try alloc.alignedAlloc(Table.L2, .fromByteUnits(Mem.pageSize), 1))[0];
-                    @memset(&result.entries, Table.Entry.Blank);
-                    @memset(&result.tables, null);
-
-                    l3.tables[indices[2]] = result;
-                    l3.entries[indices[2]] = .{
-                        .present = true,
-                        .writable = true,
-                        .user = false,
-                        .writeThrough = false,
-                        .disableCache = false,
-                        .isHuge = false,
-                        .global = false,
-                        .address = @intCast((@intFromPtr(&result.entries) - Mem.kernelVirtBase) / Mem.pageSize),
-                        .disableExecute = false,
-                    };
-
-                    break :blk result;
-                }
-            };
-
-            const l1 = blk: {
-                if (l2.tables[indices[1]]) |x| {
-                    break :blk x;
-                } else {
-                    const result: *Table.L1 = &(try alloc.alignedAlloc(Table.L1, .fromByteUnits(Mem.pageSize), 1))[0];
-                    @memset(result, Table.Entry.Blank);
-
-                    l2.tables[indices[1]] = result;
-                    l2.entries[indices[1]] = .{
-                        .present = true,
-                        .writable = true,
-                        .user = false,
-                        .writeThrough = false,
-                        .disableCache = false,
-                        .isHuge = false,
-                        .global = false,
-                        .address = @intCast((@intFromPtr(result) - Mem.kernelVirtBase) / Mem.pageSize),
-                        .disableExecute = false,
-                    };
-
-                    break :blk result;
-                }
-            };
+            if (!canOverwrite and l1[indices[0]].present)
+                return error.Overwrite;
 
             l1[indices[0]] = .{
                 .present = pageFlags.present,
@@ -130,6 +115,19 @@ pub const Table = struct {
                 .address = @intCast(@intFromPtr(phys) / Mem.pageSize),
                 .disableExecute = !pageFlags.executable,
             };
+        }
+
+        pub fn GetPhysAddrFromVirt(this: *@This(), virt: Mem.PagePtr) Mem.PhysPagePtr {
+            const indices = Table.GetIndicesFromVirtAddr(virt);
+
+            const l4 = this;
+            const l3 = l4.tables[indices[3]] orelse @panic("not mapped");
+            const l2 = l3.tables[indices[2]] orelse @panic("not mapped");
+            if (l2.entries[indices[1]].present and l2.entries[indices[1]].isHuge)
+                return @ptrFromInt((l2.entries[indices[1]].address + indices[0]) * Mem.pageSize);
+            const l1 = l2.tables[indices[1]] orelse @panic("not mapped");
+            if (!l1[indices[0]].present) @panic("not mapped");
+            return @ptrFromInt(l1[indices[0]].address * Mem.pageSize);
         }
 
         pub fn IsAvailable(this: *@This(), page: Mem.PagePtr) bool {
@@ -188,71 +186,46 @@ pub const Table = struct {
         };
     }
 
-    fn Init(comptime T: type, table: *T) void {
+    fn InitEmpty(comptime T: type, table: *T) void {
         @memset(std.mem.asBytes(table), 0);
+    }
+
+    fn GetLowerType(T: type) type {
+        return switch (T) {
+            L4 => L3,
+            L3 => L2,
+            L2 => L1,
+            else => @compileError("nuh uh"),
+        };
     }
 };
 
-pub const kernelHeapStart = Mem.kernelVirtBase - 4096 * 512 * 512;
-var freeL1Entries: usize = 0;
+pub const pageTableStart = Mem.kernelVirtBase - 4096 * 512 * 512;
+pub const heapRange = @as(Mem.PageManyPtr, @ptrFromInt(Mem.kernelVirtBase))[0 .. 512 * 512 * 510];
+pub var tableAllocator: PageAllocator = undefined;
 
 pub var l4Table: Table.L4 align(4096) = undefined;
 var l3KernelTable: Table.L3 align(4096) = undefined;
 var l2KernelTable: Table.L2 align(4096) = undefined;
 
-var l2KernelHeap: Table.L2 align(4096) = undefined;
-var l1KernelHeapStarter: Table.L1 align(4096) = undefined;
+var l2PageTableStarter: Table.L2 align(4096) = undefined;
+var l1PageTableStarter: Table.L1 align(4096) = undefined;
 
-pub fn PreInit() void {
-    @branchHint(.cold); // stop from inlining
+pub fn Init() void {
     GDT.InitGDT();
 
     TempMapKernel();
-    Table.Init(Table.L2, &l2KernelHeap);
-    Table.Init(Table.L1, &l1KernelHeapStarter);
-    freeL1Entries = 512;
-
-    l2KernelHeap.tables[0] = &l1KernelHeapStarter;
-    l2KernelHeap.entries[0] = .{
-        .present = true,
-        .writable = true,
-        .user = false,
-        .writeThrough = false,
-        .disableCache = false,
-        .isHuge = false,
-        .global = false,
-        .address = @intCast((@intFromPtr(&l1KernelHeapStarter) - Mem.kernelVirtBase) / Mem.pageSize),
-        .disableExecute = false,
-    };
-
-    l3KernelTable.tables[510] = &l2KernelHeap;
-    l3KernelTable.entries[510] = .{
-        .present = true,
-        .writable = true,
-        .user = false,
-        .writeThrough = false,
-        .disableCache = false,
-        .isHuge = false,
-        .global = false,
-        .address = @intCast((@intFromPtr(&l2KernelHeap.entries) - Mem.kernelVirtBase) / Mem.pageSize),
-        .disableExecute = false,
-    };
+    Table.InitEmpty(Table.L2, &l2PageTableStarter);
+    Table.InitEmpty(Table.L1, &l1PageTableStarter);
+    Table.Reserve.l2 = &l2PageTableStarter;
+    Table.Reserve.l1 = &l1PageTableStarter;
 
     InvalidatePages();
 
-    const heap: Mem.PageManyPtr = @ptrFromInt(kernelHeapStart);
-    var pageAllocator = PageAllocator.Create(&l4Table, heap[0 .. 512 * 512], std.testing.failing_allocator);
-    const alloc = pageAllocator.allocator();
-
-    var pagesAllocated: usize = 0;
-    var lastAlloc: usize = 0;
-    while (true) {
-        const allocation = alloc.alloc(u8, 1) catch break;
-        pagesAllocated += 1;
-        lastAlloc = @intFromPtr(allocation.ptr);
-    }
-
-    std.log.info("Pages Allocated {}\nLast Alloc 0x{x}\n", .{ pagesAllocated, lastAlloc });
+    const pageTableManyPtr: Mem.PageManyPtr = @ptrFromInt(pageTableStart);
+    tableAllocator = PageAllocator.Create(&l4Table, pageTableManyPtr[0 .. 512 * 512], std.testing.failing_allocator);
+    const alloc = tableAllocator.allocator();
+    tableAllocator.pageTableAllocator = alloc;
 }
 
 pub const PageAllocator = struct {
@@ -291,7 +264,7 @@ pub const PageAllocator = struct {
         };
     }
 
-    fn InternalAlloc(this: *@This(), pageCount: usize) !Mem.PageSlice {
+    pub fn GetAvailableVirtRange(this: *@This(), pageCount: usize) ?Mem.PageSlice {
         var virtStart = this.lastAllocEnd;
         if (virtStart == this.allowedRange.ptr + this.allowedRange.len) virtStart = this.allowedRange.ptr;
 
@@ -300,16 +273,24 @@ pub const PageAllocator = struct {
 
             virtStart += 1;
             if (virtStart + pageCount == this.allowedRange.ptr + this.allowedRange.len) virtStart = this.allowedRange.ptr;
-            if (virtStart == this.lastAllocEnd) return error.OutOfVirtAddrSpace;
+            if (virtStart == this.lastAllocEnd) return null;
         }
 
-        for (0..pageCount) |i| {
-            const phys = try PMM.AllocatePage();
-            try this.table.MapPage(phys, @alignCast(&virtStart[i]), flags, this.pageTableAllocator);
-        }
-
-        this.lastAllocEnd = virtStart + pageCount;
         return virtStart[0..pageCount];
+    }
+
+    fn InternalAlloc(this: *@This(), pageCount: usize) !Mem.PageSlice {
+        const result = this.GetAvailableVirtRange(pageCount) orelse return error.OutOfVirtAddrSpace;
+        this.lastAllocEnd = result.ptr + pageCount;
+        // TODO: handle errors
+
+        for (result) |*page| {
+            const phys = try PMM.AllocatePage();
+            try this.table.MapPage(phys, page, flags, false, this.pageTableAllocator);
+        }
+
+        @memset(result, undefined);
+        return result;
     }
 
     fn InternalResize(this: *@This(), pages: Mem.PageSlice, newPageCount: usize) !bool {
@@ -326,16 +307,22 @@ pub const PageAllocator = struct {
         }
 
         const extraPages = pages.ptr[pages.len..newPageCount];
+        var pagesAllocated: usize = 0;
         if (!this.table.IsRegionAvailable(extraPages)) return false;
+        errdefer if (pagesAllocated != 0) this.InternalFree(extraPages[0..pagesAllocated]);
         for (extraPages) |*page| {
             const phys = try PMM.AllocatePage();
-            try this.table.MapPage(phys, page, flags, this.pageTableAllocator);
+            try this.table.MapPage(phys, page, flags, false, this.pageTableAllocator);
+            pagesAllocated += 1;
         }
 
+        @memset(extraPages, undefined);
         return true;
     }
 
     fn InternalFree(this: *@This(), pages: Mem.PageSlice) void {
+        @memset(pages, undefined);
+
         for (pages) |*page| {
             const indices = Table.GetIndicesFromVirtAddr(page);
             const l4 = this.table;

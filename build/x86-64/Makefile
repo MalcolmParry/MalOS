@@ -16,7 +16,8 @@ $(zig_obj): $(shell find $(proj)/src/ -name *.zig)
 	@echo "Compiling zig files"
 	@mkdir -p $(proj)/bin/int/zig
 	@zig build-obj \
-		-O ReleaseSafe \
+		-O Debug \
+		-fllvm \
 		-target x86_64-freestanding \
 		$(proj)/src/Main.zig \
 		-femit-bin=$(zig_obj) \
