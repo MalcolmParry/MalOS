@@ -82,7 +82,6 @@ pub const PageAllocator = struct {
             try this.table.MapPage(phys, page, flags, false, Arch.Paging.tableAllocator.allocator());
         }
 
-        @memset(result, undefined);
         return result;
     }
 
@@ -114,8 +113,6 @@ pub const PageAllocator = struct {
     }
 
     fn InternalFree(this: *@This(), pages: Mem.PageSlice) void {
-        @memset(pages, undefined);
-
         for (pages) |*page| {
             const phys = this.table.GetPhysAddrFromVirt(page);
             PMM.FreePage(phys);
@@ -131,7 +128,10 @@ pub const PageAllocator = struct {
 
         const pageCount = std.mem.alignForward(usize, size, Mem.pageSize) / Mem.pageSize;
         const allocation = this.InternalAlloc(pageCount) catch return null;
-        return @ptrCast(allocation);
+        const bytes: [*]u8 = @ptrCast(allocation);
+
+        @memset(bytes[0..size], undefined);
+        return bytes;
     }
 
     pub fn resize(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, newLen: usize, retAddr: usize) bool {

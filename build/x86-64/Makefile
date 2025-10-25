@@ -23,7 +23,6 @@ $(zig_obj): $(shell find $(proj)/src/ -name *.zig)
 		-femit-bin=$(zig_obj) \
 		-freference-trace \
 		-mcmodel=kernel \
-		-femit-llvm-ir=$(proj)/llvm \
 		-fcompiler-rt
 
 .PHONY: build
