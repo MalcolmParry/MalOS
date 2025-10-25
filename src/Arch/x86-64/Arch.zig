@@ -10,6 +10,7 @@ pub const kernelVirtBase: u64 = 0xffff_ffff_c000_0000;
 
 pub const BootCallConv = std.builtin.CallingConvention{ .x86_64_sysv = .{ .incoming_stack_alignment = 16 } };
 pub const InitBootInfo = Multiboot.InitBootInfo;
+pub const PageTable = Paging.Table.L4;
 
 pub const CPUState = packed struct {
     cr3: u64,

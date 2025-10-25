@@ -2,6 +2,7 @@ const Arch = @import("Arch.zig");
 const TTY = @import("TTY.zig");
 const Mem = @import("Memory.zig");
 const PMM = @import("PMM.zig");
+const VMM = @import("VMM.zig");
 const std = @import("std");
 
 pub const panic = @import("Panic.zig").panic;
@@ -13,7 +14,7 @@ pub const std_options: std.Options = .{
 
 pub const os = struct {
     pub const heap = struct {
-        pub const page_allocator = null;
+        pub const page_allocator = VMM.StandardPageAllocator;
     };
 };
 
@@ -42,14 +43,19 @@ fn KernelMain() !void {
     std.log.info("KernelVirtBase: {x}\n", .{Mem.kernelVirtBase});
 
     PMM.TempInit();
-    // for (PMM.bitmapRanges.items, PMM.dataRanges.items) |bitmapRange, dataRange| {
-    //     std.log.info("Bitmap: {f}\n", .{bitmapRange});
-    //     std.log.info("DataRange: {f}\n\n", .{dataRange});
-    // }
-    Arch.Paging.Init();
 
-    const page = try PMM.AllocatePage();
-    std.log.info("PMM Allocation: 0x{x}", .{@intFromPtr(page)});
+    const pageTable = Arch.Paging.Init();
+    var pageAllocatorObject = VMM.PageAllocator.Create(pageTable, Arch.Paging.heapRange);
+    const pageAlloc = pageAllocatorObject.allocator();
+
+    var pageCount: usize = 0;
+    while (true) {
+        _ = pageAlloc.alloc(u8, 1) catch break;
+        pageCount += 1;
+    }
+
+    std.log.info("Pages Allocated 0x{x}\nMemory Allocated {Bi}", .{ pageCount, pageCount * 4096 });
+
     // try Arch.Paging.l4Table.MapPage(page, @ptrFromInt(Arch.Paging.kernelHeapStart), .{
     //     .present = true,
     //     .cacheMode = .Full,

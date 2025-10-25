@@ -7,7 +7,7 @@ zig_obj := $(proj)/bin/int/zig/zig.o
 
 obj := $(asm_obj) $(zig_obj)
 
-$(asm_obj): $(proj)/bin/int/asm/%.o : $(proj)/src/%.asm
+$(asm_obj): $(proj)/bin/int/asm/%.o : $(asm_source)
 	@echo "Compiling file $(patsubst $(proj)/bin/int/asm/%.o, src/%.asm, $@)"
 	@mkdir -p $(dir $@)
 	@nasm -f elf64 $(patsubst $(proj)/bin/int/asm/%.o, $(proj)/src/%.asm, $@) -o $@
@@ -23,6 +23,7 @@ $(zig_obj): $(shell find $(proj)/src/ -name *.zig)
 		-femit-bin=$(zig_obj) \
 		-freference-trace \
 		-mcmodel=kernel \
+		-femit-llvm-ir=$(proj)/llvm \
 		-fcompiler-rt
 
 .PHONY: build
@@ -30,11 +31,9 @@ build: $(obj)
 	@mkdir -p $(proj)/bin
 	@echo "Linking $(patsubst $(proj)/%, %, $(obj))"
 	@ld -n -g -o $(proj)/bin/Kernel.elf -T ./Linker.ld $(obj)
-	@objcopy --only-keep-debug $(proj)/bin/Kernel.elf $(proj)/bin/Kernel.sym
-	@objcopy --strip-debug $(proj)/bin/Kernel.elf
-	@cp $(proj)/bin/Kernel.elf ./iso/boot/Kernel.elf
+	@objcopy --strip-debug $(proj)/bin/Kernel.elf ./iso/boot/Kernel.elf
 	@echo "Making iso"
-	@grub-mkrescue /usr/lib/grub/i386-pc -o $(proj)/bin/Kernel.iso $(proj)/build/x86-64/iso 2> /dev/null
+	@grub-mkrescue /usr/lib/grub/i386-efi -o $(proj)/bin/Kernel.iso $(proj)/build/x86-64/iso 2> /dev/null
 	@echo "Success"
 
 run_cmd = qemu-system-x86_64 -drive file=$(proj)/bin/Kernel.iso,format=raw -display gtk -m 1G
