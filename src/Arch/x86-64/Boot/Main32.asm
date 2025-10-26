@@ -133,6 +133,7 @@ gdt64:
 
 section .boot_bss nobits
 align 1024 * 4
+global page_table_l4
 page_table_l4: ; 512 GB per entry
 	resb 512 * 8
 page_table_l3: ; 1 GB per entry

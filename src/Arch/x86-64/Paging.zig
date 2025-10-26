@@ -3,6 +3,7 @@ const GDT = @import("GDT.zig");
 const Mem = @import("../../Memory.zig");
 const VMM = @import("../../VMM.zig");
 const PMM = @import("../../PMM.zig");
+const PageAllocator = @import("../../PageAllocator.zig");
 
 pub const Table = struct {
     pub const Index = u9;
@@ -217,7 +218,7 @@ pub const Table = struct {
 const pageTableL3Index = 510;
 const pageTableStart = Table.GetVirtAddrFromindices(511, pageTableL3Index, 0, 0);
 pub const heapRange = @as(Mem.PageManyPtr, @ptrCast(Table.GetVirtAddrFromindices(511, 0, 0, 0)))[0 .. 512 * 512 * 510];
-pub var tableAllocator: VMM.PageAllocator = undefined;
+pub var tableAllocator: PageAllocator = undefined;
 
 var l4Table: Table.L4 align(4096) = undefined;
 var l3KernelTable: Table.L3 align(4096) = undefined;
@@ -262,7 +263,7 @@ pub fn Init() *Table.L4 {
     InvalidatePages();
 
     const pageTableManyPtr: Mem.PageManyPtr = @ptrCast(pageTableStart);
-    tableAllocator = VMM.PageAllocator.Create(&l4Table, pageTableManyPtr[0 .. 512 * 512]);
+    tableAllocator = .Create(&l4Table, pageTableManyPtr[0 .. 512 * 512]);
     Table.Reserve.Allocate(tableAllocator.allocator()) catch @panic("cant allocate tables");
 
     return &l4Table;

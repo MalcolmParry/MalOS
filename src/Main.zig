@@ -3,6 +3,7 @@ const TTY = @import("TTY.zig");
 const Mem = @import("Memory.zig");
 const PMM = @import("PMM.zig");
 const VMM = @import("VMM.zig");
+const PageAllocator = @import("PageAllocator.zig");
 const std = @import("std");
 
 pub const panic = @import("Panic.zig").panic;
@@ -45,7 +46,7 @@ fn KernelMain() !void {
     PMM.TempInit();
 
     const pageTable = Arch.Paging.Init();
-    var pageAllocatorObject = VMM.PageAllocator.Create(pageTable, Arch.Paging.heapRange);
+    var pageAllocatorObject = PageAllocator.Create(pageTable, Arch.Paging.heapRange);
     const pageAlloc = pageAllocatorObject.allocator();
 
     var pageCount: usize = 0;
@@ -54,7 +55,7 @@ fn KernelMain() !void {
         pageCount += 1;
     }
 
-    std.log.info("Pages Allocated 0x{x}\nMemory Allocated {Bi}", .{ pageCount, pageCount * 4096 });
+    std.log.info("Pages Allocated 0x{x}\nMemory Allocated {Bi}\n", .{ pageCount, pageCount * 4096 });
 
     // try Arch.Paging.l4Table.MapPage(page, @ptrFromInt(Arch.Paging.kernelHeapStart), .{
     //     .present = true,
