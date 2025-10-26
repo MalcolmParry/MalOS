@@ -38,20 +38,43 @@ pub const Table = struct {
     };
 
     const Reserve = struct {
-        // var l3: ?*align(Mem.pageSize) L3 = null;
-        var l2: ?*align(Mem.pageSize) L2 = null;
-        var l1: ?*align(Mem.pageSize) L1 = null;
+        var l2: [2]?*align(Mem.pageSize) L2 = @splat(null);
+        var l1: [2]?*align(Mem.pageSize) L1 = @splat(null);
         var allocating: bool = false;
+
+        fn AllocateSlice(T: type, slice: []?*align(Mem.pageSize) T, alloc: std.mem.Allocator) !void {
+            for (slice) |*table| {
+                if (table.* != null) continue;
+
+                table.* = &(try alloc.alignedAlloc(T, .fromByteUnits(Mem.pageSize), 1))[0];
+            }
+        }
 
         fn Allocate(alloc: std.mem.Allocator) !void {
             if (allocating) return;
             allocating = true;
 
-            // if (l3 == null) l3 = &(try alloc.alignedAlloc(L3, .fromByteUnits(Mem.pageSize), 1))[0];
-            if (l2 == null) l2 = &(try alloc.alignedAlloc(L2, .fromByteUnits(Mem.pageSize), 1))[0];
-            if (l1 == null) l1 = &(try alloc.alignedAlloc(L1, .fromByteUnits(Mem.pageSize), 1))[0];
+            try AllocateSlice(L1, &l1, alloc);
+            try AllocateSlice(L2, &l2, alloc);
 
             allocating = false;
+        }
+
+        fn GetTable(T: type) *align(Mem.pageSize) T {
+            const slice: []?*align(Mem.pageSize) T = switch (T) {
+                L2 => &l2,
+                L1 => &l1,
+                else => @panic("wrong type"),
+            };
+
+            for (slice) |*table| {
+                if (table.*) |x| {
+                    table.* = null;
+                    return x;
+                }
+            }
+
+            @panic("no table reserved");
         }
     };
 
@@ -61,16 +84,7 @@ pub const Table = struct {
         if (table.tables[index]) |lower|
             return lower;
 
-        const res = switch (lowerT) {
-            // L3 => &Reserve.l3,
-            L2 => &Reserve.l2,
-            L1 => &Reserve.l1,
-            else => @panic("wrong type"),
-        };
-
-        if (res.* == null) return error.NuhUh; // @panic("nuh uh");
-        const lower = res.*.?;
-        res.* = null;
+        const lower = Reserve.GetTable(lowerT);
 
         table.tables[index] = lower;
         table.entries[index] = .{
@@ -202,7 +216,14 @@ pub const Table = struct {
     }
 
     fn InitEmpty(table: anytype) void {
-        @memset(std.mem.asBytes(table), 0);
+        switch (@typeInfo(@TypeOf(table)).pointer.child) {
+            L4, L3, L2 => {
+                @memset(&table.entries, Entry.Blank);
+                @memset(&table.tables, null);
+            },
+            L1 => @memset(table, Entry.Blank),
+            else => @compileError("wrong type"),
+        }
     }
 
     fn GetLowerType(T: type) type {
@@ -224,13 +245,26 @@ var l4Table: Table.L4 align(4096) = undefined;
 var l3KernelTable: Table.L3 align(4096) = undefined;
 var l2KernelTable: Table.L2 align(4096) = undefined;
 
+comptime {
+    @export(&l4Table.entries, .{ .name = "page_table_l4_virt" });
+    @export(&l3KernelTable.entries, .{ .name = "page_table_l3_virt" });
+    @export(&l2KernelTable.entries, .{ .name = "page_table_l2_virt" });
+}
+
 var l2PageTableStarter: Table.L2 align(4096) = undefined;
 var l1PageTableStarter: Table.L1 align(4096) = undefined;
 
 pub fn Init() *Table.L4 {
     GDT.InitGDT();
 
-    TempMapKernel();
+    @memset(l4Table.entries[0..511], Table.Entry.Blank);
+    @memset(l3KernelTable.entries[0..511], Table.Entry.Blank);
+    @memset(&l4Table.tables, null);
+    @memset(&l3KernelTable.tables, null);
+    @memset(&l2KernelTable.tables, null);
+    l4Table.tables[511] = &l3KernelTable;
+    l3KernelTable.tables[511] = &l2KernelTable;
+
     Table.InitEmpty(&l2PageTableStarter);
     Table.InitEmpty(&l1PageTableStarter);
 
@@ -267,55 +301,6 @@ pub fn Init() *Table.L4 {
     Table.Reserve.Allocate(tableAllocator.allocator()) catch @panic("cant allocate tables");
 
     return &l4Table;
-}
-
-fn TempMapKernel() void {
-    for (&l2KernelTable.entries, &l2KernelTable.tables, 0..) |*entry, *table, i| {
-        table.* = null;
-        entry.* = .{
-            .present = true,
-            .writable = true,
-            .user = false,
-            .writeThrough = false,
-            .disableCache = false,
-            .isHuge = true,
-            .global = true,
-            .address = @as(u40, @intCast(i)) * 512,
-            .disableExecute = false,
-        };
-    }
-
-    l3KernelTable.tables[511] = &l2KernelTable;
-    l3KernelTable.entries[511] = .{
-        .present = true,
-        .writable = true,
-        .user = false,
-        .writeThrough = false,
-        .disableCache = false,
-        .isHuge = false,
-        .global = false,
-        .address = @intCast((@intFromPtr(&l2KernelTable.entries) - Mem.kernelVirtBase) >> 12),
-        .disableExecute = false,
-    };
-
-    l4Table.tables[511] = &l3KernelTable;
-    l4Table.entries[511] = .{
-        .present = true,
-        .writable = true,
-        .user = false,
-        .writeThrough = false,
-        .disableCache = false,
-        .isHuge = false,
-        .global = false,
-        .address = @intCast((@intFromPtr(&l3KernelTable.entries) - Mem.kernelVirtBase) >> 12),
-        .disableExecute = false,
-    };
-
-    @memset(l4Table.entries[0..511], Table.Entry.Blank);
-    @memset(l4Table.tables[0..511], null);
-
-    @memset(l3KernelTable.entries[0..511], Table.Entry.Blank);
-    @memset(l3KernelTable.tables[0..511], null);
 }
 
 pub fn InvalidatePages() void {

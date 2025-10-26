@@ -50,7 +50,7 @@ fn KernelMain() !void {
     const pageAlloc = pageAllocatorObject.allocator();
 
     var pageCount: usize = 0;
-    while (true) {
+    while (pageCount < 0x10_0000) {
         _ = pageAlloc.alloc(u8, 1) catch break;
         pageCount += 1;
     }

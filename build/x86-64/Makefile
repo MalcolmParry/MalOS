@@ -35,7 +35,7 @@ build: $(obj)
 	@grub-mkrescue /usr/lib/grub/i386-efi -o $(proj)/bin/Kernel.iso $(proj)/build/x86-64/iso 2> /dev/null
 	@echo "Success"
 
-run_cmd = qemu-system-x86_64 -drive file=$(proj)/bin/Kernel.iso,format=raw -display gtk -m 1G
+run_cmd = qemu-system-x86_64 -drive file=$(proj)/bin/Kernel.iso,format=raw -display gtk -m 2G
 
 .PHONY: run
 run:

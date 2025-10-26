@@ -1,8 +1,14 @@
 global _start32
 global physMultibootInfo
 extern _start64
+extern page_table_l4_virt
+extern page_table_l3_virt
+extern page_table_l2_virt
 
 KERNEL_VIRT_BASE equ 0xffff_ffff_c000_0000
+page_table_l4 equ page_table_l4_virt - KERNEL_VIRT_BASE
+page_table_l3 equ page_table_l3_virt - KERNEL_VIRT_BASE
+page_table_l2 equ page_table_l2_virt - KERNEL_VIRT_BASE
 
 section .boot
 bits 32
@@ -130,16 +136,6 @@ gdt64:
 	.ptr:
 		dw $ - gdt64 - 1
 		dq gdt64
-
-section .boot_bss nobits
-align 1024 * 4
-global page_table_l4
-page_table_l4: ; 512 GB per entry
-	resb 512 * 8
-page_table_l3: ; 1 GB per entry
-	resb 512 * 8
-page_table_l2: ; 2 MB per entry
-	resb 512 * 8
 
 section .bss
 align 16
