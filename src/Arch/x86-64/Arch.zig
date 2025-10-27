@@ -100,3 +100,30 @@ pub fn In(comptime Type: type, port: u16) Type {
         else => @compileError("Invalid data type. Expected u8, u16, or u32, found " ++ @typeName(Type)),
     };
 }
+
+pub fn ReadMSR(msr: u32) u64 {
+    var high: u32 = undefined;
+    var low: u32 = undefined;
+
+    asm volatile (
+        \\rdmsr
+        : [low] "={eax}" (low),
+          [high] "={edx}" (high),
+        : [msr] "{ecx}" (msr),
+        : .{});
+
+    return @as(u64, high) << 32 | low;
+}
+
+pub fn WriteMSR(msr: u32, value: u64) void {
+    const high: u32 = @intCast(value >> 32);
+    const low: u32 = @truncate(value);
+
+    asm volatile (
+        \\wrmsr
+        :
+        : [msr] "{ecx}" (msr),
+          [low] "{eax}" (low),
+          [high] "{edx}" (high),
+        : .{});
+}

@@ -3,6 +3,7 @@ const GDT = @import("GDT.zig");
 const Mem = @import("../../Memory.zig");
 const VMM = @import("../../VMM.zig");
 const PMM = @import("../../PMM.zig");
+const Arch = @import("Arch.zig");
 const PageAllocator = @import("../../PageAllocator.zig");
 
 pub const Table = struct {
@@ -255,7 +256,14 @@ comptime {
 var l2PageTableStarter: Table.L2 align(4096) = undefined;
 var l1PageTableStarter: Table.L1 align(4096) = undefined;
 
+fn EnableExecuteDisable() void {
+    const msr = 0xc000_0080;
+    const old = Arch.ReadMSR(msr);
+    Arch.WriteMSR(msr, old | (1 << 11));
+}
+
 pub fn Init() *Table.L4 {
+    EnableExecuteDisable();
     GDT.InitGDT();
 
     @memset(l4Table.entries[0..511], Table.Entry.Blank);

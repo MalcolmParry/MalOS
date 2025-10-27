@@ -11,7 +11,7 @@ lastAllocEnd: Mem.PageManyPtr,
 const flags: VMM.PageFlags = .{
     .present = true,
     .cacheMode = .Full,
-    .executable = true,
+    .executable = false,
     .global = false,
     .kernelOnly = true,
     .writable = true,
