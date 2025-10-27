@@ -57,18 +57,6 @@ fn KernelMain() !void {
 
     std.log.info("Pages Allocated 0x{x}\nMemory Allocated {Bi}\n", .{ pageCount, pageCount * 4096 });
 
-    // try Arch.Paging.l4Table.MapPage(page, @ptrFromInt(Arch.Paging.kernelHeapStart), .{
-    //     .present = true,
-    //     .cacheMode = .Full,
-    //     .executable = true,
-    //     .global = false,
-    //     .kernelOnly = true,
-    //     .writable = true,
-    // }, false, std.testing.failing_allocator);
-    // Arch.Paging.InvalidatePages();
-    // const virt: *volatile u32 = @ptrFromInt(Arch.Paging.kernelHeapStart);
-    // virt.* = 5;
-
     const px: *volatile u32 = @constCast(&x);
     px.* = 2; // TODO: get this to cause an error
 

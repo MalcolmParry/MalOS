@@ -177,6 +177,7 @@ pub const Table = struct {
             const l1 = l2.tables[indices[1]] orelse @panic("not mapped");
             if (!l1[indices[0]].present) @panic("not mapped");
             l1[indices[0]] = Entry.Blank;
+            InvalidatePage(virt);
         }
     };
 
@@ -305,6 +306,14 @@ pub fn Init() *Table.L4 {
 
 pub fn InvalidatePages() void {
     SetCr3(@intFromPtr(&l4Table) - Mem.kernelVirtBase);
+}
+
+pub fn InvalidatePage(page: Mem.PagePtr) void {
+    asm volatile (
+        \\invlpg (%[addr])
+        :
+        : [addr] "r" (page),
+        : .{ .memory = true });
 }
 
 fn SetCr3(physAddr: u64) void {
