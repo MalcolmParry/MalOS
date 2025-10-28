@@ -57,11 +57,13 @@ pub fn GetAvailableVirtRange(this: *@This(), pageCount: usize) ?Mem.PageSlice {
 fn InternalAlloc(this: *@This(), pageCount: usize) !Mem.PageSlice {
     const result = this.GetAvailableVirtRange(pageCount) orelse return error.OutOfVirtAddrSpace;
     this.lastAllocEnd = result.ptr + pageCount;
-    // TODO: handle errors
+    var pagesAllocated: usize = 0;
+    errdefer this.InternalFree(result[0..pagesAllocated]);
 
     for (result) |*page| {
         const phys = try PMM.AllocatePage();
         try this.table.MapPage(phys, page, flags, false, Arch.Paging.tableAllocator.allocator());
+        pagesAllocated += 1;
     }
 
     return result;
