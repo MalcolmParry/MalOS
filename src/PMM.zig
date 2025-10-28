@@ -1,52 +1,52 @@
 const std = @import("std");
-const Mem = @import("Memory.zig");
+const mem = @import("Memory.zig");
 
 pub var totalPages: usize = 0;
 
-pub fn TempInit() void {
-    for (Mem.availableRanges.items) |range| {
-        totalPages += range.PagesInside();
+pub fn tempInit() void {
+    for (mem.available_ranges.items) |range| {
+        totalPages += range.pagesInside();
     }
 
-    std.mem.sort(Mem.PhysRange, Mem.availableRanges.items, @as(u8, 0), struct {
-        fn lessThan(_: u8, lhs: Mem.PhysRange, rhs: Mem.PhysRange) bool {
+    std.mem.sort(mem.PhysRange, mem.available_ranges.items, @as(u8, 0), struct {
+        fn lessThan(_: u8, lhs: mem.PhysRange, rhs: mem.PhysRange) bool {
             return lhs.base < rhs.base;
         }
     }.lessThan);
 
-    TempAlloc.isEnabled = true;
-    TempAlloc.currentPtr = Mem.availableRanges.items[0].base;
-    TempAlloc.currentRangeIndex = 0;
+    temp.enabled = true;
+    temp.current_ptr = mem.available_ranges.items[0].base;
+    temp.current_range_index = 0;
 }
 
-pub fn AllocatePage() !Mem.PhysPagePtr {
-    if (TempAlloc.isEnabled) return TempAlloc.AllocatePage();
+pub fn allocatePage() !mem.PhysPagePtr {
+    if (temp.enabled) return temp.allocatePage();
 
     @panic("not implemented");
 }
 
-pub fn FreePage(page: Mem.PhysPagePtr) void {
+pub fn freePage(page: mem.PhysPagePtr) void {
     _ = page;
     @panic("not implemented");
 }
 
-const TempAlloc = struct {
-    var isEnabled: bool = true;
-    var currentPtr: ?usize = null;
-    var currentRangeIndex: usize = undefined;
+const temp = struct {
+    var enabled: bool = true;
+    var current_ptr: ?usize = null;
+    var current_range_index: usize = undefined;
 
-    fn AllocatePage() !Mem.PhysPagePtr {
-        if (currentPtr == null) return error.OutOfMemory;
+    fn allocatePage() !mem.PhysPagePtr {
+        if (current_ptr == null) return error.OutOfMemory;
 
-        const result = currentPtr.?;
-        currentPtr.? += Mem.pageSize;
-        if (!Mem.availableRanges.items[currentRangeIndex].AddrInRange(currentPtr.?)) {
-            currentRangeIndex += 1;
-            if (currentRangeIndex >= Mem.availableRanges.items.len) {
-                currentPtr = null;
+        const result = current_ptr.?;
+        current_ptr.? += mem.page_size;
+        if (!mem.available_ranges.items[current_range_index].addrInRange(current_ptr.?)) {
+            current_range_index += 1;
+            if (current_range_index >= mem.available_ranges.items.len) {
+                current_ptr = null;
                 return @ptrFromInt(result);
             }
-            currentPtr.? = Mem.availableRanges.items[currentRangeIndex].base;
+            current_ptr = mem.available_ranges.items[current_range_index].base;
         }
 
         return @ptrFromInt(result);

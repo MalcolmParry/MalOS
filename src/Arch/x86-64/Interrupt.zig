@@ -1,6 +1,6 @@
 const std = @import("std");
-const Arch = @import("Arch.zig");
-const ISR = @import("../../ISR.zig");
+const arch = @import("Arch.zig");
+const isr = @import("../../ISR.zig");
 
 const IDT = packed struct {
     // part of the ISR ptr
@@ -9,7 +9,7 @@ const IDT = packed struct {
     selector: u16 = 8,
     ist: u3,
     padding3: u5 = 0,
-    gateType: GateType,
+    gate_type: GateType,
     padding1: u1 = 0,
     /// ring 0 for kernel, 3 for userspace
     dpl: u2,
@@ -25,44 +25,44 @@ const IDTR = packed struct {
 };
 
 const GateType = enum(u4) {
-    Interrupt = 0b1110,
-    Trap = 0b1111,
-    Task = 0b0101,
+    interrupt = 0b1110,
+    trap = 0b1111,
+    task = 0b0101,
 };
 
 var idts: [256]IDT = undefined;
 var idtr: IDTR = undefined;
 
-pub fn Enable() void {
+pub fn enable() void {
     asm volatile ("sti");
 }
 
-pub fn Disable() void {
+pub fn disable() void {
     asm volatile ("cli");
 }
 
-fn SetupIDT(comptime index: u8, isrType: GateType, dpl: u2, present: bool) void {
-    const isrPtr = &GenerateInterruptStub(index);
-    const isr: u64 = @intFromPtr(isrPtr);
+fn setupIDT(comptime index: u8, isr_type: GateType, dpl: u2, present: bool) void {
+    const isr_ptr = &generateInterruptStub(index);
+    const isr_int: u64 = @intFromPtr(isr_ptr);
 
     idts[index] = .{
-        .offset1 = @truncate(isr),
-        .offset2 = @truncate(isr >> 16),
-        .offset3 = @truncate(isr >> 32),
+        .offset1 = @truncate(isr_int),
+        .offset2 = @truncate(isr_int >> 16),
+        .offset3 = @truncate(isr_int >> 32),
         .ist = 0,
-        .gateType = isrType,
+        .gate_type = isr_type,
         .dpl = dpl,
         .present = present,
     };
 }
 
-pub fn Init() void {
+pub fn init() void {
     inline for (0..32) |i| {
-        SetupIDT(i, .Interrupt, 0, true);
+        setupIDT(i, .interrupt, 0, true);
     }
 
     inline for (32..256) |i| {
-        SetupIDT(i, .Interrupt, 0, true);
+        setupIDT(i, .interrupt, 0, true);
     }
 
     idtr.size = @sizeOf([256]IDT) - 1;
@@ -74,13 +74,13 @@ pub fn Init() void {
     );
 }
 
-export fn Handler(state: *Arch.CPUState) callconv(.{ .x86_64_sysv = .{} }) void {
-    std.log.info("interrupt 0x{x}\n", .{state.intCode});
+export fn handler(state: *arch.CPUState) callconv(.{ .x86_64_sysv = .{} }) void {
+    std.log.info("interrupt 0x{x}\n", .{state.int_code});
 
-    Arch.SpinWait();
+    arch.spinWait();
 }
 
-export fn CommonStub() callconv(.naked) void {
+export fn commonStub() callconv(.naked) void {
     asm volatile (
         \\ pushq %r15
         \\ pushq %r14
@@ -111,7 +111,7 @@ export fn CommonStub() callconv(.naked) void {
         \\ andq $(~0xf), %rsp // 16 byte align
         \\ pushq $0
         \\ pushq %rdi
-        \\ call Handler
+        \\ call handler
         \\ popq %rsp
         \\
         \\ pop %rax
@@ -142,24 +142,24 @@ export fn CommonStub() callconv(.naked) void {
     );
 }
 
-fn GenerateInterruptStub(comptime intNum: u8) fn () callconv(.naked) void {
+fn generateInterruptStub(comptime int_num: u8) fn () callconv(.naked) void {
     return struct {
         fn func() callconv(.naked) void {
             asm volatile (
                 \\ cli
             );
 
-            if (intNum != 8 and !(intNum >= 10 and intNum <= 14) and intNum != 17 and intNum != 21) {
+            if (int_num != 8 and !(int_num >= 10 and int_num <= 14) and int_num != 17 and int_num != 21) {
                 asm volatile (
                     \\ pushq $0
                 );
             }
 
             asm volatile (
-                \\ pushq %[intNum]
-                \\ jmp CommonStub
+                \\ pushq %[int_num]
+                \\ jmp commonStub
                 :
-                : [intNum] "n" (@as(u64, intNum)),
+                : [int_num] "n" (@as(u64, int_num)),
             );
         }
     }.func;

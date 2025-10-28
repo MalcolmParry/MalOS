@@ -1,32 +1,25 @@
 const std = @import("std");
-const Arch = @import("Arch.zig");
+const arch = @import("Arch.zig");
 
-fn WriteCallback(context: void, str: []const u8) !usize {
-    _ = context;
-
-    PrintS(str);
-    return str.len;
-}
-
-pub const size = Arch.VGA.size;
+pub const size = arch.vga.size;
 pub const cursor = struct {
     var x: u8 = 0;
     var y: u8 = 0;
 };
 
-fn Drain(this: *std.Io.Writer, data: []const []const u8, splat: usize) !usize {
-    PrintS(this.buffer[0..this.end]);
+fn drain(this: *std.Io.Writer, data: []const []const u8, splat: usize) !usize {
+    printStr(this.buffer[0..this.end]);
     this.end = 0;
     var written: usize = 0;
 
     for (data[0 .. data.len - 1]) |x| {
-        PrintS(x);
+        printStr(x);
         written += x.len;
     }
 
     const pattern = data[data.len - 1];
     for (0..splat) |_| {
-        PrintS(pattern);
+        printStr(pattern);
         written += pattern.len;
     }
 
@@ -34,48 +27,48 @@ fn Drain(this: *std.Io.Writer, data: []const []const u8, splat: usize) !usize {
 }
 
 const vtable: std.io.Writer.VTable = .{
-    .drain = &Drain,
+    .drain = &drain,
 };
 
 var buffer: [64]u8 = undefined;
 pub var writer = std.Io.Writer{ .vtable = &vtable, .buffer = &buffer };
-fn Print(comptime format: []const u8, args: anytype) void {
+fn print(comptime format: []const u8, args: anytype) void {
     writer.print(format, args) catch |x| {
-        PrintS("Printing Error: ");
-        PrintS(@errorName(x));
-        PrintC('\n');
+        printStr("Printing Error: ");
+        printStr(@errorName(x));
+        printChar('\n');
         @panic("printing error");
     };
 
     writer.flush() catch @panic("error while flushing tty");
 }
 
-pub fn Log(
+pub fn log(
     comptime message_level: std.log.Level,
     comptime scope: @Type(.enum_literal),
     comptime format: []const u8,
     args: anytype,
 ) void {
-    Arch.VGA.SetColorFromLogLevel(message_level);
+    arch.vga.setColorFromLogLevel(message_level);
     if (scope == std.log.default_log_scope) {
-        Print(format, args);
+        print(format, args);
         return;
     }
 
-    Print("{s}: ", .{@tagName(scope)});
-    Print(format, args);
+    print("{s}: ", .{@tagName(scope)});
+    print(format, args);
 }
 
-var shouldUpdateCursor: bool = true;
+var update_cursor: bool = true;
 
-pub fn PrintC(c: u8) void {
+pub fn printChar(c: u8) void {
     switch (c) {
         '\n' => {
             cursor.x = 0;
             cursor.y += 1;
 
             if (cursor.y >= size.y) {
-                Scroll();
+                scroll();
             }
         },
         '\r' => {
@@ -83,12 +76,12 @@ pub fn PrintC(c: u8) void {
         },
         '\t' => {
             for (0..4) |_| {
-                Arch.VGA.PutC(cursor.x, cursor.y, ' ');
+                arch.vga.putChar(cursor.x, cursor.y, ' ');
                 cursor.x += 1;
             }
         },
         else => {
-            Arch.VGA.PutC(cursor.x, cursor.y, c);
+            arch.vga.putChar(cursor.x, cursor.y, c);
             cursor.x += 1;
         },
     }
@@ -99,46 +92,46 @@ pub fn PrintC(c: u8) void {
     }
 
     if (cursor.y >= size.y) {
-        shouldUpdateCursor = false;
-        Scroll();
-        shouldUpdateCursor = true;
+        update_cursor = false;
+        scroll();
+        update_cursor = true;
     }
 
-    if (shouldUpdateCursor) Arch.VGA.SetCursorPos(cursor.x, cursor.y);
+    if (update_cursor) arch.vga.setCursorPos(cursor.x, cursor.y);
 }
 
-pub fn PrintS(str: []const u8) void {
-    shouldUpdateCursor = false;
+pub fn printStr(str: []const u8) void {
+    update_cursor = false;
 
     for (str) |c| {
-        PrintC(c);
+        printChar(c);
     }
 
-    shouldUpdateCursor = true;
-    Arch.VGA.SetCursorPos(cursor.x, cursor.y);
+    update_cursor = true;
+    arch.vga.setCursorPos(cursor.x, cursor.y);
 }
 
-pub fn ClearLine(y: u8) void {
+pub fn clearLine(y: u8) void {
     for (0..size.x) |x| {
-        Arch.VGA.PutC(@intCast(x), y, ' ');
+        arch.vga.putChar(@intCast(x), y, ' ');
     }
 }
 
-pub fn Clear() void {
+pub fn clear() void {
     for (0..size.y) |y| {
-        ClearLine(@intCast(y));
+        clearLine(@intCast(y));
     }
 }
 
-pub fn Scroll() void {
+pub fn scroll() void {
     for (0..size.y - 1) |i| {
-        @memcpy(&Arch.VGA.videoMemory.*[i], &Arch.VGA.videoMemory.*[i + 1]);
+        @memcpy(&arch.vga.video_memory.*[i], &arch.vga.video_memory.*[i + 1]);
     }
 
-    ClearLine(size.y - 1);
+    clearLine(size.y - 1);
 
     if (cursor.y != 0) {
         cursor.y -= 1;
-        if (shouldUpdateCursor) Arch.VGA.SetCursorPos(cursor.x, cursor.y);
+        if (update_cursor) arch.vga.setCursorPos(cursor.x, cursor.y);
     }
 }

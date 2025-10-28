@@ -1,27 +1,27 @@
 const std = @import("std");
-const Mem = @import("Memory.zig");
-const VMM = @import("VMM.zig");
-const PMM = @import("PMM.zig");
-const Arch = @import("Arch.zig");
+const mem = @import("Memory.zig");
+const vmm = @import("VMM.zig");
+const pmm = @import("PMM.zig");
+const arch = @import("Arch.zig");
 
-table: *Arch.PageTable,
-allowedRange: Mem.PageSlice,
-lastAllocEnd: Mem.PageManyPtr,
+table: *arch.PageTable,
+allowed_range: mem.PageSlice,
+last_alloc_end: mem.PageManyPtr,
 
-const flags: VMM.PageFlags = .{
+const flags: vmm.PageFlags = .{
     .present = true,
-    .cacheMode = .Full,
+    .cache_mode = .full,
     .executable = false,
     .global = false,
-    .kernelOnly = true,
+    .kernel_only = true,
     .writable = true,
 };
 
-pub fn Create(table: *Arch.PageTable, allowedRange: Mem.PageSlice) @This() {
+pub fn init(table: *arch.PageTable, allowed_range: mem.PageSlice) @This() {
     return .{
         .table = table,
-        .allowedRange = allowedRange,
-        .lastAllocEnd = allowedRange.ptr,
+        .allowed_range = allowed_range,
+        .last_alloc_end = allowed_range.ptr,
     };
 }
 
@@ -37,110 +37,110 @@ pub fn allocator(this: *@This()) std.mem.Allocator {
     };
 }
 
-pub fn GetAvailableVirtRange(this: *@This(), pageCount: usize) ?Mem.PageSlice {
-    var virtStart = this.lastAllocEnd;
-    if (virtStart == this.allowedRange.ptr + this.allowedRange.len) virtStart = this.allowedRange.ptr;
+pub fn getAvailableVirtRange(this: *@This(), page_count: usize) ?mem.PageSlice {
+    var virtStart = this.last_alloc_end;
+    if (virtStart == this.allowed_range.ptr + this.allowed_range.len) virtStart = this.allowed_range.ptr;
 
     while (true) {
-        if (this.table.IsRegionAvailable(virtStart[0..pageCount])) break;
+        if (this.table.isRegionAvailable(virtStart[0..page_count])) break;
 
         virtStart += 1;
-        if (virtStart + pageCount == this.allowedRange.ptr + this.allowedRange.len) virtStart = this.allowedRange.ptr;
-        if (virtStart == this.lastAllocEnd) return null;
+        if (virtStart + page_count == this.allowed_range.ptr + this.allowed_range.len) virtStart = this.allowed_range.ptr;
+        if (virtStart == this.last_alloc_end) return null;
     }
 
-    std.debug.assert(@intFromPtr(virtStart) >= @intFromPtr(this.allowedRange.ptr));
-    std.debug.assert(@intFromPtr(virtStart + pageCount) <= @intFromPtr(this.allowedRange.ptr + this.allowedRange.len));
-    return virtStart[0..pageCount];
+    std.debug.assert(@intFromPtr(virtStart) >= @intFromPtr(this.allowed_range.ptr));
+    std.debug.assert(@intFromPtr(virtStart + page_count) <= @intFromPtr(this.allowed_range.ptr + this.allowed_range.len));
+    return virtStart[0..page_count];
 }
 
-fn InternalAlloc(this: *@This(), pageCount: usize) !Mem.PageSlice {
-    const result = this.GetAvailableVirtRange(pageCount) orelse return error.OutOfVirtAddrSpace;
-    this.lastAllocEnd = result.ptr + pageCount;
-    var pagesAllocated: usize = 0;
-    errdefer this.InternalFree(result[0..pagesAllocated]);
+fn internalAlloc(this: *@This(), page_count: usize) !mem.PageSlice {
+    const result = this.getAvailableVirtRange(page_count) orelse return error.OutOfVirtAddrSpace;
+    this.last_alloc_end = result.ptr + page_count;
+    var pages_allocated: usize = 0;
+    errdefer this.internalFree(result[0..pages_allocated]);
 
     for (result) |*page| {
-        const phys = try PMM.AllocatePage();
-        try this.table.MapPage(phys, page, flags, false, Arch.Paging.tableAllocator.allocator());
-        pagesAllocated += 1;
+        const phys = try pmm.allocatePage();
+        try this.table.mapPage(phys, page, flags, false, arch.paging.table_allocator.allocator());
+        pages_allocated += 1;
     }
 
     return result;
 }
 
-fn InternalResize(this: *@This(), pages: Mem.PageSlice, newPageCount: usize) !bool {
-    if (newPageCount == 0) {
-        this.InternalFree(pages);
+fn internalResize(this: *@This(), pages: mem.PageSlice, new_page_count: usize) !bool {
+    if (new_page_count == 0) {
+        this.internalFree(pages);
         return true;
     }
 
-    if (pages.len == newPageCount) return true;
-    if (pages.len > newPageCount) {
-        const extraPages = pages[newPageCount..pages.len];
-        this.InternalFree(extraPages);
+    if (pages.len == new_page_count) return true;
+    if (pages.len > new_page_count) {
+        const extra_pages = pages[new_page_count..pages.len];
+        this.internalFree(extra_pages);
         return true;
     }
 
-    const extraPages = pages.ptr[pages.len..newPageCount];
-    var pagesAllocated: usize = 0;
-    if (!this.table.IsRegionAvailable(extraPages)) return false;
-    errdefer if (pagesAllocated != 0) this.InternalFree(extraPages[0..pagesAllocated]);
-    for (extraPages) |*page| {
-        const phys = try PMM.AllocatePage();
-        try this.table.MapPage(phys, page, flags, false, Arch.Paging.tableAllocator.allocator());
-        pagesAllocated += 1;
+    const extra_pages = pages.ptr[pages.len..new_page_count];
+    var pages_allocated: usize = 0;
+    if (!this.table.isRegionAvailable(extra_pages)) return false;
+    errdefer if (pages_allocated != 0) this.internalFree(extra_pages[0..pages_allocated]);
+    for (extra_pages) |*page| {
+        const phys = try pmm.allocatePage();
+        try this.table.mapPage(phys, page, flags, false, arch.paging.table_allocator.allocator());
+        pages_allocated += 1;
     }
 
-    @memset(extraPages, undefined);
+    @memset(extra_pages, undefined);
     return true;
 }
 
-fn InternalFree(this: *@This(), pages: Mem.PageSlice) void {
+fn internalFree(this: *@This(), pages: mem.PageSlice) void {
     for (pages) |*page| {
-        const phys = this.table.GetPhysAddrFromVirt(page);
-        PMM.FreePage(phys);
-        this.table.ClearEntry(page) catch @panic("not mapped");
-        if (&this.lastAllocEnd[0] == &pages.ptr[pages.len]) this.lastAllocEnd = pages.ptr;
+        const phys = this.table.getPhysAddrFromVirt(page);
+        pmm.freePage(phys);
+        this.table.clearEntry(page) catch @panic("not mapped");
+        if (&this.last_alloc_end[0] == &pages.ptr[pages.len]) this.last_alloc_end = pages.ptr;
     }
 }
 
-fn alloc(ctx: *anyopaque, size: usize, alignment: std.mem.Alignment, retAddr: usize) ?[*]u8 {
+fn alloc(ctx: *anyopaque, size: usize, alignment: std.mem.Alignment, ret_addr: usize) ?[*]u8 {
     const this: *@This() = @ptrCast(@alignCast(ctx));
-    std.debug.assert(alignment.toByteUnits() <= Mem.pageSize);
-    _ = retAddr;
+    std.debug.assert(alignment.toByteUnits() <= mem.page_size);
+    _ = ret_addr;
 
-    const pageCount = std.mem.alignForward(usize, size, Mem.pageSize) / Mem.pageSize;
-    const allocation = this.InternalAlloc(pageCount) catch return null;
+    const page_count = std.mem.alignForward(usize, size, mem.page_size) / mem.page_size;
+    const allocation = this.internalAlloc(page_count) catch return null;
     const bytes: [*]u8 = @ptrCast(allocation);
 
     @memset(bytes[0..size], undefined);
     return bytes;
 }
 
-fn resize(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, newLen: usize, retAddr: usize) bool {
+fn resize(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: usize, ret_addr: usize) bool {
     const this: *@This() = @ptrCast(@alignCast(ctx));
-    std.debug.assert(alignment.toByteUnits() <= Mem.pageSize);
-    _ = retAddr;
+    std.debug.assert(alignment.toByteUnits() <= mem.page_size);
+    _ = ret_addr;
 
-    const pageCount = std.mem.alignForward(usize, newLen, Mem.pageSize) / Mem.pageSize;
-    return this.InternalResize(Mem.PageSliceFromBytes(memory), pageCount) catch false;
+    const page_count = std.mem.alignForward(usize, new_len, mem.page_size) / mem.page_size;
+    return this.internalResize(mem.pageSliceFromBytes(memory), page_count) catch false;
 }
 
-fn remap(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, newLen: usize, retAddr: usize) ?[*]u8 {
-    if (resize(ctx, memory, alignment, newLen, retAddr)) return memory.ptr;
-    if (memory.len >= newLen) @panic("case should have been handled by resize");
+fn remap(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: usize, ret_addr: usize) ?[*]u8 {
+    if (resize(ctx, memory, alignment, new_len, ret_addr)) return memory.ptr;
+    if (memory.len >= new_len) @panic("case should have been handled by resize");
 
-    const newAlloc = alloc(ctx, newLen, alignment, retAddr) orelse return null;
-    @memcpy(newAlloc[0..memory.len], memory);
-    free(ctx, memory, alignment, retAddr);
-    return newAlloc;
+    const new_alloc = alloc(ctx, new_len, alignment, ret_addr) orelse return null;
+    @memcpy(new_alloc[0..memory.len], memory);
+    free(ctx, memory, alignment, ret_addr);
+    return new_alloc;
 }
 
-fn free(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, retAddr: usize) void {
+fn free(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, ret_addr: usize) void {
     const this: *@This() = @ptrCast(@alignCast(ctx));
-    std.debug.assert(alignment.toByteUnits() <= Mem.pageSize);
-    _ = retAddr;
+    std.debug.assert(alignment.toByteUnits() <= mem.page_size);
+    _ = ret_addr;
 
-    this.InternalFree(Mem.PageSliceFromBytes(memory));
+    this.internalFree(mem.pageSliceFromBytes(memory));
 }

@@ -1,5 +1,5 @@
 global _start32
-global physMultibootInfo
+global phys_multiboot_info
 extern _start64
 extern page_table_l4_virt
 extern page_table_l3_virt
@@ -16,7 +16,7 @@ _start32:
 	mov ebp, stack.top - KERNEL_VIRT_BASE
 	mov esp, ebp
 
-	mov [physMultibootInfo - KERNEL_VIRT_BASE], ebx
+	mov [phys_multiboot_info - KERNEL_VIRT_BASE], ebx
 	
 	; check if loaded with multiboot2 loader
 	cmp eax, 0x36d7_6289
@@ -145,5 +145,5 @@ stack:
 .top:
 
 section .data
-physMultibootInfo:
+phys_multiboot_info:
 	dq 0

@@ -1,61 +1,55 @@
-const Arch = @import("Arch.zig");
-const TTY = @import("TTY.zig");
-const Mem = @import("Memory.zig");
-const PMM = @import("PMM.zig");
-const VMM = @import("VMM.zig");
+const arch = @import("Arch.zig");
+const tty = @import("TTY.zig");
+const mem = @import("Memory.zig");
+const pmm = @import("PMM.zig");
+const vmm = @import("VMM.zig");
 const PageAllocator = @import("PageAllocator.zig");
 const std = @import("std");
 
 pub const panic = @import("Panic.zig").panic;
 pub const std_options: std.Options = .{
-    .logFn = TTY.Log,
-    .page_size_min = Mem.pageSize,
-    .page_size_max = Mem.pageSize,
+    .logFn = tty.log,
+    .page_size_min = mem.page_size,
+    .page_size_max = mem.page_size,
 };
 
-pub const os = struct {
-    pub const heap = struct {
-        pub const page_allocator = VMM.StandardPageAllocator;
-    };
-};
-
-var fixedAllocBuffer: [512]u8 = undefined;
-var fixedAllocStruct = std.heap.FixedBufferAllocator.init(&fixedAllocBuffer);
-pub var fixedAlloc = fixedAllocStruct.allocator();
+var fixed_alloc_buffer: [512]u8 = undefined;
+var fixed_alloc_struct = std.heap.FixedBufferAllocator.init(&fixed_alloc_buffer);
+pub var fixed_alloc = fixed_alloc_struct.allocator();
 
 extern fn functionInRodata() callconv(.{ .x86_64_sysv = .{} }) void;
 const x: u32 = 5;
 
-fn KernelMain() !void {
-    TTY.Clear();
-    Arch.Interrupt.Disable();
-    Arch.Interrupt.Init();
+fn kernelMain() !void {
+    tty.clear();
+    arch.interrupt.disable();
+    arch.interrupt.init();
 
-    Arch.InitBootInfo(fixedAlloc);
-    for (Mem.physModules) |module| {
-        std.log.info("Module '{s}' at {f}\n", .{ module.name, module.physData });
+    arch.initBootInfo(fixed_alloc);
+    for (mem.phys_modules) |module| {
+        std.log.info("Module '{s}' at {f}\n", .{ module.name, module.phys_range });
     }
 
-    for (Mem.availableRanges.items) |range| {
+    for (mem.available_ranges.items) |range| {
         std.log.info("Available: {f}\n", .{range});
     }
 
-    std.log.info("Kernel {f}\n", .{Mem.kernelRange});
-    std.log.info("KernelVirtBase: {x}\n", .{Mem.kernelVirtBase});
+    std.log.info("Kernel {f}\n", .{mem.kernel_range});
+    std.log.info("KernelVirtBase: {x}\n", .{mem.kernel_virt_base});
 
-    PMM.TempInit();
+    pmm.tempInit();
 
-    const pageTable = Arch.Paging.Init();
-    var pageAllocatorObject = PageAllocator.Create(pageTable, Arch.Paging.heapRange);
-    const pageAlloc = pageAllocatorObject.allocator();
+    const page_table = arch.paging.init();
+    var page_allocator_object: PageAllocator = .init(page_table, arch.paging.heap_range);
+    const page_alloc = page_allocator_object.allocator();
 
-    var pageCount: usize = 0;
-    while (pageCount < 0x10_0000) {
-        _ = pageAlloc.alloc(u8, 1) catch break;
-        pageCount += 1;
+    var page_count: usize = 0;
+    while (page_count < 0x10_0000) {
+        _ = page_alloc.alloc(u8, 1) catch break;
+        page_count += 1;
     }
 
-    std.log.info("Pages Allocated 0x{x}\nMemory Allocated {Bi}\n", .{ pageCount, pageCount * 4096 });
+    std.log.info("Pages Allocated 0x{x}\nMemory Allocated {Bi}\n", .{ page_count, page_count * 4096 });
 
     const px: *volatile u32 = @constCast(&x);
     px.* = 2; // TODO: get this to cause an error
@@ -63,14 +57,14 @@ fn KernelMain() !void {
     // TODO: get this to cause error
     functionInRodata();
 
-    // Arch.Interrupt.Enable();
-    Arch.SpinWait();
+    // arch.Interrupt.Enable();
+    arch.spinWait();
 }
 
-export fn KernelEntry() callconv(Arch.BootCallConv) noreturn {
-    KernelMain() catch |err| {
+export fn KernelEntry() callconv(arch.boot_call_conv) noreturn {
+    kernelMain() catch |err| {
         std.debug.panic("{}\n", .{err});
     };
 
-    std.debug.panic("KernelMain returned\n", .{});
+    @panic("KernelMain returned\n");
 }

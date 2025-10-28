@@ -2,7 +2,7 @@ const GDT = struct {
     const Entry = u64;
 
     const Ptr = packed struct {
-        sizeBytes: u16,
+        size_bytes: u16,
         ptr: u64,
     };
 
@@ -11,10 +11,10 @@ const GDT = struct {
     const descriptors: [2]Entry = .{ nullDescriptor, codeDescriptor };
 };
 
-pub fn InitGDT() void {
+pub fn init() void {
     const gdtr: GDT.Ptr = .{
         .ptr = @intFromPtr(&GDT.descriptors),
-        .sizeBytes = @sizeOf(GDT.Entry) * GDT.descriptors.len - 1,
+        .size_bytes = @sizeOf(GDT.Entry) * GDT.descriptors.len - 1,
     };
 
     asm volatile (

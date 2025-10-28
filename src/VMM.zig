@@ -1,22 +1,20 @@
 const std = @import("std");
 const Mem = @import("Memory.zig");
-const Arch = @import("Arch.zig");
-const PMM = @import("PMM.zig");
+const arch = @import("Arch.zig");
 
-pub const PageTable = Arch.Tables.L4;
 pub const PageFlags = struct {
     const CacheMode = enum {
-        Full,
+        full,
         // for memory that is read by hardware
-        WriteThrough,
+        write_through,
         // for io
-        Disabled,
+        disabled,
     };
 
     present: bool = true,
     writable: bool,
     executable: bool,
-    kernelOnly: bool,
-    cacheMode: CacheMode,
+    kernel_only: bool,
+    cache_mode: CacheMode,
     global: bool,
 };

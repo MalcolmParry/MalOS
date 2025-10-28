@@ -1,16 +1,16 @@
 const std = @import("std");
 
-pub const VGA = @import("VGA.zig");
-pub const Interrupt = @import("Interrupt.zig");
-pub const Multiboot = @import("Multiboot.zig");
-pub const Paging = @import("Paging.zig");
+pub const vga = @import("VGA.zig");
+pub const interrupt = @import("Interrupt.zig");
+pub const multiboot = @import("Multiboot.zig");
+pub const paging = @import("Paging.zig");
 
-pub const pageSize = 1024 * 4;
-pub const kernelVirtBase: u64 = 0xffff_ffff_c000_0000;
+pub const page_size = 1024 * 4;
+pub const kernel_virt_base: u64 = 0xffff_ffff_c000_0000;
 
-pub const BootCallConv = std.builtin.CallingConvention{ .x86_64_sysv = .{ .incoming_stack_alignment = 16 } };
-pub const InitBootInfo = Multiboot.InitBootInfo;
-pub const PageTable = Paging.Table.L4;
+pub const boot_call_conv = std.builtin.CallingConvention{ .x86_64_sysv = .{ .incoming_stack_alignment = 16 } };
+pub const initBootInfo = multiboot.initBootInfo;
+pub const PageTable = paging.tables.L4;
 
 pub const CPUState = packed struct {
     cr3: u64,
@@ -31,8 +31,8 @@ pub const CPUState = packed struct {
     r14: u64,
     r15: u64,
 
-    intCode: u64,
-    errorCode: u64,
+    int_code: u64,
+    error_code: u64,
 
     rip: u64,
     cs: u64,
@@ -41,13 +41,13 @@ pub const CPUState = packed struct {
     ss: u64,
 };
 
-pub fn Halt() void {
+pub fn halt() void {
     asm volatile ("hlt");
 }
 
-pub fn SpinWait() noreturn {
+pub fn spinWait() noreturn {
     while (true) {
-        Halt();
+        halt();
     }
 }
 
@@ -58,11 +58,11 @@ pub fn int(x: u8) void {
     );
 }
 
-pub fn Syscall() void {
+pub fn syscall() void {
     asm volatile ("int $0x80" ::: .{ .rax = true });
 }
 
-pub fn Out(port: u16, data: anytype) void {
+pub fn out(port: u16, data: anytype) void {
     switch (@TypeOf(data)) {
         u8 => asm volatile ("outb %[data], %[port]"
             :
@@ -83,7 +83,7 @@ pub fn Out(port: u16, data: anytype) void {
     }
 }
 
-pub fn In(comptime Type: type, port: u16) Type {
+pub fn in(comptime Type: type, port: u16) Type {
     return switch (Type) {
         u8 => asm volatile ("inb %[port], %[result]"
             : [result] "={al}" (-> Type),
@@ -101,7 +101,7 @@ pub fn In(comptime Type: type, port: u16) Type {
     };
 }
 
-pub fn ReadMSR(msr: u32) u64 {
+pub fn readMSR(msr: u32) u64 {
     var high: u32 = undefined;
     var low: u32 = undefined;
 
@@ -115,7 +115,7 @@ pub fn ReadMSR(msr: u32) u64 {
     return @as(u64, high) << 32 | low;
 }
 
-pub fn WriteMSR(msr: u32, value: u64) void {
+pub fn writeMSR(msr: u32, value: u64) void {
     const high: u32 = @intCast(value >> 32);
     const low: u32 = @truncate(value);
 
