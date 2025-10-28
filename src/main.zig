@@ -1,12 +1,12 @@
-const arch = @import("Arch.zig");
-const tty = @import("TTY.zig");
-const mem = @import("Memory.zig");
-const pmm = @import("PMM.zig");
-const vmm = @import("VMM.zig");
+const arch = @import("arch.zig");
+const tty = @import("tty.zig");
+const mem = @import("memory.zig");
+const pmm = @import("pmm.zig");
+const vmm = @import("vmm.zig");
 const PageAllocator = @import("PageAllocator.zig");
 const std = @import("std");
 
-pub const panic = @import("Panic.zig").panic;
+pub const panic = @import("panic.zig").panic;
 pub const std_options: std.Options = .{
     .logFn = tty.log,
     .page_size_min = mem.page_size,

@@ -1,5 +1,5 @@
 const std = @import("std");
-const arch = @import("Arch.zig");
+const arch = @import("arch.zig");
 
 pub fn isr(intNum: u8) callconv(.SysV) void {
     switch (intNum) {

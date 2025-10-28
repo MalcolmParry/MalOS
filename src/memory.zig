@@ -1,4 +1,4 @@
-const arch = @import("Arch.zig");
+const arch = @import("arch.zig");
 const std = @import("std");
 
 pub const page_size = arch.page_size;

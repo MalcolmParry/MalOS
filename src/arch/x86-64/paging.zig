@@ -1,8 +1,8 @@
 const std = @import("std");
-const gdt = @import("GDT.zig");
-const mem = @import("../../Memory.zig");
-const vmm = @import("../../VMM.zig");
-const arch = @import("Arch.zig");
+const gdt = @import("gdt.zig");
+const mem = @import("../../memory.zig");
+const vmm = @import("../../vmm.zig");
+const arch = @import("arch.zig");
 const PageAllocator = @import("../../PageAllocator.zig");
 
 pub const tables = struct {

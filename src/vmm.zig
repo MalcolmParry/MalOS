@@ -1,6 +1,5 @@
 const std = @import("std");
-const Mem = @import("Memory.zig");
-const arch = @import("Arch.zig");
+const arch = @import("arch.zig");
 
 pub const PageFlags = struct {
     const CacheMode = enum {

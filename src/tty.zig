@@ -1,5 +1,5 @@
 const std = @import("std");
-const arch = @import("Arch.zig");
+const arch = @import("arch.zig");
 
 pub const size = arch.vga.size;
 pub const cursor = struct {

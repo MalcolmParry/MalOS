@@ -1,6 +1,6 @@
 const std = @import("std");
-const arch = @import("Arch.zig");
-const isr = @import("../../ISR.zig");
+const arch = @import("arch.zig");
+const isr = @import("../../isr.zig");
 
 const IDT = packed struct {
     // part of the ISR ptr

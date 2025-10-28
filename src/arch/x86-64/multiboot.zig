@@ -1,6 +1,6 @@
-const mem = @import("../../Memory.zig");
+const mem = @import("../../memory.zig");
 const std = @import("std");
-const vga = @import("VGA.zig");
+const vga = @import("vga.zig");
 
 extern var phys_multiboot_info: *mem.Phys(Info);
 var multiboot_info: *Info = undefined;

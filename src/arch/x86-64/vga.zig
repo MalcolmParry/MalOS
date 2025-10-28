@@ -1,6 +1,6 @@
 const std = @import("std");
-const arch = @import("Arch.zig");
-const mem = @import("../../Memory.zig");
+const arch = @import("arch.zig");
+const mem = @import("../../memory.zig");
 
 pub const Color = enum(u4) {
     black = 0,

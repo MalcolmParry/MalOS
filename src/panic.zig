@@ -1,5 +1,5 @@
 const std = @import("std");
-const arch = @import("Arch.zig");
+const arch = @import("arch.zig");
 
 pub fn panic(str: []const u8, trace: ?*std.builtin.StackTrace, returnAddress: ?usize) noreturn {
     _ = trace;

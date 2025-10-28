@@ -1,7 +1,7 @@
 const builtin = @import("builtin");
 
 pub const arch = switch (builtin.cpu.arch) {
-    .x86_64 => @import("Arch/x86-64/Arch.zig"),
+    .x86_64 => @import("arch/x86-64/arch.zig"),
     else => @compileError("Unknown architecture."),
 };
 

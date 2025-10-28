@@ -1,5 +1,5 @@
 const std = @import("std");
-const mem = @import("Memory.zig");
+const mem = @import("memory.zig");
 
 pub var totalPages: usize = 0;
 

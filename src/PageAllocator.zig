@@ -1,8 +1,8 @@
 const std = @import("std");
-const mem = @import("Memory.zig");
-const vmm = @import("VMM.zig");
-const pmm = @import("PMM.zig");
-const arch = @import("Arch.zig");
+const mem = @import("memory.zig");
+const vmm = @import("vmm.zig");
+const pmm = @import("pmm.zig");
+const arch = @import("arch.zig");
 
 table: *arch.PageTable,
 allowed_range: mem.PageSlice,

@@ -1,9 +1,9 @@
 const std = @import("std");
 
-pub const vga = @import("VGA.zig");
-pub const interrupt = @import("Interrupt.zig");
-pub const multiboot = @import("Multiboot.zig");
-pub const paging = @import("Paging.zig");
+pub const vga = @import("vga.zig");
+pub const interrupt = @import("interrupt.zig");
+pub const multiboot = @import("multiboot.zig");
+pub const paging = @import("paging.zig");
 
 pub const page_size = 1024 * 4;
 pub const kernel_virt_base: u64 = 0xffff_ffff_c000_0000;
