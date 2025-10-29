@@ -20,7 +20,7 @@ pub var fixed_alloc = fixed_alloc_struct.allocator();
 extern fn functionInRodata() callconv(.{ .x86_64_sysv = .{} }) void;
 const x: u32 = 5;
 
-fn kernelMain() !void {
+fn kernelMain() noreturn {
     tty.clear();
     arch.interrupt.disable();
     arch.interrupt.init();
@@ -57,14 +57,10 @@ fn kernelMain() !void {
     // TODO: get this to cause error
     functionInRodata();
 
-    // arch.Interrupt.Enable();
+    // arch.interrupt.enable();
     arch.spinWait();
 }
 
 export fn KernelEntry() callconv(arch.boot_call_conv) noreturn {
-    kernelMain() catch |err| {
-        std.debug.panic("{}\n", .{err});
-    };
-
-    @panic("KernelMain returned\n");
+    kernelMain();
 }
