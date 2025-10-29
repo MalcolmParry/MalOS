@@ -62,7 +62,7 @@ fn internalAlloc(this: *@This(), page_count: usize) !mem.PageSlice {
 
     for (result) |*page| {
         const phys = try pmm.allocatePage();
-        try this.table.mapPage(phys, page, flags, false, arch.paging.table_allocator.allocator());
+        try this.table.mapPage(phys, page, flags, false);
         pages_allocated += 1;
     }
 
@@ -88,7 +88,7 @@ fn internalResize(this: *@This(), pages: mem.PageSlice, new_page_count: usize) !
     errdefer if (pages_allocated != 0) this.internalFree(extra_pages[0..pages_allocated]);
     for (extra_pages) |*page| {
         const phys = try pmm.allocatePage();
-        try this.table.mapPage(phys, page, flags, false, arch.paging.table_allocator.allocator());
+        try this.table.mapPage(phys, page, flags, false);
         pages_allocated += 1;
     }
 

@@ -108,14 +108,14 @@ pub const tables = struct {
         entries: [512]Entry,
         tables: [512]?*L3,
 
-        pub fn mapPage(this: *L4, phys: mem.PhysPagePtr, virt: mem.PagePtr, page_flags: vmm.PageFlags, can_overwrite: bool, alloc: std.mem.Allocator) !void {
+        pub fn mapPage(this: *L4, phys: mem.PhysPagePtr, virt: mem.PagePtr, page_flags: vmm.PageFlags, can_overwrite: bool) !void {
             const indices = getIndicesFromVirtAddr(virt);
 
             const l4 = this;
             const l3 = try getOrCreateTable(l4, L4, l4, indices[3]);
             const l2 = try getOrCreateTable(l4, L3, l3, indices[2]);
             const l1 = try getOrCreateTable(l4, L2, l2, indices[1]);
-            try reserve.allocate(alloc);
+            try reserve.allocate(table_allocator.allocator());
 
             if (!can_overwrite and l1[indices[0]].present)
                 return error.Overwrite;
@@ -243,7 +243,7 @@ pub const tables = struct {
 const page_tables_l3_index = 510;
 const page_tables_start = tables.getVirtAddrFromindices(511, page_tables_l3_index, 0, 0);
 pub const heap_range = @as(mem.PageManyPtr, @ptrCast(tables.getVirtAddrFromindices(511, 0, 0, 0)))[0 .. 512 * 512 * 510];
-pub var table_allocator: PageAllocator = undefined;
+var table_allocator: PageAllocator = undefined;
 
 var l4_table: tables.L4 align(4096) = undefined;
 var l3_kernel_table: tables.L3 align(4096) = undefined;
