@@ -13,5 +13,4 @@ debug:
 .PHONY: clean
 clean:
 	@rm -rf bin
-	@rm build/x86-64/iso/boot/Kernel.elf 2> /dev/null || :
-	@rm build/x86-64/iso/boot/SymTable.mod 2> /dev/null || :
+	@rm build/x86-64/iso/boot/kernel.elf 2> /dev/null || :
