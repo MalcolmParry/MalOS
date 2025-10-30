@@ -1,3 +1,2 @@
-build/x86-64/iso/boot/kernel.elf
 zig-out/
 .zig-cache/

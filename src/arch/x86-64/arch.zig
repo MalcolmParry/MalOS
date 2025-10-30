@@ -2,7 +2,7 @@ const std = @import("std");
 
 pub const vga = @import("vga.zig");
 pub const interrupt = @import("interrupt.zig");
-pub const multiboot = @import("multiboot.zig");
+pub const multiboot = @import("multiboot2.zig");
 pub const paging = @import("paging.zig");
 
 pub const page_size = 1024 * 4;

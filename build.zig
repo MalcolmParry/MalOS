@@ -14,6 +14,11 @@ pub fn build(b: *std.Build) !void {
         .ofmt = .elf,
     });
 
+    const iso = try addBuildIsoStep(b, optimize, target);
+    try addRunIsoStep(b, iso);
+}
+
+fn addBuildIsoStep(b: *std.Build, optimize: std.builtin.OptimizeMode, target: std.Build.ResolvedTarget) !std.Build.LazyPath {
     const kernel_compile = b.addObject(.{
         .name = "kernel.elf",
         .use_llvm = true,
@@ -43,7 +48,7 @@ pub fn build(b: *std.Build) !void {
     kernel_install.step.dependOn(&iso_install_dir.step);
     kernel_install.step.dependOn(&multiboot_check.step);
 
-    const iso_build = b.addSystemCommand(&.{ "grub-mkrescue", "/usr/lib/grub/i386-efi" });
+    const iso_build = b.addSystemCommand(&.{ "grub-mkrescue", "/usr/lib/grub/x86_64-efi" });
     iso_build.addArg("-o");
     const iso = iso_build.addOutputFileArg(output_sub_dir ++ "kernel.iso");
     iso_build.addArg(b.fmt("{s}/{s}", .{ b.install_prefix, output_sub_dir ++ "iso" }));
@@ -63,23 +68,7 @@ pub fn build(b: *std.Build) !void {
     iso_install.step.dependOn(&iso_build.step);
     b.getInstallStep().dependOn(&iso_install.step);
 
-    const run_step = b.step("run", "Run the iso in qemu");
-    const run = b.addSystemCommand(&.{
-        "qemu-system-x86_64",
-        "-display",
-        "gtk",
-        "-m",
-        "2G",
-        "-smp",
-        "4",
-        "-cdrom",
-    });
-    run.addFileArg(iso);
-    if (b.option(bool, "gdb", "Use gdb with qemu") orelse false)
-        run.addArgs(&.{ "-s", "-S" });
-
-    run_step.dependOn(&run.step);
-    run_step.dependOn(&iso_install.step);
+    return iso;
 }
 
 fn linkAssembly(b: *std.Build, link: *std.Build.Step.Run) !void {
@@ -105,4 +94,24 @@ fn linkAssembly(b: *std.Build, link: *std.Build.Step.Run) !void {
         link.addFileArg(asm_object);
         link.step.dependOn(&asm_compile.step);
     }
+}
+
+fn addRunIsoStep(b: *std.Build, iso: std.Build.LazyPath) !void {
+    const run_step = b.step("run", "Run the iso in qemu");
+    const run = b.addSystemCommand(&.{
+        "qemu-system-x86_64",
+        "-display",
+        "gtk",
+        "-m",
+        "2G",
+        "-smp",
+        "4",
+        "-cdrom",
+    });
+    run.addFileArg(iso);
+    if (b.option(bool, "gdb", "Use gdb with qemu") orelse false)
+        run.addArgs(&.{ "-s", "-S" });
+
+    run.step.dependOn(b.getInstallStep());
+    run_step.dependOn(&run.step);
 }
