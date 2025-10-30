@@ -13,28 +13,25 @@ pub const std_options: std.Options = .{
     .page_size_max = mem.page_size,
 };
 
-var fixed_alloc_buffer: [512]u8 = undefined;
-var fixed_alloc_struct = std.heap.FixedBufferAllocator.init(&fixed_alloc_buffer);
-pub var fixed_alloc = fixed_alloc_struct.allocator();
-
 extern fn functionInRodata() callconv(.{ .x86_64_sysv = .{} }) void;
 const x: u32 = 5;
 
 fn kernelMain() noreturn {
+    arch.vga.init();
     tty.clear();
     arch.interrupt.disable();
     arch.interrupt.init();
 
-    arch.initBootInfo(fixed_alloc);
-    for (mem.phys_modules) |module| {
-        std.log.info("Module '{s}' at {f}\n", .{ module.name, module.phys_range });
+    arch.initBootInfo();
+    for (pmm.modules.items) |module| {
+        std.log.info("Module '{s}' at {f}\n", .{ module.name(), module.range });
     }
 
-    for (mem.available_ranges.items) |range| {
+    for (pmm.available_ranges.items) |range| {
         std.log.info("Available: {f}\n", .{range});
     }
 
-    std.log.info("Kernel {f}\n", .{mem.kernel_range});
+    std.log.info("Kernel {f}\n", .{pmm.kernel_range});
     std.log.info("KernelVirtBase: {x}\n", .{mem.kernel_virt_base});
 
     pmm.tempInit();

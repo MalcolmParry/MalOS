@@ -33,17 +33,6 @@ pub fn Phys(comptime Child: type) type {
     return opaque {};
 }
 
-pub var kernel_range: PhysRange = undefined;
-pub const max_modules = 8;
-pub var phys_modules: []PhysModule = undefined;
-pub const max_available_ranges = 16;
-pub var available_ranges: std.ArrayList(PhysRange) = undefined;
-
-pub const PhysModule = struct {
-    phys_range: PhysRange,
-    name: []const u8,
-};
-
 pub const PhysRange = struct {
     base: usize,
     len: usize,

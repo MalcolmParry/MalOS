@@ -1,6 +1,6 @@
 const mem = @import("../../memory.zig");
+const pmm = @import("../../pmm.zig");
 const std = @import("std");
-const vga = @import("vga.zig");
 
 extern var phys_multiboot_info: *mem.Phys(Info);
 var multiboot_info: *Info = undefined;
@@ -88,35 +88,32 @@ const BootInfoIterater = struct {
 extern var __KERNEL_START__: anyopaque;
 extern var __KERNEL_END__: anyopaque;
 
-var phys_modules: [mem.max_modules]mem.PhysModule = undefined;
-var raw_available_ranges: [mem.max_available_ranges]mem.PhysRange = undefined;
-
-pub fn initBootInfo(alloc: std.mem.Allocator) void {
+pub fn initBootInfo() void {
     multiboot_info = @ptrFromInt(@intFromPtr(phys_multiboot_info) + mem.kernel_virt_base);
-    mem.kernel_range = mem.PhysRange.fromStartAndEnd(@intFromPtr(&__KERNEL_START__), @intFromPtr(&__KERNEL_END__));
-
-    var module_index: u32 = 0;
-    var available_ranges = std.ArrayList(mem.PhysRange).initBuffer(&raw_available_ranges);
+    pmm.kernel_range = mem.PhysRange.fromStartAndEnd(@intFromPtr(&__KERNEL_START__), @intFromPtr(&__KERNEL_END__));
 
     var iter: BootInfoIterater = undefined;
     iter.reset();
     while (iter.next()) |tag| {
         switch (tag.t) {
             .module => {
-                const module: *align(1) Tag.Module = @ptrFromInt(@intFromPtr(tag) + @sizeOf(Tag));
+                const module_tag: *align(1) Tag.Module = @ptrFromInt(@intFromPtr(tag) + @sizeOf(Tag));
 
-                const name_start: [*]u8 = @ptrFromInt(@intFromPtr(module) + @sizeOf(Tag.Module));
+                const name_start: [*]u8 = @ptrFromInt(@intFromPtr(module_tag) + @sizeOf(Tag.Module));
                 const name_end: *u8 = @ptrFromInt(@intFromPtr(tag) + tag.size - 1);
                 const name: []u8 = name_start[0 .. @intFromPtr(name_end) - @intFromPtr(name_start)];
 
-                const len: u32 = module.end - module.start + 1;
+                const len: u32 = module_tag.end - module_tag.start;
+                if (name.len > pmm.Module.max_name_len) @panic("module name too long");
 
-                phys_modules[module_index] = .{
-                    .phys_range = .{ .base = module.start, .len = len },
-                    .name = alloc.dupe(u8, name) catch @panic("out of memory"),
+                const module = pmm.modules.addOneBounded() catch @panic("too many modules");
+                module.* = .{
+                    .range = .{ .base = module_tag.start, .len = len },
+                    .name_buf = undefined,
+                    .name_len = name.len,
                 };
 
-                module_index += 1;
+                @memcpy(module.name_buf[0..name.len], name);
             },
             .mmap => {
                 const mmap: *align(1) Tag.MMap = @ptrFromInt(@intFromPtr(tag) + @sizeOf(Tag));
@@ -131,7 +128,6 @@ pub fn initBootInfo(alloc: std.mem.Allocator) void {
                     if (entry.t != .available)
                         continue;
 
-                    // std.log.info("mem free: 0x{x} - 0x{x}\n", .{ entry.base, entry.base + entry.length });
                     var start: usize = std.mem.alignForward(usize, entry.base, mem.page_size);
                     const end: usize = std.mem.alignBackward(usize, entry.base + entry.length, mem.page_size);
 
@@ -147,67 +143,15 @@ pub fn initBootInfo(alloc: std.mem.Allocator) void {
                         .len = end - start,
                     };
 
-                    available_ranges.appendBounded(range) catch @panic("not enough memory ranges");
+                    pmm.available_ranges.appendBounded(range) catch @panic("not enough memory ranges");
                 }
             },
             .load_base_addr => {
                 const load_base_addr: *align(1) Tag.LoadBaseAddr = @ptrFromInt(@intFromPtr(tag) + @sizeOf(Tag));
-                if (load_base_addr.* != mem.kernel_range.base)
+                if (load_base_addr.* != pmm.kernel_range.base)
                     @panic("wrong kernel load address");
             },
             else => std.log.info("multiboot tag: {s}\n", .{@tagName(tag.t)}),
         }
-    }
-
-    mem.phys_modules = phys_modules[0..module_index];
-
-    reserveRegion(&available_ranges, mem.kernel_range);
-    reserveRegion(&available_ranges, vga.getPhysRange());
-    for (mem.phys_modules) |module| {
-        reserveRegion(&available_ranges, module.phys_range);
-    }
-
-    mem.available_ranges = available_ranges;
-}
-
-fn reserveRegion(available_ranges: *std.ArrayList(mem.PhysRange), reserved: mem.PhysRange) void {
-    const res_aligned = reserved.alignOutwards(mem.page_size);
-
-    var i: u32 = 0;
-    while (i < available_ranges.items.len) {
-        const range = available_ranges.items[i];
-        var start = range.base;
-        var end = range.base + range.len;
-
-        if (res_aligned.addrInRange(start))
-            start = res_aligned.end();
-
-        if (res_aligned.addrInRange(end))
-            end = res_aligned.base;
-
-        if (start >= end) {
-            _ = available_ranges.swapRemove(i);
-            continue;
-        }
-
-        const newRange: mem.PhysRange = .{ .base = start, .len = end - start };
-
-        if (newRange.addrInRange(res_aligned.base)) {
-            const additional: mem.PhysRange = .{
-                .base = res_aligned.end(),
-                .len = end - res_aligned.end(),
-            };
-
-            available_ranges.appendBounded(additional) catch @panic("not enough memory ranges");
-            end = res_aligned.base;
-        }
-
-        available_ranges.items[i] = .{ .base = start, .len = end - start };
-        if (available_ranges.items[i].len <= mem.page_size) {
-            _ = available_ranges.swapRemove(i);
-            continue;
-        }
-
-        i += 1;
     }
 }
