@@ -9,7 +9,6 @@ allowed_range: mem.PageSlice,
 last_alloc_end: mem.PageManyPtr,
 
 const flags: vmm.PageFlags = .{
-    .present = true,
     .cache_mode = .full,
     .executable = false,
     .global = false,

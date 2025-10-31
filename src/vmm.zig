@@ -10,7 +10,6 @@ pub const PageFlags = struct {
         disabled,
     };
 
-    present: bool = true,
     writable: bool,
     executable: bool,
     kernel_only: bool,

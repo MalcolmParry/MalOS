@@ -121,7 +121,7 @@ pub const tables = struct {
                 return error.Overwrite;
 
             l1[indices[0]] = .{
-                .present = page_flags.present,
+                .present = true,
                 .writable = page_flags.writable,
                 .user = !page_flags.kernel_only,
                 .write_through = page_flags.cache_mode == .write_through,
