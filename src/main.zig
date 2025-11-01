@@ -43,9 +43,10 @@ fn kernelMain() noreturn {
     pmm.init(page_alloc);
 
     var page_count: usize = 0;
-    while (page_count < 0x10_0000) {
+    while (page_count < 0x8_0000) {
         const result = page_alloc.alloc(u8, 1) catch break;
-        page_alloc.free(result);
+        _ = result;
+        // page_alloc.free(result);
         page_count += 1;
     }
 

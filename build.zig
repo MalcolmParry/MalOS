@@ -103,7 +103,7 @@ fn addRunIsoStep(b: *std.Build, iso: std.Build.LazyPath) !void {
         "-display",
         "gtk",
         "-m",
-        "2G",
+        "16M",
         "-smp",
         "4",
         "-cdrom",

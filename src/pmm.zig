@@ -39,12 +39,6 @@ pub fn tempInit() void {
         reserveAvailableRegion(region);
     }
 
-    std.mem.sort(mem.PhysRange, available_ranges.items, @as(u8, 0), struct {
-        fn lessThan(_: u8, lhs: mem.PhysRange, rhs: mem.PhysRange) bool {
-            return lhs.base < rhs.base;
-        }
-    }.lessThan);
-
     for (available_ranges.items) |range| {
         total_pages += range.pagesInside();
     }
