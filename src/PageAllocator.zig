@@ -69,11 +69,6 @@ fn internalAlloc(this: *@This(), page_count: usize) !mem.PageSlice {
 }
 
 fn internalResize(this: *@This(), pages: mem.PageSlice, new_page_count: usize) !bool {
-    if (new_page_count == 0) {
-        this.internalFree(pages);
-        return true;
-    }
-
     if (pages.len == new_page_count) return true;
     if (pages.len > new_page_count) {
         const extra_pages = pages[new_page_count..pages.len];
@@ -91,7 +86,6 @@ fn internalResize(this: *@This(), pages: mem.PageSlice, new_page_count: usize) !
         pages_allocated += 1;
     }
 
-    @memset(extra_pages, undefined);
     return true;
 }
 
@@ -113,7 +107,6 @@ fn alloc(ctx: *anyopaque, size: usize, alignment: std.mem.Alignment, ret_addr: u
     const allocation = this.internalAlloc(page_count) catch return null;
     const bytes: [*]u8 = @ptrCast(allocation);
 
-    @memset(bytes[0..size], undefined);
     return bytes;
 }
 
@@ -128,12 +121,7 @@ fn resize(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: 
 
 fn remap(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: usize, ret_addr: usize) ?[*]u8 {
     if (resize(ctx, memory, alignment, new_len, ret_addr)) return memory.ptr;
-    if (memory.len >= new_len) @panic("case should have been handled by resize");
-
-    const new_alloc = alloc(ctx, new_len, alignment, ret_addr) orelse return null;
-    @memcpy(new_alloc[0..memory.len], memory);
-    free(ctx, memory, alignment, ret_addr);
-    return new_alloc;
+    return null;
 }
 
 fn free(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, ret_addr: usize) void {

@@ -63,7 +63,7 @@ pub const PhysRange = struct {
     }
 
     pub fn addrInRange(this: @This(), addr: usize) bool {
-        return (addr >= this.base) and (addr <= this.end());
+        return (addr >= this.base) and (addr < this.end());
     }
 
     pub fn pagesInside(this: @This()) usize {

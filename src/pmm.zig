@@ -22,7 +22,11 @@ pub var available_ranges: std.ArrayList(mem.PhysRange) = .initBuffer(&available_
 pub var reserved_regions: std.ArrayList(mem.PhysRange) = .initBuffer(&reserved_regions_buffer);
 pub var modules: std.ArrayList(Module) = .initBuffer(&modules_buffer);
 
-pub var totalPages: usize = 0;
+pub var temp_mode: bool = true;
+pub var total_pages: usize = 0;
+pub var pages_used: usize = 0;
+pub var bitset: std.DynamicBitSetUnmanaged = .{};
+pub var next_alloc_index: usize = 0;
 
 pub fn tempInit() void {
     reserveAvailableRegion(kernel_range);
@@ -42,47 +46,82 @@ pub fn tempInit() void {
     }.lessThan);
 
     for (available_ranges.items) |range| {
-        totalPages += range.pagesInside();
+        total_pages += range.pagesInside();
     }
+}
 
-    temp.enabled = true;
-    temp.current_ptr = available_ranges.items[0].base;
-    temp.current_range_index = 0;
+pub fn init(alloc: std.mem.Allocator) void {
+    bitset = std.DynamicBitSetUnmanaged.initEmpty(alloc, total_pages) catch @panic("can't allocate pmm bitset");
+    if (next_alloc_index != 0)
+        bitset.setRangeValue(.{ .start = 0, .end = next_alloc_index - 1 }, true);
+
+    std.log.info("bitset size: {x}\n", .{bitset.bit_length / 8});
+    temp_mode = false;
 }
 
 pub fn allocatePage() !mem.PhysPagePtr {
-    if (temp.enabled) return temp.allocatePage();
+    if (temp_mode) {
+        const result_index = next_alloc_index;
+        next_alloc_index += 1;
+        pages_used += 1;
+        if (result_index >= total_pages) return error.OutOfMemory;
+        return indexToAddr(result_index);
+    }
 
-    @panic("not implemented");
+    var result_index = next_alloc_index;
+    while (bitset.isSet(result_index)) {
+        result_index += 1;
+        if (result_index >= total_pages) result_index = 0;
+        if (result_index == next_alloc_index) return error.OutOfMemory;
+    }
+
+    pages_used += 1;
+    next_alloc_index = result_index + 1;
+    if (next_alloc_index >= total_pages) next_alloc_index = 0;
+    bitset.set(result_index);
+    return indexToAddr(result_index);
 }
 
 pub fn freePage(page: mem.PhysPagePtr) void {
-    _ = page;
-    @panic("not implemented");
+    if (temp_mode) @panic("can't free pages with temp pmm");
+
+    const index = addrToIndex(page);
+    std.debug.assert(bitset.isSet(index));
+    bitset.unset(index);
+    pages_used -= 1;
 }
 
-const temp = struct {
-    var enabled: bool = true;
-    var current_ptr: ?usize = null;
-    var current_range_index: usize = undefined;
-
-    fn allocatePage() !mem.PhysPagePtr {
-        if (current_ptr == null) return error.OutOfMemory;
-
-        const result = current_ptr.?;
-        current_ptr.? += mem.page_size;
-        if (!available_ranges.items[current_range_index].addrInRange(current_ptr.?)) {
-            current_range_index += 1;
-            if (current_range_index >= available_ranges.items.len) {
-                current_ptr = null;
-                return @ptrFromInt(result);
-            }
-            current_ptr = available_ranges.items[current_range_index].base;
+fn addrToIndex(page: mem.PhysPagePtr) usize {
+    var cumulative_page_offset: usize = 0;
+    for (available_ranges.items) |region| {
+        const addr: usize = @intFromPtr(page);
+        if (!region.addrInRange(addr)) {
+            cumulative_page_offset += region.pagesInside();
+            continue;
         }
 
-        return @ptrFromInt(result);
+        const offset = addr - region.base;
+        const page_offset = offset / mem.page_size;
+        return cumulative_page_offset + page_offset;
     }
-};
+
+    @panic("out of range");
+}
+
+fn indexToAddr(index: usize) mem.PhysPagePtr {
+    var region_start_index: usize = 0;
+    for (available_ranges.items) |region| {
+        const region_length = region.pagesInside();
+        if (index < region_start_index + region_length) {
+            const offset = index - region_start_index;
+            return @ptrFromInt(region.base + offset * mem.page_size);
+        }
+
+        region_start_index += region_length;
+    }
+
+    @panic("out of range");
+}
 
 fn reserveAvailableRegion(reserved: mem.PhysRange) void {
     const res_aligned = reserved.alignOutwards(mem.page_size);

@@ -40,9 +40,12 @@ fn kernelMain() noreturn {
     var page_allocator_object: PageAllocator = .init(page_table, arch.paging.heap_range);
     const page_alloc = page_allocator_object.allocator();
 
+    pmm.init(page_alloc);
+
     var page_count: usize = 0;
     while (page_count < 0x10_0000) {
-        _ = page_alloc.alloc(u8, 1) catch break;
+        const result = page_alloc.alloc(u8, 1) catch break;
+        page_alloc.free(result);
         page_count += 1;
     }
 
