@@ -10,9 +10,9 @@ const Info = packed struct {
     reserved: u32,
 };
 
-const Tag = packed struct {
-    const MMap = packed struct {
-        const Entry = packed struct {
+const Tag = extern struct {
+    const MMap = extern struct {
+        const Entry = extern struct {
             const Type = enum(u32) {
                 available = 1,
                 reserved = 2,
@@ -24,19 +24,31 @@ const Tag = packed struct {
             base: u64,
             length: u64,
             t: Entry.Type,
-            pad: u32 = 0,
         };
 
+        tag: Tag,
         entry_size: u32,
         version: u32,
+        entries: Entry,
     };
 
-    const Module = packed struct {
+    const Module = extern struct {
+        tag: Tag,
         start: u32,
         end: u32,
     };
 
-    const LoadBaseAddr = u32;
+    const ElfSections = extern struct {
+        tag: Tag,
+        num: u32,
+        entry_size: u32,
+        str_table_index: u32,
+    };
+
+    const LoadBaseAddr = extern struct {
+        tag: Tag,
+        addr: u32,
+    };
 
     const Type = enum(u32) {
         end,
@@ -70,8 +82,8 @@ const Tag = packed struct {
 const BootInfoIterater = struct {
     tag_addr: u64,
 
-    fn next(this: *@This()) ?*align(1) Tag {
-        const tag: *align(1) Tag = @ptrFromInt(this.tag_addr);
+    fn next(this: *@This()) ?*align(8) Tag {
+        const tag: *align(8) Tag = @ptrFromInt(this.tag_addr);
         this.tag_addr += (tag.size + 7) & ~@as(u64, 7);
         if (this.tag_addr > @intFromPtr(multiboot_info) + 8 + multiboot_info.totalSize)
             return null;
@@ -97,7 +109,7 @@ pub fn initBootInfo() void {
     while (iter.next()) |tag| {
         switch (tag.t) {
             .module => {
-                const module_tag: *align(1) Tag.Module = @ptrFromInt(@intFromPtr(tag) + @sizeOf(Tag));
+                const module_tag: *Tag.Module = @ptrCast(tag);
 
                 const name_start: [*]u8 = @ptrFromInt(@intFromPtr(module_tag) + @sizeOf(Tag.Module));
                 const name_end: *u8 = @ptrFromInt(@intFromPtr(tag) + tag.size - 1);
@@ -116,7 +128,7 @@ pub fn initBootInfo() void {
                 @memcpy(module.name_buf[0..name.len], name);
             },
             .mmap => {
-                const mmap: *align(1) Tag.MMap = @ptrFromInt(@intFromPtr(tag) + @sizeOf(Tag));
+                const mmap: *Tag.MMap = @ptrCast(tag);
                 if (mmap.version != 0)
                     @panic("wrong mmap version");
 
@@ -146,9 +158,24 @@ pub fn initBootInfo() void {
                     pmm.available_ranges.appendBounded(range) catch @panic("not enough memory ranges");
                 }
             },
+            .elf_sections => {
+                const elf_sections: *Tag.ElfSections = @ptrCast(tag);
+                if (@sizeOf(std.elf.Elf64_Shdr) != elf_sections.entry_size) @panic("wrong elf section header size");
+                const sections_many_ptr: [*]align(1) std.elf.Elf64_Shdr = @ptrFromInt(@intFromPtr(elf_sections) + @sizeOf(Tag.ElfSections));
+                const sections = sections_many_ptr[0..elf_sections.num];
+
+                for (sections) |section| {
+                    if (section.sh_flags & std.elf.SHF_ALLOC == 0) continue;
+                    std.log.info("R{c}{c} ", .{
+                        @as(u8, if (section.sh_flags & std.elf.SHF_WRITE != 0) 'W' else '-'),
+                        @as(u8, if (section.sh_flags & std.elf.SHF_EXECINSTR != 0) 'X' else '-'),
+                    });
+                    std.log.info("0x{x} - 0x{x}\n", .{ section.sh_addr, section.sh_addr + section.sh_size });
+                }
+            },
             .load_base_addr => {
-                const load_base_addr: *align(1) Tag.LoadBaseAddr = @ptrFromInt(@intFromPtr(tag) + @sizeOf(Tag));
-                if (load_base_addr.* != pmm.kernel_range.base)
+                const load_base_addr: *Tag.LoadBaseAddr = @ptrCast(tag);
+                if (load_base_addr.addr != pmm.kernel_range.base)
                     @panic("wrong kernel load address");
             },
             else => std.log.info("multiboot tag: {s}\n", .{@tagName(tag.t)}),

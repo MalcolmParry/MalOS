@@ -49,7 +49,6 @@ pub fn init(alloc: std.mem.Allocator) void {
     if (next_alloc_index != 0)
         bitset.setRangeValue(.{ .start = 0, .end = next_alloc_index - 1 }, true);
 
-    std.log.info("bitset size: {x}\n", .{bitset.bit_length / 8});
     temp_mode = false;
 }
 

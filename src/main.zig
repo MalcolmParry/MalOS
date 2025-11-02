@@ -59,6 +59,7 @@ fn kernelMain() noreturn {
     functionInRodata();
 
     // arch.interrupt.enable();
+    // @panic("thing");
     arch.spinWait();
 }
 
