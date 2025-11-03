@@ -17,7 +17,6 @@ extern fn functionInRodata() callconv(.{ .x86_64_sysv = .{} }) void;
 const x: u32 = 5;
 
 fn kernelMain() noreturn {
-    arch.vga.init();
     tty.clear();
     arch.interrupt.disable();
     arch.interrupt.init();

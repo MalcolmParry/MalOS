@@ -44,13 +44,6 @@ pub const video_memory: *[size.y][size.x]Char = @ptrFromInt(0xb_8000 + mem.kerne
 pub var bg_color: Color = .dark_gray;
 pub var fg_color: Color = .green;
 
-pub fn init() void {
-    pmm.reserved_regions.appendBounded(.{
-        .base = 0xb8000,
-        .len = @sizeOf(Char) * @as(usize, size.x) * size.y,
-    }) catch @panic("too many reserved regions");
-}
-
 pub fn putChar(x: u8, y: u8, c: u8) void {
     video_memory.*[y][x] = .{ .char = c, .fg = fg_color, .bg = bg_color };
 }

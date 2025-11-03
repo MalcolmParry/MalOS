@@ -19,7 +19,6 @@ var modules_buffer: [8]Module = undefined;
 
 pub var kernel_range: mem.PhysRange = undefined;
 pub var available_ranges: std.ArrayList(mem.PhysRange) = .initBuffer(&available_regions_buffer);
-pub var reserved_regions: std.ArrayList(mem.PhysRange) = .initBuffer(&reserved_regions_buffer);
 pub var modules: std.ArrayList(Module) = .initBuffer(&modules_buffer);
 
 pub var temp_mode: bool = true;
@@ -33,10 +32,6 @@ pub fn tempInit() void {
 
     for (modules.items) |module| {
         reserveAvailableRegion(module.range);
-    }
-
-    for (reserved_regions.items) |region| {
-        reserveAvailableRegion(region);
     }
 
     for (available_ranges.items) |range| {
