@@ -1,6 +1,16 @@
 const std = @import("std");
 const arch = @import("arch.zig");
 
+/// Symbol as it appears in symbol_table module
+/// Definition also used by build file
+/// Symbols in the module will be sorted by address
+pub const Symbol = extern struct {
+    addr: usize,
+    /// offset into symbol_names module
+    name_offset: u16,
+    name_len: u8,
+};
+
 pub fn panic(str: []const u8, trace: ?*std.builtin.StackTrace, return_address: ?usize) noreturn {
     @branchHint(.cold);
     std.log.err("\nKernel Panic: {s}\nStack trace:\n", .{str});

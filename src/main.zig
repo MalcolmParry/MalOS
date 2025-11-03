@@ -59,8 +59,8 @@ fn kernelMain() noreturn {
     functionInRodata();
 
     // arch.interrupt.enable();
-    // @panic("thing");
-    arch.spinWait();
+    @panic("thing");
+    // arch.spinWait();
 }
 
 export fn KernelEntry() callconv(arch.boot_call_conv) noreturn {
