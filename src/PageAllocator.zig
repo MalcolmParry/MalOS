@@ -53,20 +53,14 @@ pub fn getAvailableVirtRange(this: *@This(), page_count: usize) ?mem.PageSlice {
     return virtStart[0..page_count];
 }
 
-pub fn mapRange(this: *@This(), range: mem.PhysRange) ![]u8 {
+pub fn mapRange(this: *@This(), range: mem.PhysRange, page_flags: vmm.PageFlags) ![]u8 {
     const pages = range.alignOutwards(mem.page_size);
     const page_count = pages.pagesInside();
 
     const virt = this.getAvailableVirtRange(page_count) orelse return error.OutOfVirtAddrSpace;
     for (virt, 0..) |*page, i| {
         const phys: mem.PhysPagePtr = @ptrFromInt(pages.base + i * mem.page_size);
-        try this.table.mapPage(phys, page, .{
-            .writable = true,
-            .executable = false,
-            .global = true,
-            .kernel_only = true,
-            .cache_mode = .full,
-        }, false);
+        try this.table.mapPage(phys, page, page_flags, false);
     }
 
     const offset_from_page_bounds = range.base - pages.base;
