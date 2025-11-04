@@ -44,7 +44,7 @@ fn kernelMain() noreturn {
             .kernel_only = true,
             .cache_mode = .full,
         }) catch @panic("can't map module");
-        std.log.info("Module '{s}' at {f} and mapped at 0x{x}\n", .{ module.name(), module.phys_range, if (module.data) |data| @intFromPtr(data.ptr) else 0 });
+        std.log.info("Module '{s}' at {f} and mapped at 0x{x}\n", .{ module.name(), module.phys_range, @intFromPtr(module.data.?.ptr) });
     }
 
     pmm.init(page_alloc);
@@ -66,10 +66,9 @@ fn kernelMain() noreturn {
     functionInRodata();
 
     // arch.interrupt.enable();
-    @panic("thing");
-    // arch.spinWait();
+    arch.spinWait();
 }
 
-export fn KernelEntry() callconv(arch.boot_call_conv) noreturn {
+export fn kernelEntry() callconv(arch.boot_call_conv) noreturn {
     kernelMain();
 }

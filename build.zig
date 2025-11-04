@@ -28,6 +28,7 @@ fn addBuildIsoStep(b: *Build, optimize: std.builtin.OptimizeMode, target: Build.
             .target = target,
             .optimize = optimize,
             .code_model = .kernel,
+            .omit_frame_pointer = false,
         }),
     });
     kernel_compile.bundle_compiler_rt = true;
@@ -200,6 +201,7 @@ const GenSymTabStep = struct {
                 var sym: std.elf.Elf64_Sym = undefined;
                 const sym_slice = @as([*]std.elf.Elf64_Sym, @ptrCast(&sym))[0..1];
                 try reader.interface.readSliceEndian(std.elf.Elf64_Sym, sym_slice, .little);
+                // if (sym.st_type() != std.elf.STT_FUNC) continue;
 
                 try reader.seekTo(strtab_offset + sym.st_name);
                 const name = try reader.interface.takeDelimiter(0) orelse continue;
