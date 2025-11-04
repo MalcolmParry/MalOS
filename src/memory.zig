@@ -74,3 +74,19 @@ pub const PhysRange = struct {
         try writer.print("0x{x} - 0x{x}", .{ this.base, this.base + this.len });
     }
 };
+
+var modules_buffer: [8]Module = undefined;
+pub var modules: std.ArrayList(Module) = .initBuffer(&modules_buffer);
+
+pub const Module = struct {
+    pub const max_name_len = 16;
+
+    phys_range: PhysRange,
+    data: ?[]u8,
+    name_buf: [max_name_len]u8,
+    name_len: usize,
+
+    pub inline fn name(this: @This()) []const u8 {
+        return this.name_buf[0..this.name_len];
+    }
+};

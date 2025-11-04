@@ -1,25 +1,11 @@
 const std = @import("std");
 const mem = @import("memory.zig");
 
-pub const Module = struct {
-    pub const max_name_len = 16;
-
-    range: mem.PhysRange,
-    name_buf: [max_name_len]u8,
-    name_len: usize,
-
-    pub inline fn name(this: @This()) []const u8 {
-        return this.name_buf[0..this.name_len];
-    }
-};
-
 var available_regions_buffer: [16]mem.PhysRange = undefined;
 var reserved_regions_buffer: [4]mem.PhysRange = undefined;
-var modules_buffer: [8]Module = undefined;
 
 pub var kernel_range: mem.PhysRange = undefined;
 pub var available_ranges: std.ArrayList(mem.PhysRange) = .initBuffer(&available_regions_buffer);
-pub var modules: std.ArrayList(Module) = .initBuffer(&modules_buffer);
 
 pub var temp_mode: bool = true;
 pub var total_pages: usize = 0;
@@ -30,8 +16,8 @@ pub var next_alloc_index: usize = 0;
 pub fn tempInit() void {
     reserveAvailableRegion(kernel_range);
 
-    for (modules.items) |module| {
-        reserveAvailableRegion(module.range);
+    for (mem.modules.items) |module| {
+        reserveAvailableRegion(module.phys_range);
     }
 
     for (available_ranges.items) |range| {

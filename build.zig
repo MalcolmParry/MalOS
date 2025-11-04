@@ -143,12 +143,22 @@ const GenSymTabStep = struct {
     fn make(step: *Build.Step, opts: Build.Step.MakeOptions) anyerror!void {
         const this: *@This() = @fieldParentPtr("step", step);
         const b = step.owner;
+        var man = b.graph.cache.obtain();
+        defer man.deinit();
         _ = opts;
+
+        if (b.verbose) std.log.info("generating symbol table", .{});
 
         var buffer: [128]u8 = undefined;
         const kernel_path = this.kernel_elf.generated.file.path orelse return error.NoKernel;
         const kernel = try std.fs.cwd().openFile(kernel_path, .{});
+        _ = try man.addOpenedFile(this.kernel_elf.getPath3(b, step), kernel, null);
         defer kernel.close();
+
+        if (try step.cacheHitAndWatch(&man)) {
+            step.result_cached = true;
+            return;
+        }
 
         const module_dir = b.fmt("{s}/{s}", .{ b.install_prefix, output_sub_dir ++ "iso/boot/" });
         try std.fs.cwd().makePath(module_dir);

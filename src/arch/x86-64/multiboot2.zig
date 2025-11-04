@@ -116,11 +116,12 @@ pub fn initBootInfo() void {
                 const name: []u8 = name_start[0 .. @intFromPtr(name_end) - @intFromPtr(name_start)];
 
                 const len: u32 = module_tag.end - module_tag.start;
-                if (name.len > pmm.Module.max_name_len) @panic("module name too long");
+                if (name.len > mem.Module.max_name_len) @panic("module name too long");
 
-                const module = pmm.modules.addOneBounded() catch @panic("too many modules");
+                const module = mem.modules.addOneBounded() catch @panic("too many modules");
                 module.* = .{
-                    .range = .{ .base = module_tag.start, .len = len },
+                    .phys_range = .{ .base = module_tag.start, .len = len },
+                    .data = null,
                     .name_buf = undefined,
                     .name_len = name.len,
                 };

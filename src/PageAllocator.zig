@@ -53,6 +53,27 @@ pub fn getAvailableVirtRange(this: *@This(), page_count: usize) ?mem.PageSlice {
     return virtStart[0..page_count];
 }
 
+pub fn mapRange(this: *@This(), range: mem.PhysRange) ![]u8 {
+    const pages = range.alignOutwards(mem.page_size);
+    const page_count = pages.pagesInside();
+
+    const virt = this.getAvailableVirtRange(page_count) orelse return error.OutOfVirtAddrSpace;
+    for (virt, 0..) |*page, i| {
+        const phys: mem.PhysPagePtr = @ptrFromInt(pages.base + i * mem.page_size);
+        try this.table.mapPage(phys, page, .{
+            .writable = true,
+            .executable = false,
+            .global = true,
+            .kernel_only = true,
+            .cache_mode = .full,
+        }, false);
+    }
+
+    const offset_from_page_bounds = range.base - pages.base;
+    const pages_as_bytes = std.mem.sliceAsBytes(virt);
+    return pages_as_bytes[offset_from_page_bounds .. offset_from_page_bounds + range.len];
+}
+
 fn internalAlloc(this: *@This(), page_count: usize) !mem.PageSlice {
     const result = this.getAvailableVirtRange(page_count) orelse return error.OutOfVirtAddrSpace;
     this.last_alloc_end = result.ptr + page_count;
