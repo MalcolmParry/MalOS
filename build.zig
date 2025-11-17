@@ -20,6 +20,11 @@ pub fn build(b: *Build) !void {
 }
 
 fn addBuildIsoStep(b: *Build, optimize: std.builtin.OptimizeMode, target: Build.ResolvedTarget) !Build.LazyPath {
+    const grub_dir = std.process.getEnvVarOwned(b.allocator, "GRUB_DIR") catch |err| switch (err) {
+        error.EnvironmentVariableNotFound => "/usr/lib/grub/",
+        else => return err,
+    };
+
     const kernel_compile = b.addObject(.{
         .name = "kernel.elf",
         .use_llvm = true,
@@ -54,7 +59,10 @@ fn addBuildIsoStep(b: *Build, optimize: std.builtin.OptimizeMode, target: Build.
     symbol_table_build.* = .init(b, kernel);
     symbol_table_build.step.dependOn(&link.step);
 
-    const iso_build = b.addSystemCommand(&.{ "grub-mkrescue", "/usr/lib/grub/x86_64-efi" });
+    const iso_build = b.addSystemCommand(&.{
+        "grub-mkrescue",
+        b.fmt("{s}/x86_64-efi", .{grub_dir}),
+    });
     iso_build.addArg("-o");
     const iso = iso_build.addOutputFileArg(output_sub_dir ++ "kernel.iso");
     iso_build.addArg(b.fmt("{s}/{s}", .{ b.install_prefix, output_sub_dir ++ "iso" }));

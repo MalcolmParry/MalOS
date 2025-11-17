@@ -7,11 +7,11 @@ var reserved_regions_buffer: [4]mem.PhysRange = undefined;
 pub var kernel_range: mem.PhysRange = undefined;
 pub var available_ranges: std.ArrayList(mem.PhysRange) = .initBuffer(&available_regions_buffer);
 
-pub var temp_mode: bool = true;
 pub var total_pages: usize = 0;
 pub var pages_used: usize = 0;
-pub var bitset: std.DynamicBitSetUnmanaged = .{};
-pub var next_alloc_index: usize = 0;
+var temp_mode: bool = true;
+var bitset: std.DynamicBitSetUnmanaged = .{};
+var next_alloc_index: usize = 0;
 
 pub fn tempInit() void {
     reserveAvailableRegion(kernel_range);

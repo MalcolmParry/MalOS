@@ -21,6 +21,7 @@ _start64:
 	; 16 byte aligned stack is required for some instructions
 	; and zig assumes that rsp is 16 byte aligned prior to call
 	; and call adds 8 bytes to stack
+	; need rbp to be 0 for stack tracing to work
 	xor rbp, rbp
 	call kernelEntry 
 
