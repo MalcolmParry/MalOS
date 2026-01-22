@@ -61,7 +61,7 @@ fn addBuildIsoStep(b: *Build, optimize: std.builtin.OptimizeMode, target: Build.
 
     const iso_build = b.addSystemCommand(&.{
         "grub-mkrescue",
-        b.fmt("{s}/x86_64-efi", .{grub_dir}),
+        b.fmt("{s}/i386-pc", .{grub_dir}),
     });
     iso_build.addArg("-o");
     const iso = iso_build.addOutputFileArg(output_sub_dir ++ "kernel.iso");
