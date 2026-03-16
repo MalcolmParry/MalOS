@@ -41,8 +41,8 @@ pub fn disable() void {
     asm volatile ("cli");
 }
 
-fn setupIDT(comptime index: u8, isr_type: GateType, dpl: u2, present: bool) void {
-    const isr_ptr = &generateInterruptStub(index);
+fn setupIDT(index: u8, isr_type: GateType, dpl: u2, present: bool) void {
+    const isr_ptr = stub_table[index];
     const isr_int: u64 = @intFromPtr(isr_ptr);
 
     idts[index] = .{
@@ -57,12 +57,8 @@ fn setupIDT(comptime index: u8, isr_type: GateType, dpl: u2, present: bool) void
 }
 
 pub fn init() void {
-    inline for (0..32) |i| {
-        setupIDT(i, .interrupt, 0, true);
-    }
-
-    inline for (32..256) |i| {
-        setupIDT(i, .interrupt, 0, true);
+    for (0..256) |i| {
+        setupIDT(@intCast(i), .interrupt, 0, true);
     }
 
     idtr.size = @sizeOf([256]IDT) - 1;
@@ -142,7 +138,18 @@ export fn commonStub() callconv(.naked) void {
     );
 }
 
-fn generateInterruptStub(comptime int_num: u8) fn () callconv(.naked) void {
+const Stub = fn () callconv(.naked) void;
+const stub_table = blk: {
+    var result: [256]*const Stub = undefined;
+
+    for (0..256) |i| {
+        result[i] = &generateInterruptStub(i);
+    }
+
+    break :blk result;
+};
+
+fn generateInterruptStub(comptime int_num: u8) Stub {
     return struct {
         fn func() callconv(.naked) void {
             asm volatile (
