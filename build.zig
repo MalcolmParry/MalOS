@@ -25,6 +25,11 @@ fn addBuildIsoStep(b: *Build, optimize: std.builtin.OptimizeMode, target: Build.
         else => return err,
     };
 
+    const debug_info = switch (optimize) {
+        .Debug, .ReleaseSafe => true,
+        .ReleaseFast, .ReleaseSmall => false,
+    };
+
     const kernel_compile = b.addObject(.{
         .name = "kernel.elf",
         .use_llvm = true,
@@ -33,13 +38,20 @@ fn addBuildIsoStep(b: *Build, optimize: std.builtin.OptimizeMode, target: Build.
             .target = target,
             .optimize = optimize,
             .code_model = .kernel,
-            .omit_frame_pointer = false,
+            .single_threaded = true,
+            .strip = !debug_info,
+            .omit_frame_pointer = !debug_info,
         }),
     });
     kernel_compile.bundle_compiler_rt = true;
 
     const iso_install_dir = b.addInstallDirectory(.{ .source_dir = b.path(iso_dir_path), .install_dir = .{ .custom = output_sub_dir ++ "iso" }, .install_subdir = "" });
-    const link = b.addSystemCommand(&.{ "ld", "-n", "-g", "-T", "build/x86-64/linker.ld" });
+    const link = b.addSystemCommand(&.{ "ld", "-n", "--gc-sections", "-T", "build/x86-64/linker.ld" });
+    switch (debug_info) {
+        true => link.addArg("-g"),
+        false => link.addArg("-s"),
+    }
+
     link.addArg("-o");
     const kernel = link.addOutputFileArg("kernel.elf");
     link.addFileInput(kernel_compile.getEmittedBin());
