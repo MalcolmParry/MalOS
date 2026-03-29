@@ -37,13 +37,13 @@ fn kernelMain() noreturn {
     const page_alloc = page_allocator_object.allocator();
 
     for (mem.modules.items) |*module| {
-        module.data = page_allocator_object.mapRange(module.phys_range, .{
+        module.data = @alignCast(page_allocator_object.mapRange(module.phys_range, .{
             .writable = true,
             .executable = false,
             .global = true,
             .kernel_only = true,
             .cache_mode = .full,
-        }) catch @panic("can't map module");
+        }) catch @panic("can't map module"));
         std.log.info("Module '{s}' at {f} and mapped at 0x{x}\n", .{ module.name(), module.phys_range, @intFromPtr(module.data.?.ptr) });
     }
 

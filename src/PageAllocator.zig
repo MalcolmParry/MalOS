@@ -55,15 +55,15 @@ pub fn getAvailableVirtRange(this: *@This(), page_count: usize) ?mem.PageSlice {
 
 pub fn mapRange(this: *@This(), range: mem.PhysRange, page_flags: vmm.PageFlags) ![]u8 {
     const pages = range.alignOutwards(mem.page_size);
-    const page_count = pages.pagesInside();
+    const page_count = pages.lengthPagesInclusive();
 
     const virt = this.getAvailableVirtRange(page_count) orelse return error.OutOfVirtAddrSpace;
     for (virt, 0..) |*page, i| {
-        const phys: mem.PhysPagePtr = @ptrFromInt(pages.base + i * mem.page_size);
+        const phys: mem.PhysPagePtr = @ptrFromInt(pages.ptr + i * mem.page_size);
         try this.table.mapPage(phys, page, page_flags, false);
     }
 
-    const offset_from_page_bounds = range.base - pages.base;
+    const offset_from_page_bounds = range.ptr - pages.ptr;
     const pages_as_bytes = std.mem.sliceAsBytes(virt);
     return pages_as_bytes[offset_from_page_bounds .. offset_from_page_bounds + range.len];
 }
@@ -131,7 +131,7 @@ fn resize(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: 
     _ = ret_addr;
 
     const page_count = std.mem.alignForward(usize, new_len, mem.page_size) / mem.page_size;
-    return this.internalResize(mem.pageSliceFromBytes(memory), page_count) catch false;
+    return this.internalResize(mem.pageSliceFromBytesInclusive(memory), page_count) catch false;
 }
 
 fn remap(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: usize, ret_addr: usize) ?[*]u8 {
@@ -144,5 +144,5 @@ fn free(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, ret_addr: u
     std.debug.assert(alignment.toByteUnits() <= mem.page_size);
     _ = ret_addr;
 
-    this.internalFree(mem.pageSliceFromBytes(memory));
+    this.internalFree(mem.pageSliceFromBytesInclusive(memory));
 }

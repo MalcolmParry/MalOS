@@ -102,7 +102,10 @@ extern var __KERNEL_END__: anyopaque;
 
 pub fn initBootInfo() void {
     multiboot_info = @ptrFromInt(@intFromPtr(phys_multiboot_info) + mem.kernel_virt_base);
-    pmm.kernel_range = mem.PhysRange.fromStartAndEnd(@intFromPtr(&__KERNEL_START__), @intFromPtr(&__KERNEL_END__));
+    pmm.kernel_range = mem.PhysRange.fromStartAndEnd(
+        @intFromPtr(&__KERNEL_START__),
+        @intFromPtr(&__KERNEL_END__),
+    );
 
     var iter: BootInfoIterater = undefined;
     iter.reset();
@@ -120,7 +123,7 @@ pub fn initBootInfo() void {
 
                 const module = mem.modules.addOneBounded() catch @panic("too many modules");
                 module.* = .{
-                    .phys_range = .{ .base = module_tag.start, .len = len },
+                    .phys_range = .{ .ptr = module_tag.start, .len = len },
                     .data = null,
                     .name_buf = undefined,
                     .name_len = name.len,
@@ -152,7 +155,7 @@ pub fn initBootInfo() void {
                         continue;
 
                     const range: mem.PhysRange = .{
-                        .base = start,
+                        .ptr = start,
                         .len = end - start,
                     };
 
@@ -176,7 +179,7 @@ pub fn initBootInfo() void {
             },
             .load_base_addr => {
                 const load_base_addr: *Tag.LoadBaseAddr = @ptrCast(tag);
-                if (load_base_addr.addr != pmm.kernel_range.base)
+                if (load_base_addr.addr != pmm.kernel_range.ptr)
                     @panic("wrong kernel load address");
             },
             else => std.log.info("multiboot tag: {s}\n", .{@tagName(tag.t)}),

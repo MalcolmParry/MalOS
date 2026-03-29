@@ -21,7 +21,7 @@ pub fn tempInit() void {
     }
 
     for (available_ranges.items) |range| {
-        total_pages += range.pagesInside();
+        total_pages += range.lengthPagesInclusive();
     }
 }
 
@@ -69,12 +69,12 @@ fn addrToIndex(page: mem.PhysPagePtr) usize {
     var cumulative_page_offset: usize = 0;
     for (available_ranges.items) |region| {
         const addr: usize = @intFromPtr(page);
-        if (!region.addrInRange(addr)) {
-            cumulative_page_offset += region.pagesInside();
+        if (!region.addrInSlice(addr)) {
+            cumulative_page_offset += region.lengthPagesInclusive();
             continue;
         }
 
-        const offset = addr - region.base;
+        const offset = addr - region.ptr;
         const page_offset = offset / mem.page_size;
         return cumulative_page_offset + page_offset;
     }
@@ -85,10 +85,10 @@ fn addrToIndex(page: mem.PhysPagePtr) usize {
 fn indexToAddr(index: usize) mem.PhysPagePtr {
     var region_start_index: usize = 0;
     for (available_ranges.items) |region| {
-        const region_length = region.pagesInside();
+        const region_length = region.lengthPagesInclusive();
         if (index < region_start_index + region_length) {
             const offset = index - region_start_index;
-            return @ptrFromInt(region.base + offset * mem.page_size);
+            return @ptrFromInt(region.ptr + offset * mem.page_size);
         }
 
         region_start_index += region_length;
@@ -103,33 +103,30 @@ fn reserveAvailableRegion(reserved: mem.PhysRange) void {
     var i: u32 = 0;
     while (i < available_ranges.items.len) {
         const range = available_ranges.items[i];
-        var start = range.base;
-        var end = range.base + range.len;
+        var start = range.ptr;
+        var end = range.ptr + range.len;
 
-        if (res_aligned.addrInRange(start))
+        if (res_aligned.addrInSlice(start))
             start = res_aligned.end();
 
-        if (res_aligned.addrInRange(end))
-            end = res_aligned.base;
+        if (res_aligned.addrInSlice(end))
+            end = res_aligned.ptr;
 
         if (start >= end) {
             _ = available_ranges.swapRemove(i);
             continue;
         }
 
-        const newRange: mem.PhysRange = .{ .base = start, .len = end - start };
+        const newRange: mem.PhysRange = .fromStartAndEnd(start, end);
 
-        if (newRange.addrInRange(res_aligned.base)) {
-            const additional: mem.PhysRange = .{
-                .base = res_aligned.end(),
-                .len = end - res_aligned.end(),
-            };
+        if (newRange.addrInSlice(res_aligned.ptr)) {
+            const additional: mem.PhysRange = .fromStartAndEnd(res_aligned.end(), end);
 
             available_ranges.appendBounded(additional) catch @panic("not enough memory ranges");
-            end = res_aligned.base;
+            end = res_aligned.ptr;
         }
 
-        available_ranges.items[i] = .{ .base = start, .len = end - start };
+        available_ranges.items[i] = .fromStartAndEnd(start, end);
         if (available_ranges.items[i].len <= mem.page_size) {
             _ = available_ranges.swapRemove(i);
             continue;
