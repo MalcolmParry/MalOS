@@ -2,6 +2,9 @@ const mem = @import("../../memory.zig");
 const pmm = @import("../../pmm.zig");
 const std = @import("std");
 
+const Phys = mem.Phys;
+const page_size = mem.page_size;
+
 extern var phys_multiboot_info: *mem.Phys(Info);
 var multiboot_info: *Info = undefined;
 
@@ -102,10 +105,10 @@ extern var __KERNEL_END__: anyopaque;
 
 pub fn initBootInfo() void {
     multiboot_info = @ptrFromInt(@intFromPtr(phys_multiboot_info) + mem.kernel_virt_base);
-    pmm.kernel_range = mem.PhysRange.fromStartAndEnd(
-        @intFromPtr(&__KERNEL_START__),
-        @intFromPtr(&__KERNEL_END__),
-    );
+
+    const kernel_start: [*]align(page_size) Phys(u8) = @ptrCast(@alignCast(&__KERNEL_START__));
+    const kernel_len = @intFromPtr(&__KERNEL_END__) - @intFromPtr(&__KERNEL_START__);
+    pmm.kernel_range = kernel_start[0..kernel_len];
 
     var iter: BootInfoIterater = undefined;
     iter.reset();
@@ -117,13 +120,14 @@ pub fn initBootInfo() void {
                 const name_start: [*]u8 = @ptrFromInt(@intFromPtr(module_tag) + @sizeOf(Tag.Module));
                 const name_end: *u8 = @ptrFromInt(@intFromPtr(tag) + tag.size - 1);
                 const name: []u8 = name_start[0 .. @intFromPtr(name_end) - @intFromPtr(name_start)];
+                if (name.len > mem.Module.max_name_len) @panic("module name too long");
 
                 const len: u32 = module_tag.end - module_tag.start;
-                if (name.len > mem.Module.max_name_len) @panic("module name too long");
+                const start: [*]align(page_size) Phys(u8) = @ptrFromInt(module_tag.start);
 
                 const module = mem.modules.addOneBounded() catch @panic("too many modules");
                 module.* = .{
-                    .phys_range = .{ .ptr = module_tag.start, .len = len },
+                    .phys_range = start[0..len],
                     .data = null,
                     .name_buf = undefined,
                     .name_len = name.len,
@@ -141,8 +145,10 @@ pub fn initBootInfo() void {
                     if (entry.t == .acpi_reclaimable)
                         std.log.info("ACPI Reclaimable memory at 0x{x} - 0x{x}\n", .{ entry.base, entry.base + entry.length });
 
-                    if (entry.t != .available)
+                    if (entry.t != .available) {
+                        std.log.info("unavailable memory at 0x{x} - 0x{x}\n", .{ entry.base, entry.base + entry.length });
                         continue;
+                    }
 
                     var start: usize = std.mem.alignForward(usize, entry.base, mem.page_size);
                     const end: usize = std.mem.alignBackward(usize, entry.base + entry.length, mem.page_size);
@@ -154,10 +160,9 @@ pub fn initBootInfo() void {
                     if (start >= end)
                         continue;
 
-                    const range: mem.PhysRange = .{
-                        .ptr = start,
-                        .len = end - start,
-                    };
+                    const len = (end - start) / mem.page_size;
+                    const start_many_ptr: mem.PhysPageManyPtr = @ptrFromInt(start);
+                    const range = start_many_ptr[0..len];
 
                     pmm.available_ranges.appendBounded(range) catch @panic("not enough memory ranges");
                 }
@@ -179,7 +184,7 @@ pub fn initBootInfo() void {
             },
             .load_base_addr => {
                 const load_base_addr: *Tag.LoadBaseAddr = @ptrCast(tag);
-                if (load_base_addr.addr != pmm.kernel_range.ptr)
+                if (load_base_addr.addr != @intFromPtr(pmm.kernel_range.ptr))
                     @panic("wrong kernel load address");
             },
             else => std.log.info("multiboot tag: {s}\n", .{@tagName(tag.t)}),

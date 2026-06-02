@@ -8,8 +8,8 @@ const mem = @import("memory.zig");
 pub const Symbol = extern struct {
     addr: usize,
     /// offset into symbol_names module
-    name_offset: u16,
-    name_len: u8,
+    name_offset: u32,
+    name_len: u32,
 };
 
 var symbol_table: ?[]Symbol = null;

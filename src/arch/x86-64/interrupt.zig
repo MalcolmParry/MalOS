@@ -70,8 +70,46 @@ pub fn init() void {
     );
 }
 
+const PageFaultFlags = packed struct(u64) {
+    present: bool,
+    write_fault: bool,
+    user_mode_fault: bool,
+    reserved: u1,
+    instruction_fetch_fault: bool,
+    unused: u59,
+};
+
 export fn handler(state: *arch.CPUState) callconv(.{ .x86_64_sysv = .{} }) void {
-    std.log.info("interrupt 0x{x}\n", .{state.int_code});
+    std.log.info("\ninterrupt 0x{x}\n", .{state.int_code});
+
+    if (state.int_code == 0xe) {
+        const flags: PageFaultFlags = @bitCast(state.error_code);
+        const cr2: usize = asm volatile (
+            \\mov %%cr2, %[out]
+            : [out] "=r" (-> usize),
+        );
+
+        std.log.info("page fault: 0x{x}\n{}\n", .{ cr2, flags });
+        const indices = arch.paging.tables.getIndicesFromVirtAddr(@ptrFromInt(cr2));
+        std.log.info("page table indices: {any}\n", .{indices});
+
+        const l4: *arch.paging.tables.L4 = @ptrFromInt(state.cr3 + arch.kernel_virt_base);
+        if (l4.tables[indices[3]]) |l3| {
+            std.log.info("l3 addr 0x{x}\n", .{@intFromPtr(l3)});
+
+            if (l3.tables[indices[2]]) |l2| {
+                std.log.info("l2 addr 0x{x}\n", .{@intFromPtr(l2)});
+
+                if (l2.tables[indices[1]]) |l1| {
+                    std.log.info("l1 addr 0x{x}, {x}\n", .{ @intFromPtr(l1), l2.entries[indices[1]].address });
+
+                    const entry = l1.*[indices[0]];
+                    std.log.info("present: {}\n", .{entry.present});
+                    std.log.info("phys addr: 0x{x}\n", .{@as(usize, entry.address) * 4096});
+                }
+            }
+        }
+    }
 
     arch.spinWait();
 }

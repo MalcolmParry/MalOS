@@ -13,6 +13,12 @@ pub const std_options: std.Options = .{
     .page_size_max = mem.page_size,
 };
 
+pub const os = struct {
+    pub const heap = struct {
+        pub const page_allocator = std.testing.failing_allocator;
+    };
+};
+
 extern fn functionInRodata() callconv(.{ .x86_64_sysv = .{} }) void;
 const x: u32 = 5;
 
@@ -24,11 +30,11 @@ fn kernelMain() noreturn {
     arch.initBootInfo();
 
     for (pmm.available_ranges.items) |range| {
-        std.log.info("Available: {f}\n", .{range});
+        std.log.info("Available: {f}\n", .{mem.fmtRange(range)});
     }
 
-    std.log.info("Kernel {f}\n", .{pmm.kernel_range});
-    std.log.info("KernelVirtBase: {x}\n", .{mem.kernel_virt_base});
+    std.log.info("Kernel {f}\n", .{mem.fmtRange(pmm.kernel_range)});
+    std.log.info("KernelVirtBase: 0x{x}\n", .{mem.kernel_virt_base});
 
     pmm.tempInit();
 
@@ -44,10 +50,18 @@ fn kernelMain() noreturn {
             .kernel_only = true,
             .cache_mode = .full,
         }) catch @panic("can't map module"));
-        std.log.info("Module '{s}' at {f} and mapped at 0x{x}\n", .{ module.name(), module.phys_range, @intFromPtr(module.data.?.ptr) });
+        std.log.info("Module '{s}' at {f} and mapped at 0x{x}\n", .{ module.name(), mem.fmtRange(module.phys_range), @intFromPtr(module.data.?.ptr) });
     }
 
     pmm.init(page_alloc);
+
+    // var gpa_obj = std.heap.DebugAllocator(.{
+    //     .thread_safe = false,
+    // }){
+    //     .backing_allocator = page_alloc,
+    // };
+    // defer _ = gpa_obj.deinit();
+    // const gpa = gpa_obj.allocator();
 
     var page_count: usize = 0;
     while (page_count < 0x8_0000) {

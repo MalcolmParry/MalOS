@@ -130,7 +130,7 @@ fn addRunIsoStep(b: *Build, iso: Build.LazyPath) !void {
         "-display",
         "gtk",
         "-m",
-        "16M",
+        "32M",
         "-smp",
         "4",
         "-cdrom",
@@ -170,7 +170,7 @@ const GenSymTabStep = struct {
 
         if (b.verbose) std.log.info("generating symbol table", .{});
 
-        var buffer: [128]u8 = undefined;
+        var buffer: [2048]u8 = undefined;
         const kernel_path = this.kernel_elf.generated.file.path orelse return error.NoKernel;
         const kernel = try std.fs.cwd().openFile(kernel_path, .{});
         _ = try man.addOpenedFile(this.kernel_elf.getPath3(b, step), kernel, null);

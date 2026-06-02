@@ -46,15 +46,27 @@ pub fn alignInwards(T: type, x: T, alignment: u16) T {
 pub fn alignOutwards(T: type, x: T, alignment: u16) T {
     const Child = std.meta.Child(T);
     const start = std.mem.alignBackward(usize, @intFromPtr(x.ptr), alignment);
-    const end = std.mem.alignForward(usize, @intFromPtr(&x.ptr[x.len]), alignment);
+    const end = std.mem.alignForward(usize, @intFromPtr(x.ptr + x.len), alignment);
     const ptr: [*]Child = @ptrFromInt(start);
     const len = (end - start) / @sizeOf(Child);
     return ptr[0..len];
 }
 
+pub fn physPageAlignOutwards(x: []Phys(u8)) PhysPageSlice {
+    const aligned = alignOutwards([]Phys(u8), x, page_size);
+    const start: PhysPageManyPtr = @ptrCast(@alignCast(aligned.ptr));
+    return start[0 .. aligned.len / page_size];
+}
+
+pub fn fromStartAndEnd(T: type, start: anytype, end: anytype) T {
+    std.debug.assert(@TypeOf(start) == @TypeOf(end));
+    const len = (@intFromPtr(end) - @intFromPtr(start)) / page_size;
+    return start[0..len];
+}
+
 pub fn addrInSlice(T: type, slice: T, addr: anytype) bool {
     const start = @intFromPtr(slice.ptr);
-    const end = @intFromPtr(&slice.ptr[slice.len]);
+    const end = @intFromPtr(slice.ptr + slice.len);
     const addr_int: usize = switch (@typeInfo(@TypeOf(addr))) {
         .pointer => @intFromPtr(addr),
         .int => addr,
@@ -64,62 +76,30 @@ pub fn addrInSlice(T: type, slice: T, addr: anytype) bool {
     return (addr_int >= start) and (addr_int < end);
 }
 
-pub const PhysRange = Phys(u8).Slice;
 pub fn Phys(comptime Child: type) type {
-    return opaque {
-        const This = @This();
+    return struct {
+        data: Child,
 
-        pub const Slice = struct {
-            ptr: usize,
-            len: usize,
+        comptime {
+            std.debug.assert(@sizeOf(@This()) == @sizeOf(Child));
+            std.debug.assert(@alignOf(@This()) == @alignOf(Child));
+        }
+    };
+}
 
-            pub fn virt(x: Slice) []Child {
-                const many: [*]Child = @ptrFromInt(x.ptr);
-                return many[0..x.len];
-            }
+pub fn fmtRange(range: anytype) RangeFormatter(@TypeOf(range)) {
+    return .{ .range = range };
+}
 
-            pub fn fromVirt(x: []Child) Slice {
-                return .{
-                    .ptr = @intFromPtr(x.ptr),
-                    .len = x.len,
-                };
-            }
-
-            pub fn fromStartAndEnd(start: usize, end_: usize) Slice {
-                return .{
-                    .ptr = start,
-                    .len = (end_ - start) / @sizeOf(Child),
-                };
-            }
-
-            pub fn end(x: Slice) usize {
-                return x.ptr + x.len * @sizeOf(Child);
-            }
-
-            pub fn alignInwards(x: Slice, alignment: u16) Slice {
-                return fromVirt(mem.alignInwards([]Child, x.virt(), alignment));
-            }
-
-            pub fn alignOutwards(x: Slice, alignment: u16) Slice {
-                return fromVirt(mem.alignOutwards([]Child, x.virt(), alignment));
-            }
-
-            pub fn addrInSlice(x: Slice, addr: anytype) bool {
-                return mem.addrInSlice([]Child, x.virt(), addr);
-            }
-
-            pub fn lengthPagesInclusive(x: Slice) usize {
-                return mem.lengthPagesInclusive(x.len * @sizeOf(Child));
-            }
-
-            pub fn lengthBytes(x: Slice) usize {
-                return x.len * @sizeOf(Child);
-            }
-
-            pub fn format(x: Slice, writer: *std.Io.Writer) !void {
-                try writer.print("0x{x} - 0x{x}", .{ x.ptr, x.ptr + x.lengthBytes() });
-            }
-        };
+pub fn RangeFormatter(Range: type) type {
+    return struct {
+        range: Range,
+        pub inline fn format(this: @This(), writer: *std.Io.Writer) !void {
+            try writer.print("0x{x} - 0x{x}", .{
+                @intFromPtr(this.range.ptr),
+                @intFromPtr(this.range.ptr + this.range.len),
+            });
+        }
     };
 }
 
@@ -129,7 +109,7 @@ pub var modules: std.ArrayList(Module) = .initBuffer(&modules_buffer);
 pub const Module = struct {
     pub const max_name_len = 16;
 
-    phys_range: PhysRange,
+    phys_range: []align(page_size) Phys(u8),
     data: ?[]align(page_size) u8,
     name_buf: [max_name_len]u8,
     name_len: usize,

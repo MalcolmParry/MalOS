@@ -12,7 +12,7 @@ pub const tables = struct {
         present: bool,
         writable: bool,
         user: bool,
-        write_through: bool, // ?
+        write_through: bool,
         disable_cache: bool,
         // cpu sets this, should be set to false by default
         accessed: bool = false,
@@ -85,6 +85,7 @@ pub const tables = struct {
             return lower;
 
         const lower = reserve.getTable(lowerT);
+        initEmpty(lower);
 
         table.tables[index] = lower;
         table.entries[index] = .{
@@ -99,7 +100,6 @@ pub const tables = struct {
             .disable_execute = false,
         };
 
-        initEmpty(lower);
         return lower;
     }
 
@@ -152,7 +152,7 @@ pub const tables = struct {
             const l4 = this;
             const l3 = l4.tables[indices[3]] orelse return true;
             const l2 = l3.tables[indices[2]] orelse return true;
-            if (l2.entries[1].present and l2.entries[1].isHuge)
+            if (l2.entries[indices[1]].present and l2.entries[indices[1]].isHuge)
                 return false;
 
             const l1 = l2.tables[indices[1]] orelse return true;
@@ -201,11 +201,11 @@ pub const tables = struct {
 
         const addr: usize = (ul1 << 12) | (ul2 << 21) | (ul3 << 30) | (ul4 << 39);
         const mask: usize = @truncate(std.math.boolMask(usize, true) << 48);
-        const full: usize = addr | if (l4 & (1 << 8) > 1) mask else 0;
+        const full: usize = addr | if (l4 & (1 << 8) != 0) mask else 0;
         return @ptrFromInt(full);
     }
 
-    fn getIndicesFromVirtAddr(addr: mem.PagePtr) [4]Index {
+    pub fn getIndicesFromVirtAddr(addr: mem.PagePtr) [4]Index {
         const addrI = @intFromPtr(addr);
         const l4 = (addrI >> 39) & 0x1ff;
         const l3 = (addrI >> 30) & 0x1ff;
