@@ -19,9 +19,6 @@ pub const os = struct {
     };
 };
 
-extern fn functionInRodata() callconv(.{ .x86_64_sysv = .{} }) void;
-const x: u32 = 5;
-
 fn kernelMain() noreturn {
     tty.clear();
     arch.interrupt.disable();
@@ -72,12 +69,6 @@ fn kernelMain() noreturn {
     }
 
     std.log.info("Pages Allocated 0x{x}\nMemory Allocated {Bi}\n", .{ page_count, page_count * 4096 });
-
-    const px: *volatile u32 = @constCast(&x);
-    px.* = 2; // TODO: get this to cause an error
-
-    // TODO: get this to cause error
-    functionInRodata();
 
     // arch.interrupt.enable();
     arch.spinWait();

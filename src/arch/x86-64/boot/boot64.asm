@@ -36,9 +36,3 @@ _start64:
 .halt:
 	hlt
 	jmp .halt
-
-section .rodata
-; testing if paging can stop code from executing here
-global functionInRodata
-functionInRodata:
-	ret

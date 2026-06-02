@@ -1,5 +1,7 @@
 const mem = @import("../../memory.zig");
 const pmm = @import("../../pmm.zig");
+const vmm = @import("../../vmm.zig");
+const vga = @import("vga.zig");
 const std = @import("std");
 
 const Phys = mem.Phys;
@@ -164,7 +166,7 @@ pub fn initBootInfo() void {
                     const start_many_ptr: mem.PhysPageManyPtr = @ptrFromInt(start);
                     const range = start_many_ptr[0..len];
 
-                    pmm.available_ranges.appendBounded(range) catch @panic("not enough memory ranges");
+                    pmm.available_ranges.appendBounded(range) catch @panic("too many memory ranges");
                 }
             },
             .elf_sections => {
@@ -180,6 +182,25 @@ pub fn initBootInfo() void {
                         @as(u8, if (section.sh_flags & std.elf.SHF_EXECINSTR != 0) 'X' else '-'),
                     });
                     std.log.info("0x{x} - 0x{x}\n", .{ section.sh_addr, section.sh_addr + section.sh_size });
+
+                    const start = std.mem.alignBackward(u64, section.sh_addr, mem.page_size);
+                    const end = std.mem.alignForward(u64, section.sh_addr + section.sh_size, mem.page_size);
+
+                    if (start < mem.kernel_virt_base) continue;
+
+                    const start_ptr: mem.PageManyPtr = @ptrFromInt(start);
+                    const page_count = (end - start) / mem.page_size;
+
+                    vmm.kernel_regions.appendBounded(.{
+                        .pages = start_ptr[0..page_count],
+                        .flags = .{
+                            .cache_mode = .full,
+                            .writable = section.sh_flags & std.elf.SHF_WRITE > 0,
+                            .executable = section.sh_flags & std.elf.SHF_EXECINSTR > 0,
+                            .kernel_only = true,
+                            .global = false,
+                        },
+                    }) catch @panic("too many elf kernel sections");
                 }
             },
             .load_base_addr => {
@@ -190,4 +211,12 @@ pub fn initBootInfo() void {
             else => std.log.info("multiboot tag: {s}\n", .{@tagName(tag.t)}),
         }
     }
+
+    vmm.kernel_regions.appendBounded(.{ .pages = mem.pageSliceFromBytesInclusive(std.mem.asBytes(vga.video_memory)), .flags = .{
+        .cache_mode = .disabled,
+        .writable = true,
+        .executable = false,
+        .kernel_only = true,
+        .global = false,
+    } }) catch @panic("too many elf kernel sections");
 }

@@ -1,4 +1,5 @@
 const std = @import("std");
+const mem = @import("../../memory.zig");
 const arch = @import("arch.zig");
 const isr = @import("../../isr.zig");
 
@@ -90,7 +91,7 @@ export fn handler(state: *arch.CPUState) callconv(.{ .x86_64_sysv = .{} }) void 
         );
 
         std.log.info("page fault: 0x{x}\n{}\n", .{ cr2, flags });
-        const indices = arch.paging.tables.getIndicesFromVirtAddr(@ptrFromInt(cr2));
+        const indices = arch.paging.tables.getIndicesFromVirtAddr(@ptrFromInt(std.mem.alignBackward(usize, cr2, mem.page_size)));
         std.log.info("page table indices: {any}\n", .{indices});
 
         const l4: *arch.paging.tables.L4 = @ptrFromInt(state.cr3 + arch.kernel_virt_base);

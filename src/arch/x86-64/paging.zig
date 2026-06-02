@@ -2,6 +2,7 @@ const std = @import("std");
 const gdt = @import("gdt.zig");
 const mem = @import("../../memory.zig");
 const vmm = @import("../../vmm.zig");
+const pmm = @import("../../pmm.zig");
 const arch = @import("arch.zig");
 const PageAllocator = @import("../../PageAllocator.zig");
 
@@ -247,12 +248,13 @@ var table_allocator: PageAllocator = undefined;
 
 var l4_table: tables.L4 align(4096) = undefined;
 var l3_kernel_table: tables.L3 align(4096) = undefined;
+var l2_init_kernel_table: tables.L2 align(4096) = undefined;
 var l2_kernel_table: tables.L2 align(4096) = undefined;
 
 comptime {
     @export(&l4_table.entries, .{ .name = "page_table_l4_virt" });
     @export(&l3_kernel_table.entries, .{ .name = "page_table_l3_virt" });
-    @export(&l2_kernel_table.entries, .{ .name = "page_table_l2_virt" });
+    @export(&l2_init_kernel_table.entries, .{ .name = "page_table_l2_virt" });
 }
 
 var l2_page_table_starter: tables.L2 align(4096) = undefined;
@@ -272,9 +274,9 @@ pub fn init() *tables.L4 {
     @memset(l3_kernel_table.entries[0..511], tables.Entry.blank);
     @memset(&l4_table.tables, null);
     @memset(&l3_kernel_table.tables, null);
-    @memset(&l2_kernel_table.tables, null);
+    @memset(&l2_init_kernel_table.tables, null);
     l4_table.tables[511] = &l3_kernel_table;
-    l3_kernel_table.tables[511] = &l2_kernel_table;
+    l3_kernel_table.tables[511] = &l2_init_kernel_table;
 
     tables.initEmpty(&l2_page_table_starter);
     tables.initEmpty(&l1_page_table_starter);
@@ -310,6 +312,49 @@ pub fn init() *tables.L4 {
     const page_table_many_ptr: mem.PageManyPtr = @ptrCast(page_tables_start);
     table_allocator = .init(&l4_table, page_table_many_ptr[0 .. 512 * 512]);
     tables.reserve.allocate(table_allocator.allocator()) catch @panic("cant allocate tables");
+
+    tables.initEmpty(&l2_kernel_table);
+    for (vmm.kernel_regions.items) |region| {
+        for (region.pages) |*page| {
+            const phys = @intFromPtr(page) - mem.kernel_virt_base;
+            std.debug.assert(phys < 4096 * 512 * 512);
+
+            const il1 = (phys >> 12) & 0x1ff;
+            const il2 = (phys >> 21) & 0x1ff;
+
+            const l4 = &l4_table;
+            const l2 = &l2_kernel_table;
+            const l1 = tables.getOrCreateTable(l4, tables.L2, l2, il2) catch @panic("failed to allocate tables for kernel mapping");
+
+            const flags = region.flags;
+            l1[il1] = .{
+                .present = true,
+                .writable = flags.writable,
+                .user = !flags.kernel_only,
+                .write_through = flags.cache_mode == .write_through,
+                .disable_cache = flags.cache_mode == .disabled,
+                .isHuge = false,
+                .global = flags.global,
+                .address = @intCast(phys / mem.page_size),
+                .disable_execute = !flags.executable,
+            };
+        }
+    }
+
+    l3_kernel_table.tables[511] = &l2_kernel_table;
+    l3_kernel_table.entries[511] = .{
+        .present = true,
+        .writable = true,
+        .user = false,
+        .write_through = false,
+        .disable_cache = false,
+        .isHuge = false,
+        .global = false,
+        .address = @intCast((@intFromPtr(&l2_kernel_table.entries) - mem.kernel_virt_base) / mem.page_size),
+        .disable_execute = false,
+    };
+
+    invalidatePages();
 
     return &l4_table;
 }
