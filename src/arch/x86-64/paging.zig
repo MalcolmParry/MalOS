@@ -124,7 +124,7 @@ pub const tables = struct {
             l1[indices[0]] = .{
                 .present = true,
                 .writable = page_flags.writable,
-                .user = !page_flags.kernel_only,
+                .user = page_flags.user,
                 .write_through = page_flags.cache_mode == .write_through,
                 .disable_cache = page_flags.cache_mode == .disabled,
                 .isHuge = false,
@@ -330,7 +330,7 @@ pub fn init() *tables.L4 {
             l1[il1] = .{
                 .present = true,
                 .writable = flags.writable,
-                .user = !flags.kernel_only,
+                .user = flags.user,
                 .write_through = flags.cache_mode == .write_through,
                 .disable_cache = flags.cache_mode == .disabled,
                 .isHuge = false,

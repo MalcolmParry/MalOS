@@ -44,7 +44,7 @@ fn kernelMain() noreturn {
             .writable = true,
             .executable = false,
             .global = true,
-            .kernel_only = true,
+            .user = false,
             .cache_mode = .full,
         }) catch @panic("can't map module"));
         std.log.info("Module '{s}' at {f} and mapped at 0x{x}\n", .{ module.name(), mem.fmtRange(module.phys_range), @intFromPtr(module.data.?.ptr) });
@@ -61,7 +61,7 @@ fn kernelMain() noreturn {
     // const gpa = gpa_obj.allocator();
 
     var page_count: usize = 0;
-    while (page_count < 0x8_0000) {
+    while (page_count < 0x10_0000) {
         const result = page_alloc.alloc(u8, 1) catch break;
         _ = result;
         // page_alloc.free(result);

@@ -22,6 +22,6 @@ pub const PageFlags = packed struct {
     cache_mode: CacheMode,
     writable: bool,
     executable: bool,
-    kernel_only: bool,
+    user: bool,
     global: bool,
 };

@@ -24,6 +24,7 @@ const Tag = extern struct {
                 acpi_reclaimable = 3,
                 nvs = 4,
                 bad = 5,
+                _,
             };
 
             base: u64,
@@ -143,31 +144,29 @@ pub fn initBootInfo() void {
                     @panic("wrong mmap version");
 
                 var entry: *align(1) Tag.MMap.Entry = @ptrFromInt(@intFromPtr(mmap) + @sizeOf(Tag.MMap));
-                while (@intFromPtr(entry) < iter.tag_addr) : (entry = @ptrFromInt(@intFromPtr(entry) + mmap.entry_size)) {
-                    if (entry.t == .acpi_reclaimable)
+                while (@intFromPtr(entry) < iter.tag_addr) : (entry = @ptrFromInt(@intFromPtr(entry) + mmap.entry_size)) switch (entry.t) {
+                    .available => {
+                        var start: usize = std.mem.alignForward(usize, entry.base, mem.page_size);
+                        const end: usize = std.mem.alignBackward(usize, entry.base + entry.length, mem.page_size);
+
+                        const min_available_addr = 64 * 1024;
+                        if (start < min_available_addr)
+                            start = min_available_addr;
+
+                        if (start >= end)
+                            continue;
+
+                        const len = (end - start) / mem.page_size;
+                        const start_many_ptr: mem.PhysPageManyPtr = @ptrFromInt(start);
+                        const range = start_many_ptr[0..len];
+
+                        pmm.available_ranges.appendBounded(range) catch @panic("too many memory ranges");
+                    },
+                    .acpi_reclaimable => {
                         std.log.info("ACPI Reclaimable memory at 0x{x} - 0x{x}\n", .{ entry.base, entry.base + entry.length });
-
-                    if (entry.t != .available) {
-                        std.log.info("unavailable memory at 0x{x} - 0x{x}\n", .{ entry.base, entry.base + entry.length });
-                        continue;
-                    }
-
-                    var start: usize = std.mem.alignForward(usize, entry.base, mem.page_size);
-                    const end: usize = std.mem.alignBackward(usize, entry.base + entry.length, mem.page_size);
-
-                    const min_available_addr = 64 * 1024;
-                    if (start < min_available_addr)
-                        start = min_available_addr;
-
-                    if (start >= end)
-                        continue;
-
-                    const len = (end - start) / mem.page_size;
-                    const start_many_ptr: mem.PhysPageManyPtr = @ptrFromInt(start);
-                    const range = start_many_ptr[0..len];
-
-                    pmm.available_ranges.appendBounded(range) catch @panic("too many memory ranges");
-                }
+                    },
+                    else => {},
+                };
             },
             .elf_sections => {
                 const elf_sections: *Tag.ElfSections = @ptrCast(tag);
@@ -177,11 +176,13 @@ pub fn initBootInfo() void {
 
                 for (sections) |section| {
                     if (section.sh_flags & std.elf.SHF_ALLOC == 0) continue;
-                    std.log.info("R{c}{c} ", .{
+
+                    std.log.info("R{c}{c} 0x{x} - 0x{x}\n", .{
                         @as(u8, if (section.sh_flags & std.elf.SHF_WRITE != 0) 'W' else '-'),
                         @as(u8, if (section.sh_flags & std.elf.SHF_EXECINSTR != 0) 'X' else '-'),
+                        section.sh_addr,
+                        section.sh_addr + section.sh_size,
                     });
-                    std.log.info("0x{x} - 0x{x}\n", .{ section.sh_addr, section.sh_addr + section.sh_size });
 
                     const start = std.mem.alignBackward(u64, section.sh_addr, mem.page_size);
                     const end = std.mem.alignForward(u64, section.sh_addr + section.sh_size, mem.page_size);
@@ -197,7 +198,7 @@ pub fn initBootInfo() void {
                             .cache_mode = .full,
                             .writable = section.sh_flags & std.elf.SHF_WRITE > 0,
                             .executable = section.sh_flags & std.elf.SHF_EXECINSTR > 0,
-                            .kernel_only = true,
+                            .user = false,
                             .global = false,
                         },
                     }) catch @panic("too many elf kernel sections");
@@ -216,7 +217,7 @@ pub fn initBootInfo() void {
         .cache_mode = .disabled,
         .writable = true,
         .executable = false,
-        .kernel_only = true,
+        .user = false,
         .global = false,
     } }) catch @panic("too many elf kernel sections");
 }

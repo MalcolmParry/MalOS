@@ -12,7 +12,7 @@ const flags: vmm.PageFlags = .{
     .cache_mode = .full,
     .executable = false,
     .global = false,
-    .kernel_only = true,
+    .user = false,
     .writable = true,
 };
 
