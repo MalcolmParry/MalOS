@@ -4,6 +4,7 @@ pub const vga = @import("vga.zig");
 pub const interrupt = @import("interrupt.zig");
 pub const multiboot = @import("multiboot2.zig");
 pub const paging = @import("paging.zig");
+pub const pit = @import("pit.zig");
 
 pub const page_size = 1024 * 4;
 pub const kernel_virt_base: u64 = 0xffff_ffff_c000_0000;
@@ -99,6 +100,10 @@ pub fn in(comptime Type: type, port: u16) Type {
         ),
         else => @compileError("Invalid data type. Expected u8, u16, or u32, found " ++ @typeName(Type)),
     };
+}
+
+pub fn ioWait() void {
+    out(0x80, @as(u8, 0));
 }
 
 pub fn readMSR(msr: u32) u64 {
