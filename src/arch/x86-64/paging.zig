@@ -9,7 +9,7 @@ const PageAllocator = @import("../../PageAllocator.zig");
 pub const tables = struct {
     pub const Index = u9;
 
-    pub const Entry = packed struct {
+    pub const Entry = packed struct(u64) {
         present: bool,
         writable: bool,
         user: bool,

@@ -6,7 +6,7 @@ const mem = @import("memory.zig");
 /// Definition also used by build file
 /// Symbols in the module will be sorted by address
 pub const Symbol = extern struct {
-    addr: usize,
+    addr: u64,
     /// offset into symbol_names module
     name_offset: u32,
     name_len: u32,
@@ -19,15 +19,9 @@ pub fn panic(str: []const u8, trace: ?*std.builtin.StackTrace, return_address: ?
     @branchHint(.cold);
     getSymbolTable();
     _ = trace;
+    _ = return_address;
 
-    var iter = std.debug.StackIterator.init(return_address orelse @returnAddress(), @frameAddress());
-    var last_addr: usize = 0;
-    while (iter.next()) |addr| {
-        if (last_addr != addr)
-            writeTraceAddr(addr);
-        last_addr = addr;
-    }
-
+    printStackTrace(@frameAddress());
     std.log.err("Kernel Panic: {s}\n", .{str});
     arch.interrupt.disable();
     arch.spinWait();
@@ -51,6 +45,20 @@ fn getSymbolTable() void {
     }
 }
 
+const Frame = extern struct {
+    next: ?*Frame,
+    ret_addr: usize,
+};
+
+fn printStackTrace(frame_addr: usize) void {
+    var maybe_frame: ?*Frame = @ptrFromInt(frame_addr);
+
+    while (maybe_frame) |frame| {
+        writeTraceAddr(frame.ret_addr);
+        maybe_frame = frame.next;
+    }
+}
+
 fn writeTraceAddr(addr: usize) void {
     if (symbol_table != null and symbol_names != null) {
         const sym = getSymbolFromAddr(addr);
@@ -62,7 +70,7 @@ fn writeTraceAddr(addr: usize) void {
 }
 
 fn getSymbolName(sym: *Symbol) []u8 {
-    return symbol_names.?[sym.name_offset .. sym.name_offset + sym.name_len];
+    return symbol_names.?[sym.name_offset..][0..sym.name_len];
 }
 
 fn getSymbolFromAddr(addr: usize) *Symbol {

@@ -68,7 +68,7 @@ fn kernelMain() noreturn {
         page_count += 1;
     }
 
-    std.log.info("Pages Allocated 0x{x}\nMemory Allocated {Bi}\n", .{ page_count, page_count * 4096 });
+    std.log.info("Pages Allocated 0x{x}\nMemory Allocated {Bi}\n", .{ page_count, page_count * mem.page_size });
 
     arch.pit.init();
     arch.interrupt.enable();

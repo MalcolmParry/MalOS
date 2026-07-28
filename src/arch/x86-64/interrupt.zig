@@ -21,9 +21,9 @@ const IDT = packed struct {
     padding2: u32 = 0,
 };
 
-const IDTR = packed struct {
+const IDTR = extern struct {
     size: u16,
-    base: *[256]IDT,
+    base: *[256]IDT align(2),
 };
 
 const GateType = enum(u4) {

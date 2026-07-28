@@ -26,7 +26,7 @@ fn drain(this: *std.Io.Writer, data: []const []const u8, splat: usize) !usize {
     return written;
 }
 
-const vtable: std.io.Writer.VTable = .{
+const vtable: std.Io.Writer.VTable = .{
     .drain = &drain,
 };
 
@@ -45,7 +45,7 @@ fn print(comptime format: []const u8, args: anytype) void {
 
 pub fn log(
     comptime message_level: std.log.Level,
-    comptime scope: @Type(.enum_literal),
+    comptime scope: @EnumLiteral(),
     comptime format: []const u8,
     args: anytype,
 ) void {

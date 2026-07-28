@@ -4,7 +4,8 @@
 
 pkgs.mkShell {
   packages = with pkgs; [
-    zig
+    zig_0_16
+    zls_0_16
     nasm
     binutils
     grub2

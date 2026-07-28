@@ -20,10 +20,7 @@ pub fn build(b: *Build) !void {
 }
 
 fn addBuildIsoStep(b: *Build, optimize: std.builtin.OptimizeMode, target: Build.ResolvedTarget) !Build.LazyPath {
-    const grub_dir = std.process.getEnvVarOwned(b.allocator, "GRUB_DIR") catch |err| switch (err) {
-        error.EnvironmentVariableNotFound => "/usr/lib/grub/",
-        else => return err,
-    };
+    const grub_dir = b.graph.environ_map.get("GRUB_DIR") orelse "/usr/lib/grub/";
 
     const debug_info = switch (optimize) {
         .Debug, .ReleaseSafe => true,
@@ -82,11 +79,11 @@ fn addBuildIsoStep(b: *Build, optimize: std.builtin.OptimizeMode, target: Build.
     iso_build.step.dependOn(&kernel_install.step);
     iso_build.step.dependOn(&symbol_table_build.step);
 
-    var iso_dir = try std.fs.cwd().openDir(iso_dir_path, .{ .iterate = true });
-    defer iso_dir.close();
+    var iso_dir = try std.Io.Dir.cwd().openDir(b.graph.io, iso_dir_path, .{ .iterate = true });
+    defer iso_dir.close(b.graph.io);
     var iter = try iso_dir.walk(b.allocator);
     defer iter.deinit();
-    while (try iter.next()) |entry| {
+    while (try iter.next(b.graph.io)) |entry| {
         if (entry.kind != .file) continue;
         iso_build.addFileInput(b.path(b.fmt("{s}/{s}", .{ iso_dir_path, entry.path })));
     }
@@ -99,11 +96,12 @@ fn addBuildIsoStep(b: *Build, optimize: std.builtin.OptimizeMode, target: Build.
 }
 
 fn linkAssembly(b: *Build, link: *Build.Step.Run) !void {
-    var asm_source_dir = try std.fs.cwd().openDir(asm_source_path, .{ .iterate = true });
-    defer asm_source_dir.close();
+    var asm_source_dir = try std.Io.Dir.cwd().openDir(b.graph.io, asm_source_path, .{ .iterate = true });
+    defer asm_source_dir.close(b.graph.io);
+
     var iter = try asm_source_dir.walk(b.allocator);
     defer iter.deinit();
-    while (try iter.next()) |entry| {
+    while (try iter.next(b.graph.io)) |entry| {
         if (entry.kind != .file) continue;
         if (!std.mem.endsWith(u8, entry.basename, ".asm")) continue;
 
@@ -164,6 +162,8 @@ const GenSymTabStep = struct {
     fn make(step: *Build.Step, opts: Build.Step.MakeOptions) anyerror!void {
         const this: *@This() = @fieldParentPtr("step", step);
         const b = step.owner;
+        const io = b.graph.io;
+        const cwd = std.Io.Dir.cwd();
         var man = b.graph.cache.obtain();
         defer man.deinit();
         _ = opts;
@@ -172,9 +172,9 @@ const GenSymTabStep = struct {
 
         var buffer: [2048]u8 = undefined;
         const kernel_path = this.kernel_elf.generated.file.path orelse return error.NoKernel;
-        const kernel = try std.fs.cwd().openFile(kernel_path, .{});
+        const kernel = try cwd.openFile(io, kernel_path, .{});
         _ = try man.addOpenedFile(this.kernel_elf.getPath3(b, step), kernel, null);
-        defer kernel.close();
+        defer kernel.close(io);
 
         if (try step.cacheHitAndWatch(&man)) {
             step.result_cached = true;
@@ -182,19 +182,19 @@ const GenSymTabStep = struct {
         }
 
         const module_dir = b.fmt("{s}/{s}", .{ b.install_prefix, output_sub_dir ++ "iso/boot/" });
-        try std.fs.cwd().makePath(module_dir);
-        const symbol_file = try std.fs.cwd().createFile(b.fmt("{s}/symbol_table.mod", .{module_dir}), .{ .truncate = true });
-        defer symbol_file.close();
-        const symbol_names_file = try std.fs.cwd().createFile(b.fmt("{s}/symbol_names.mod", .{module_dir}), .{ .truncate = true });
-        defer symbol_names_file.close();
+        try cwd.createDirPath(io, module_dir);
+        const symbol_file = try cwd.createFile(io, b.fmt("{s}/symbol_table.mod", .{module_dir}), .{ .truncate = true });
+        defer symbol_file.close(io);
+        const symbol_names_file = try cwd.createFile(io, b.fmt("{s}/symbol_names.mod", .{module_dir}), .{ .truncate = true });
+        defer symbol_names_file.close(io);
 
         var symbol_file_buffer: [64]u8 = undefined;
         var symbol_file_name_buffer: [64]u8 = undefined;
-        var symbol_file_writer = symbol_file.writer(&symbol_file_buffer);
-        var symbol_file_name_writer = symbol_names_file.writer(&symbol_file_name_buffer);
+        var symbol_file_writer = symbol_file.writer(io, &symbol_file_buffer);
+        var symbol_file_name_writer = symbol_names_file.writer(io, &symbol_file_name_buffer);
         var name_index: usize = 0;
 
-        var reader = kernel.reader(&buffer);
+        var reader = kernel.reader(io, &buffer);
         const header = try std.elf.Header.read(&reader.interface);
         std.debug.assert(header.is_64);
         const sections = try b.allocator.alloc(std.elf.Elf64_Shdr, header.shnum);
@@ -212,7 +212,7 @@ const GenSymTabStep = struct {
             const strtab_header = &sections[section.sh_link];
             const strtab_offset = strtab_header.sh_offset;
 
-            std.debug.assert(section.sh_entsize == @sizeOf(std.elf.Elf64_Sym));
+            if (section.sh_entsize != @sizeOf(std.elf.Elf64_Sym)) return error.Failed;
             const symbol_count = section.sh_size / @sizeOf(std.elf.Elf64_Sym);
             try own_symbols.ensureTotalCapacity(b.allocator, own_symbols.items.len + symbol_count);
 
