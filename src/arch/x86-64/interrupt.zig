@@ -3,6 +3,7 @@ const mem = @import("../../memory.zig");
 const arch = @import("arch.zig");
 const isr = @import("../../isr.zig");
 const pic = @import("pic.zig");
+const scheduler = @import("../../scheduler.zig");
 
 const IDT = packed struct {
     // part of the ISR ptr
@@ -86,7 +87,9 @@ const PageFaultFlags = packed struct(u64) {
 export fn handler(state: *arch.CPUState) callconv(.{ .x86_64_sysv = .{} }) noreturn {
     switch (state.int_code) {
         0x20 => {
-            std.log.info("10 ms passed\n", .{});
+            std.log.info("10 ms passed, thread switch\n", .{});
+            pic.eoi();
+            scheduler.schedule(state);
         },
         0xe => {
             const flags: PageFaultFlags = @bitCast(state.error_code);
@@ -166,7 +169,7 @@ export fn commonStub() callconv(.naked) void {
     );
 }
 
-fn restoreCpuState(state: *const arch.CPUState) noreturn {
+pub fn restoreCpuState(state: *const arch.CPUState) noreturn {
     asm volatile (
         \\ pop %rax
         \\ mov %cr3, %rbx

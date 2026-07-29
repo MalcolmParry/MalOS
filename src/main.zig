@@ -5,6 +5,7 @@ const pmm = @import("pmm.zig");
 const vmm = @import("vmm.zig");
 const PageAllocator = @import("PageAllocator.zig");
 const std = @import("std");
+const scheduler = @import("scheduler.zig");
 
 pub const panic = @import("panic.zig").panic;
 pub const std_options: std.Options = .{
@@ -70,9 +71,10 @@ fn kernelMain() noreturn {
 
     std.log.info("Pages Allocated 0x{x}\nMemory Allocated {Bi}\n", .{ page_count, page_count * mem.page_size });
 
+    scheduler.init();
+
     arch.pit.init();
-    arch.interrupt.enable();
-    arch.spinWait();
+    arch.interrupt.restoreCpuState(&scheduler.threads[0].cpu_state);
 }
 
 export fn kernelEntry() callconv(arch.boot_call_conv) noreturn {

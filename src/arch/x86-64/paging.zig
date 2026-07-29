@@ -246,7 +246,7 @@ const page_tables_start = tables.getVirtAddrFromindices(511, page_tables_l3_inde
 pub const heap_range = @as(mem.PageManyPtr, @ptrCast(tables.getVirtAddrFromindices(511, 0, 0, 0)))[0 .. 512 * 512 * 510];
 var table_allocator: PageAllocator = undefined;
 
-var l4_table: tables.L4 align(4096) = undefined;
+pub var l4_table: tables.L4 align(4096) = undefined;
 var l3_kernel_table: tables.L3 align(4096) = undefined;
 var l2_init_kernel_table: tables.L2 align(4096) = undefined;
 var l2_kernel_table: tables.L2 align(4096) = undefined;

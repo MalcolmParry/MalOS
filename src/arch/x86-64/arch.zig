@@ -37,9 +37,34 @@ pub const CPUState = packed struct {
 
     rip: u64,
     cs: u64,
-    flags: u64,
+    flags: RFlags,
     rsp: u64,
     ss: u64,
+};
+
+pub const RFlags = packed struct(u64) {
+    CF: bool = false,
+    _1: bool = true,
+    PF: bool = false,
+    _3: bool = false,
+    AF: bool = false,
+    _5: bool = false,
+    ZF: bool = false,
+    SF: bool = false,
+    TF: bool = false,
+    IF: bool = false,
+    DF: bool = false,
+    OF: bool = false,
+    IOPL: u2 = 0,
+    NT: bool = false,
+    _15: bool = false,
+    RF: bool = false,
+    VM: bool = false,
+    AC: bool = false,
+    VIF: bool = false,
+    VIP: bool = false,
+    ID: bool = false,
+    _22_63: u42 = 0,
 };
 
 pub fn halt() void {
