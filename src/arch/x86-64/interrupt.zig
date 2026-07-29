@@ -83,9 +83,7 @@ const PageFaultFlags = packed struct(u64) {
     unused: u59,
 };
 
-export fn handler(state: *arch.CPUState) callconv(.{ .x86_64_sysv = .{} }) void {
-    defer pic.eoi();
-
+export fn handler(state: *arch.CPUState) callconv(.{ .x86_64_sysv = .{} }) noreturn {
     switch (state.int_code) {
         0x20 => {
             std.log.info("10 ms passed\n", .{});
@@ -128,6 +126,9 @@ export fn handler(state: *arch.CPUState) callconv(.{ .x86_64_sysv = .{} }) void 
             arch.spinWait();
         },
     }
+
+    pic.eoi();
+    restoreCpuState(state);
 }
 
 export fn commonStub() callconv(.naked) void {
@@ -162,8 +163,11 @@ export fn commonStub() callconv(.naked) void {
         \\ subq $0x8, %rsp
         \\ pushq %rdi
         \\ call handler
-        \\ popq %rsp
-        \\
+    );
+}
+
+fn restoreCpuState(state: *const arch.CPUState) noreturn {
+    asm volatile (
         \\ pop %rax
         \\ mov %cr3, %rbx
         \\ cmp %rax, %rbx
@@ -189,7 +193,11 @@ export fn commonStub() callconv(.naked) void {
         \\
         \\ addq $0x10, %rsp
         \\ iretq
+        :
+        : [state] "{rsp}" (state),
     );
+
+    unreachable;
 }
 
 const Stub = fn () callconv(.naked) void;

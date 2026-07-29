@@ -41,7 +41,7 @@ fn kernelMain() noreturn {
 
     for (mem.modules.items) |*module| {
         module.data = @alignCast(page_allocator_object.mapRange(module.phys_range, .{
-            .writable = true,
+            .writable = false,
             .executable = false,
             .global = true,
             .user = false,
