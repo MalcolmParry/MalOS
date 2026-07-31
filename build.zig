@@ -13,6 +13,7 @@ pub fn build(b: *Build) !void {
         .abi = .none,
         .cpu_arch = .x86_64,
         .ofmt = .elf,
+        .cpu_model = .baseline,
     });
 
     const iso = try addBuildIsoStep(b, optimize, target);

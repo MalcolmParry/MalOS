@@ -13,6 +13,27 @@ pub const boot_call_conv = std.builtin.CallingConvention{ .x86_64_sysv = .{ .inc
 pub const initBootInfo = multiboot.initBootInfo;
 pub const PageTable = paging.tables.L4;
 
+pub const CpuExtraState = struct {
+    fxsave: [512]u8 align(16),
+
+    pub const zero: CpuExtraState = .{ .fxsave = @splat(0) };
+    pub inline fn save(state: *CpuExtraState) void {
+        asm volatile (
+            \\fxsave (%[addr])
+            :
+            : [addr] "r" (&state.fxsave),
+        );
+    }
+
+    pub inline fn load(state: *const CpuExtraState) void {
+        asm volatile (
+            \\fxrstor (%[addr])
+            :
+            : [addr] "r" (&state.fxsave),
+            : .{});
+    }
+};
+
 pub const CPUState = packed struct {
     cr3: u64,
     rbp: u64,
