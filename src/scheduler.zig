@@ -5,7 +5,7 @@ const Spinlock = @import("Spinlock.zig");
 
 const Thread = struct {
     cpu_state: arch.arch.CPUState,
-    extra_cpu_state: arch.arch.CpuExtraState,
+    ext_cpu_state: arch.arch.CpuExtendedState,
 
     pub const Slot = u32;
 };
@@ -18,7 +18,7 @@ var thread2_stack: [1024 * 16]u8 align(16) = undefined;
 
 pub fn spawnThread(rip: usize, stack_top: usize) void {
     threads.appendBounded(.{
-        .extra_cpu_state = .zero,
+        .ext_cpu_state = .zero,
         .cpu_state = .{
             .cr3 = @intFromPtr(&arch.paging.l4_table) - mem.kernel_virt_base,
             .rbp = stack_top,
@@ -51,13 +51,13 @@ var current_tid: usize = 0;
 pub fn saveThreadState(state: *const arch.arch.CPUState) void {
     const thread = &threads.items[current_tid];
     thread.cpu_state = state.*;
-    thread.extra_cpu_state.save();
+    thread.ext_cpu_state.save();
 }
 
 pub fn schedule() noreturn {
     current_tid = (current_tid + 1) % threads.items.len;
     const thread = &threads.items[current_tid];
 
-    thread.extra_cpu_state.load();
+    thread.ext_cpu_state.load();
     arch.interrupt.restoreCpuState(&thread.cpu_state);
 }

@@ -13,11 +13,11 @@ pub const boot_call_conv = std.builtin.CallingConvention{ .x86_64_sysv = .{ .inc
 pub const initBootInfo = multiboot.initBootInfo;
 pub const PageTable = paging.tables.L4;
 
-pub const CpuExtraState = struct {
+pub const CpuExtendedState = struct {
     fxsave: [512]u8 align(16),
 
-    pub const zero: CpuExtraState = .{ .fxsave = @splat(0) };
-    pub inline fn save(state: *CpuExtraState) void {
+    pub const zero: CpuExtendedState = .{ .fxsave = @splat(0) };
+    pub inline fn save(state: *CpuExtendedState) void {
         asm volatile (
             \\fxsave (%[addr])
             :
@@ -25,12 +25,19 @@ pub const CpuExtraState = struct {
         );
     }
 
-    pub inline fn load(state: *const CpuExtraState) void {
+    pub inline fn load(state: *const CpuExtendedState) void {
         asm volatile (
             \\fxrstor (%[addr])
             :
             : [addr] "r" (&state.fxsave),
-            : .{});
+            : .{
+              // zig fmt: off
+              .xmm0  = true, .xmm1  = true, .xmm2  = true, .xmm3  = true,
+              .xmm4  = true, .xmm5  = true, .xmm6  = true, .xmm7  = true,
+              .xmm8  = true, .xmm9  = true, .xmm10 = true, .xmm11 = true,
+              .xmm12 = true, .xmm13 = true, .xmm14 = true, .xmm15 = true,
+              // zig fmt: on
+            });
     }
 };
 
