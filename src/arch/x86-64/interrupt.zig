@@ -85,11 +85,12 @@ const PageFaultFlags = packed struct(u64) {
 };
 
 export fn handler(state: *arch.CPUState) callconv(.{ .x86_64_sysv = .{} }) noreturn {
+    scheduler.saveThreadState(state);
+
     switch (state.int_code) {
         0x20 => {
-            std.log.info("10 ms passed, thread switch\n", .{});
             pic.eoi();
-            scheduler.schedule(state);
+            scheduler.schedule();
         },
         0xe => {
             const flags: PageFaultFlags = @bitCast(state.error_code);

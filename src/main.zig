@@ -74,7 +74,7 @@ fn kernelMain() noreturn {
     scheduler.init();
 
     arch.pit.init();
-    arch.interrupt.restoreCpuState(&scheduler.threads[0].cpu_state);
+    scheduler.schedule();
 }
 
 export fn kernelEntry() callconv(arch.boot_call_conv) noreturn {
