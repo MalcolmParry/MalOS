@@ -163,7 +163,7 @@ pub fn initBootInfo() void {
                         pmm.available_ranges.appendBounded(range) catch @panic("too many memory ranges");
                     },
                     .acpi_reclaimable => {
-                        std.log.info("ACPI Reclaimable memory at 0x{x} - 0x{x}\n", .{ entry.base, entry.base + entry.length });
+                        std.log.info("ACPI Reclaimable memory at 0x{x} - 0x{x}", .{ entry.base, entry.base + entry.length });
                     },
                     else => {},
                 };
@@ -177,7 +177,7 @@ pub fn initBootInfo() void {
                 for (sections) |section| {
                     if (section.sh_flags & std.elf.SHF_ALLOC == 0) continue;
 
-                    std.log.info("R{c}{c} 0x{x} - 0x{x}\n", .{
+                    std.log.info("R{c}{c} 0x{x} - 0x{x}", .{
                         @as(u8, if (section.sh_flags & std.elf.SHF_WRITE != 0) 'W' else '-'),
                         @as(u8, if (section.sh_flags & std.elf.SHF_EXECINSTR != 0) 'X' else '-'),
                         section.sh_addr,
@@ -209,7 +209,7 @@ pub fn initBootInfo() void {
                 if (load_base_addr.addr != @intFromPtr(pmm.kernel_range.ptr))
                     @panic("wrong kernel load address");
             },
-            else => std.log.info("multiboot tag: {s}\n", .{@tagName(tag.t)}),
+            else => std.log.info("multiboot tag: {s}", .{@tagName(tag.t)}),
         }
     }
 

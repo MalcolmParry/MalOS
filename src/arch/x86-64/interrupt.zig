@@ -99,23 +99,23 @@ export fn handler(state: *arch.CPUState) callconv(.{ .x86_64_sysv = .{} }) noret
                 : [out] "=r" (-> usize),
             );
 
-            std.log.info("page fault: 0x{x}\n{}\n", .{ cr2, flags });
+            std.log.info("page fault: 0x{x}\n{}", .{ cr2, flags });
             const indices = arch.paging.tables.getIndicesFromVirtAddr(@ptrFromInt(std.mem.alignBackward(usize, cr2, mem.page_size)));
-            std.log.info("page table indices: {any}\n", .{indices});
+            std.log.info("page table indices: {any}", .{indices});
 
             const l4: *arch.paging.tables.L4 = @ptrFromInt(state.cr3 + arch.kernel_virt_base);
             if (l4.tables[indices[3]]) |l3| {
-                std.log.info("l3 addr 0x{x}\n", .{@intFromPtr(l3)});
+                std.log.info("l3 addr 0x{x}", .{@intFromPtr(l3)});
 
                 if (l3.tables[indices[2]]) |l2| {
-                    std.log.info("l2 addr 0x{x}\n", .{@intFromPtr(l2)});
+                    std.log.info("l2 addr 0x{x}", .{@intFromPtr(l2)});
 
                     if (l2.tables[indices[1]]) |l1| {
-                        std.log.info("l1 addr 0x{x}, {x}\n", .{ @intFromPtr(l1), l2.entries[indices[1]].address });
+                        std.log.info("l1 addr 0x{x}, {x}", .{ @intFromPtr(l1), l2.entries[indices[1]].address });
 
                         const entry = l1.*[indices[0]];
-                        std.log.info("present: {}\n", .{entry.present});
-                        std.log.info("phys addr: 0x{x}\n", .{@as(usize, entry.address) * 4096});
+                        std.log.info("present: {}", .{entry.present});
+                        std.log.info("phys addr: 0x{x}", .{@as(usize, entry.address) * 4096});
                     }
                 }
             }
@@ -123,10 +123,10 @@ export fn handler(state: *arch.CPUState) callconv(.{ .x86_64_sysv = .{} }) noret
             arch.spinWait();
         },
         0x80 => {
-            std.log.info("syscall\n", .{});
+            std.log.info("syscall", .{});
         },
         else => {
-            std.log.info("\ninterrupt 0x{x}\n", .{state.int_code});
+            std.log.info("interrupt 0x{x}", .{state.int_code});
             arch.spinWait();
         },
     }

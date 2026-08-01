@@ -30,14 +30,14 @@ pub fn spawnThread(rip: usize, stack_top: usize) void {
 }
 
 var spinlock: Spinlock = .{};
-fn thread1() noreturn {
-    std.log.info("thread 1\n", .{});
+fn thread1() callconv(.{ .x86_64_sysv = .{} }) noreturn {
+    std.log.info("thread 1", .{});
 
     arch.spinWait();
 }
 
-fn thread2() noreturn {
-    std.log.info("thread 2\n", .{});
+fn thread2() callconv(.{ .x86_64_sysv = .{} }) noreturn {
+    std.log.info("thread 2", .{});
 
     arch.spinWait();
 }

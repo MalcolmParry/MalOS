@@ -9,7 +9,7 @@ const scheduler = @import("scheduler.zig");
 
 pub const panic = @import("panic.zig").panic;
 pub const std_options: std.Options = .{
-    .logFn = tty.log,
+    .logFn = log,
     .page_size_min = mem.page_size,
     .page_size_max = mem.page_size,
 };
@@ -21,18 +21,17 @@ pub const os = struct {
 };
 
 fn kernelMain() noreturn {
-    tty.clear();
-    arch.interrupt.disable();
+    arch.serial.init();
     arch.interrupt.init();
 
     arch.initBootInfo();
 
     for (pmm.available_ranges.items) |range| {
-        std.log.info("Available: {f}\n", .{mem.fmtRange(range)});
+        std.log.info("Available: {f}", .{mem.fmtRange(range)});
     }
 
-    std.log.info("Kernel {f}\n", .{mem.fmtRange(pmm.kernel_range)});
-    std.log.info("KernelVirtBase: 0x{x}\n", .{mem.kernel_virt_base});
+    std.log.info("Kernel {f}", .{mem.fmtRange(pmm.kernel_range)});
+    std.log.info("KernelVirtBase: 0x{x}", .{mem.kernel_virt_base});
 
     pmm.tempInit();
 
@@ -48,7 +47,7 @@ fn kernelMain() noreturn {
             .user = false,
             .cache_mode = .full,
         }) catch @panic("can't map module"));
-        std.log.info("Module '{s}' at {f} and mapped at 0x{x}\n", .{ module.name(), mem.fmtRange(module.phys_range), @intFromPtr(module.data.?.ptr) });
+        std.log.info("Module '{s}' at {f} and mapped at 0x{x}", .{ module.name(), mem.fmtRange(module.phys_range), @intFromPtr(module.data.?.ptr) });
     }
 
     pmm.init(page_alloc);
@@ -69,7 +68,8 @@ fn kernelMain() noreturn {
         page_count += 1;
     }
 
-    std.log.info("Pages Allocated 0x{x}\nMemory Allocated {Bi}\n", .{ page_count, page_count * mem.page_size });
+    std.log.info("Pages Allocated 0x{x}", .{page_count});
+    std.log.info("Memory Allocated {Bi}", .{page_count * mem.page_size});
 
     scheduler.init();
 
@@ -79,4 +79,16 @@ fn kernelMain() noreturn {
 
 export fn kernelEntry() callconv(arch.boot_call_conv) noreturn {
     kernelMain();
+}
+
+pub fn log(
+    comptime level: std.log.Level,
+    comptime scope: @EnumLiteral(),
+    comptime format: []const u8,
+    args: anytype,
+) void {
+    arch.serial.writer_spinlock.lock();
+    defer arch.serial.writer_spinlock.unlock();
+
+    std.log.defaultLogFileTerminal(level, scope, format, args, arch.serial.term) catch @panic("failed to print");
 }

@@ -21,8 +21,10 @@ pub fn panic(str: []const u8, trace: ?*std.builtin.StackTrace, return_address: ?
     _ = trace;
     _ = return_address;
 
+    arch.serial.writer_spinlock.status.store(.unlocked, .monotonic);
+
     printStackTrace(@frameAddress());
-    std.log.err("Kernel Panic: {s}\n", .{str});
+    std.log.err("Kernel Panic: {s}", .{str});
     arch.interrupt.disable();
     arch.spinWait();
 }
@@ -63,7 +65,7 @@ fn writeTraceAddr(addr: usize) void {
     if (symbol_table != null and symbol_names != null) {
         const sym = getSymbolFromAddr(addr);
         const name = getSymbolName(sym);
-        std.log.err("{s} ", .{name});
+        std.log.err("{s}", .{name});
     }
 
     std.log.err("at 0x{x}\n", .{addr});

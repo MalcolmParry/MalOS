@@ -5,6 +5,7 @@ pub const interrupt = @import("interrupt.zig");
 pub const multiboot = @import("multiboot2.zig");
 pub const paging = @import("paging.zig");
 pub const pit = @import("pit.zig");
+pub const serial = @import("serial.zig");
 
 pub const page_size = 1024 * 4;
 pub const kernel_virt_base: u64 = 0xffff_ffff_c000_0000;

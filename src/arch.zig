@@ -19,3 +19,4 @@ pub const initBootInfo = arch.initBootInfo;
 pub const halt = arch.halt;
 pub const spinWait = arch.spinWait;
 pub const syscall = arch.syscall;
+pub const serial = arch.serial;
