@@ -29,17 +29,36 @@ pub fn spawnThread(rip: usize, stack_top: usize) void {
     }) catch @panic("too many threads");
 }
 
-var spinlock: Spinlock = .{};
+var in_buffer: [8]u8 = undefined;
+var in_head: std.atomic.Value(u64) = .init(0);
+var in_tail: std.atomic.Value(u64) = .init(0);
+
 fn thread1() callconv(.{ .x86_64_sysv = .{} }) noreturn {
     std.log.info("thread 1", .{});
 
-    arch.spinWait();
+    while (true) {
+        const byte = arch.serial.read();
+        while (in_head.load(.monotonic) >= in_tail.load(.monotonic) + in_buffer.len) {
+            std.atomic.spinLoopHint();
+        }
+
+        in_buffer[in_head.load(.monotonic) % in_buffer.len] = byte;
+        _ = in_head.fetchAdd(1, .release);
+    }
 }
 
 fn thread2() callconv(.{ .x86_64_sysv = .{} }) noreturn {
     std.log.info("thread 2", .{});
 
-    arch.spinWait();
+    while (true) {
+        while (in_head.load(.monotonic) == in_tail.load(.monotonic)) {
+            std.atomic.spinLoopHint();
+        }
+
+        const tail = in_tail.fetchAdd(1, .acquire);
+        const byte = in_buffer[tail % in_buffer.len];
+        arch.serial.writer.print("\x1b[2K\r{}\t0x{x}\t'{c}'", .{ byte, byte, byte }) catch {};
+    }
 }
 
 pub fn init() void {

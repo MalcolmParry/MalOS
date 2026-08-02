@@ -50,6 +50,18 @@ pub fn writeStr(x: []const u8) void {
     }
 }
 
+fn serialReceived() bool {
+    return arch.in(u8, port + 5) & 1 > 0;
+}
+
+pub fn read() u8 {
+    while (!serialReceived()) {
+        std.atomic.spinLoopHint();
+    }
+
+    return arch.in(u8, port);
+}
+
 fn drain(this: *std.Io.Writer, data: []const []const u8, splat: usize) !usize {
     writeStr(this.buffer[0..this.end]);
     this.end = 0;
