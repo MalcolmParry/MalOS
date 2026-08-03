@@ -6,6 +6,8 @@ const vmm = @import("vmm.zig");
 const PageAllocator = @import("PageAllocator.zig");
 const std = @import("std");
 const scheduler = @import("scheduler.zig");
+const vfs = @import("fs/vfs.zig");
+const Ramfs = @import("fs/Ramfs.zig");
 
 pub const panic = @import("panic.zig").panic;
 pub const std_options: std.Options = .{
@@ -71,8 +73,17 @@ fn kernelMain() noreturn {
     std.log.info("Pages Allocated 0x{x}", .{page_count});
     std.log.info("Memory Allocated {Bi}", .{page_count * mem.page_size});
 
-    scheduler.init();
+    var ramfs: Ramfs = undefined;
+    ramfs.init(page_alloc, @enumFromInt(0)) catch @panic("cant init ramfs");
+    vfs.root = vfs.super_blocks[0].root;
 
+    std.log.info("{any}", .{vfs.root.lookup("thing.txt")});
+    std.log.info("{any}", .{vfs.root.create("thing.txt", .{ .kind = .file })});
+    std.log.info("{any}", .{vfs.root.create("other.txt", .{ .kind = .file })});
+    std.log.info("{any}", .{vfs.root.lookup("thing.txt")});
+    std.log.info("{any}", .{vfs.root.lookup("other.txt")});
+
+    scheduler.init();
     arch.pit.init();
     scheduler.schedule();
 }
