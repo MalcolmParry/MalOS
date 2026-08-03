@@ -69,6 +69,40 @@ pub const CPUState = packed struct {
     flags: RFlags,
     rsp: u64,
     ss: u64 = 0x10,
+
+    pub fn restore(state: *align(1) const CPUState) noreturn {
+        asm volatile (
+            \\ pop %rax
+            \\ mov %cr3, %rbx
+            \\ cmp %rax, %rbx
+            \\ je 1f
+            \\ mov %rax, %cr3
+            \\ 1:
+            \\
+            \\ popq %rbp
+            \\ popq %rax
+            \\ popq %rbx
+            \\ popq %rcx
+            \\ popq %rdx
+            \\ popq %rsi
+            \\ popq %rdi
+            \\ popq %r8
+            \\ popq %r9
+            \\ popq %r10
+            \\ popq %r11
+            \\ popq %r12
+            \\ popq %r13
+            \\ popq %r14
+            \\ popq %r15
+            \\
+            \\ addq $0x10, %rsp
+            \\ iretq
+            :
+            : [state] "{rsp}" (state),
+        );
+
+        unreachable;
+    }
 };
 
 pub const RFlags = packed struct(u64) {

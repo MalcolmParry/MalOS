@@ -67,10 +67,10 @@ pub fn init() void {
 }
 
 var current_tid: usize = 0;
-pub fn saveThreadState(state: *const arch.arch.CPUState) void {
+pub fn saveThreadState(state: *align(1) const arch.arch.CPUState) void {
     const thread = &threads.items[current_tid];
-    thread.cpu_state = state.*;
     thread.ext_cpu_state.save();
+    thread.cpu_state = state.*;
 }
 
 pub fn schedule() noreturn {
@@ -78,5 +78,5 @@ pub fn schedule() noreturn {
     const thread = &threads.items[current_tid];
 
     thread.ext_cpu_state.load();
-    arch.interrupt.restoreCpuState(&thread.cpu_state);
+    thread.cpu_state.restore();
 }

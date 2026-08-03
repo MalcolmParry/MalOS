@@ -110,7 +110,7 @@ pub const tables = struct {
         tables: [512]?*L3,
 
         pub fn mapPage(this: *L4, phys: mem.PhysPagePtr, virt: mem.PagePtr, page_flags: vmm.PageFlags, can_overwrite: bool) !void {
-            const indices = getIndicesFromVirtAddr(virt);
+            const indices = getIndicesFromVirtAddr(@intFromPtr(virt));
 
             const l4 = this;
             const l3 = try getOrCreateTable(l4, L4, l4, indices[3]);
@@ -135,7 +135,7 @@ pub const tables = struct {
         }
 
         pub fn getPhysAddrFromVirt(this: *@This(), virt: mem.PagePtr) mem.PhysPagePtr {
-            const indices = getIndicesFromVirtAddr(virt);
+            const indices = getIndicesFromVirtAddr(@intFromPtr(virt));
 
             const l4 = this;
             const l3 = l4.tables[indices[3]] orelse @panic("not mapped");
@@ -149,7 +149,7 @@ pub const tables = struct {
         }
 
         pub fn isAvailable(this: *@This(), page: mem.PagePtr) bool {
-            const indices = getIndicesFromVirtAddr(page);
+            const indices = getIndicesFromVirtAddr(@intFromPtr(page));
             const l4 = this;
             const l3 = l4.tables[indices[3]] orelse return true;
             const l2 = l3.tables[indices[2]] orelse return true;
@@ -169,7 +169,7 @@ pub const tables = struct {
         }
 
         pub fn clearEntry(this: *@This(), virt: mem.PagePtr) !void {
-            const indices = getIndicesFromVirtAddr(virt);
+            const indices = getIndicesFromVirtAddr(@intFromPtr(virt));
 
             const l4 = this;
             const l3 = l4.tables[indices[3]] orelse @panic("not mapped");
@@ -206,12 +206,11 @@ pub const tables = struct {
         return @ptrFromInt(full);
     }
 
-    pub fn getIndicesFromVirtAddr(addr: mem.PagePtr) [4]Index {
-        const addrI = @intFromPtr(addr);
-        const l4 = (addrI >> 39) & 0x1ff;
-        const l3 = (addrI >> 30) & 0x1ff;
-        const l2 = (addrI >> 21) & 0x1ff;
-        const l1 = (addrI >> 12) & 0x1ff;
+    pub fn getIndicesFromVirtAddr(addr: usize) [4]Index {
+        const l4 = (addr >> 39) & 0x1ff;
+        const l3 = (addr >> 30) & 0x1ff;
+        const l2 = (addr >> 21) & 0x1ff;
+        const l1 = (addr >> 12) & 0x1ff;
         return .{
             @intCast(l1),
             @intCast(l2),

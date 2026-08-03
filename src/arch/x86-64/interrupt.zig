@@ -4,6 +4,7 @@ const arch = @import("arch.zig");
 const isr = @import("../../isr.zig");
 const pic = @import("pic.zig");
 const scheduler = @import("../../scheduler.zig");
+const panic = @import("../../panic.zig");
 
 const IDT = packed struct {
     // part of the ISR ptr
@@ -84,7 +85,7 @@ const PageFaultFlags = packed struct(u64) {
     unused: u59,
 };
 
-export fn handler(state: *arch.CPUState) callconv(.{ .x86_64_sysv = .{} }) noreturn {
+export fn handler(state: *align(1) arch.CPUState) callconv(.{ .x86_64_sysv = .{ .incoming_stack_alignment = 1 } }) noreturn {
     scheduler.saveThreadState(state);
 
     switch (state.int_code) {
@@ -99,23 +100,26 @@ export fn handler(state: *arch.CPUState) callconv(.{ .x86_64_sysv = .{} }) noret
                 : [out] "=r" (-> usize),
             );
 
-            std.log.info("page fault: 0x{x}\n{}", .{ cr2, flags });
-            const indices = arch.paging.tables.getIndicesFromVirtAddr(@ptrFromInt(std.mem.alignBackward(usize, cr2, mem.page_size)));
-            std.log.info("page table indices: {any}", .{indices});
+            std.log.err("page fault\n{}", .{flags});
+            panic.getSymbolTable();
+            panic.writeTraceAddr(cr2);
+
+            const indices = arch.paging.tables.getIndicesFromVirtAddr(cr2);
+            std.log.err("page table indices: {any}", .{indices});
 
             const l4: *arch.paging.tables.L4 = @ptrFromInt(state.cr3 + arch.kernel_virt_base);
             if (l4.tables[indices[3]]) |l3| {
-                std.log.info("l3 addr 0x{x}", .{@intFromPtr(l3)});
+                std.log.err("l3 addr 0x{x}", .{@intFromPtr(l3)});
 
                 if (l3.tables[indices[2]]) |l2| {
-                    std.log.info("l2 addr 0x{x}", .{@intFromPtr(l2)});
+                    std.log.err("l2 addr 0x{x}", .{@intFromPtr(l2)});
 
                     if (l2.tables[indices[1]]) |l1| {
-                        std.log.info("l1 addr 0x{x}, {x}", .{ @intFromPtr(l1), l2.entries[indices[1]].address });
+                        std.log.err("l1 addr 0x{x}, {x}", .{ @intFromPtr(l1), l2.entries[indices[1]].address });
 
                         const entry = l1.*[indices[0]];
-                        std.log.info("present: {}", .{entry.present});
-                        std.log.info("phys addr: 0x{x}", .{@as(usize, entry.address) * 4096});
+                        std.log.err("present: {}", .{entry.present});
+                        std.log.err("phys addr: 0x{x}", .{@as(usize, entry.address) * 4096});
                     }
                 }
             }
@@ -124,15 +128,15 @@ export fn handler(state: *arch.CPUState) callconv(.{ .x86_64_sysv = .{} }) noret
         },
         0x80 => {
             std.log.info("syscall", .{});
+
+            pic.eoi();
+            scheduler.schedule();
         },
         else => {
             std.log.info("interrupt 0x{x}", .{state.int_code});
             arch.spinWait();
         },
     }
-
-    pic.eoi();
-    restoreCpuState(state);
 }
 
 export fn commonStub() callconv(.naked) void {
@@ -162,46 +166,10 @@ export fn commonStub() callconv(.naked) void {
         \\ mov %ax, %fs
         \\ mov %ax, %gs
         \\
+        \\ xor %ebp, %ebp
         \\ movq %rsp, %rdi // 1st arg in rdi
-        \\ andq $(~0xf), %rsp // 16 byte align
-        \\ subq $0x8, %rsp
-        \\ pushq %rdi
-        \\ call handler
+        \\ jmp handler
     );
-}
-
-pub fn restoreCpuState(state: *const arch.CPUState) noreturn {
-    asm volatile (
-        \\ pop %rax
-        \\ mov %cr3, %rbx
-        \\ cmp %rax, %rbx
-        \\ je same_cr3
-        \\ mov %rax, %cr3
-        \\ same_cr3:
-        \\
-        \\ popq %rbp
-        \\ popq %rax
-        \\ popq %rbx
-        \\ popq %rcx
-        \\ popq %rdx
-        \\ popq %rsi
-        \\ popq %rdi
-        \\ popq %r8
-        \\ popq %r9
-        \\ popq %r10
-        \\ popq %r11
-        \\ popq %r12
-        \\ popq %r13
-        \\ popq %r14
-        \\ popq %r15
-        \\
-        \\ addq $0x10, %rsp
-        \\ iretq
-        :
-        : [state] "{rsp}" (state),
-    );
-
-    unreachable;
 }
 
 const Stub = fn () callconv(.naked) void;

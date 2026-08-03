@@ -29,7 +29,7 @@ pub fn panic(str: []const u8, trace: ?*std.builtin.StackTrace, return_address: ?
     arch.spinWait();
 }
 
-fn getSymbolTable() void {
+pub fn getSymbolTable() void {
     for (mem.modules.items) |*module| {
         if (module.data == null) continue;
         const data = module.data.?;
@@ -61,7 +61,7 @@ fn printStackTrace(frame_addr: usize) void {
     }
 }
 
-fn writeTraceAddr(addr: usize) void {
+pub fn writeTraceAddr(addr: usize) void {
     if (symbol_table != null and symbol_names != null) {
         const sym = getSymbolFromAddr(addr);
         const name = getSymbolName(sym);

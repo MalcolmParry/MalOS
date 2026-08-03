@@ -125,20 +125,16 @@ fn linkAssembly(b: *Build, link: *Build.Step.Run) !void {
 fn addRunIsoStep(b: *Build, iso: Build.LazyPath) !void {
     const run_step = b.step("run", "Run the iso in qemu");
     const run = b.addSystemCommand(&.{
+        // zig fmt: off
         "qemu-system-x86_64",
-        "-display",
-        "gtk",
-        "-vga",
-        "none",
-        "-monitor",
-        "none",
-        "-parallel",
-        "none",
-        "-m",
-        "32M",
-        "-smp",
-        "4",
+        "-display", "gtk",
+        "-nodefaults",
+        "-serial", "vc",
+        // "-vga", "std",
+        "-m", "32M",
+        "-smp", "4",
         "-cdrom",
+        // zig fmt: on
     });
     run.addFileArg(iso);
     if (b.option(bool, "gdb", "Use gdb with qemu") orelse false)
