@@ -1,7 +1,9 @@
 const std = @import("std");
 const Spinlock = @This();
 
-status: std.atomic.Value(Status) = .init(.unlocked),
+status: std.atomic.Value(Status),
+
+pub const init: Spinlock = .{ .status = .init(.unlocked) };
 
 const Status = enum(u8) {
     unlocked,

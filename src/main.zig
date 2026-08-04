@@ -63,10 +63,10 @@ fn kernelMain() noreturn {
     // const gpa = gpa_obj.allocator();
 
     var page_count: usize = 0;
-    while (page_count < 0x10_0000) {
+    while (page_count < 0x4000) {
         const result = page_alloc.alloc(u8, 1) catch break;
-        _ = result;
-        // page_alloc.free(result);
+        // _ = result;
+        page_alloc.free(result);
         page_count += 1;
     }
 
@@ -74,14 +74,48 @@ fn kernelMain() noreturn {
     std.log.info("Memory Allocated {Bi}", .{page_count * mem.page_size});
 
     var ramfs: Ramfs = undefined;
-    ramfs.init(page_alloc, @enumFromInt(0)) catch @panic("cant init ramfs");
-    vfs.root = vfs.super_blocks[0].root;
+    const ramfs_sb = ramfs.init(page_alloc) catch @panic("cant init ramfs");
+    vfs.root = vfs.super_blocks[@intFromEnum(ramfs_sb)].root;
+    vfs.root.incRef();
 
-    std.log.info("{any}", .{vfs.root.lookup("thing.txt")});
-    std.log.info("{any}", .{vfs.root.create("thing.txt", .{ .kind = .file })});
-    std.log.info("{any}", .{vfs.root.create("other.txt", .{ .kind = .file })});
-    std.log.info("{any}", .{vfs.root.lookup("thing.txt")});
-    std.log.info("{any}", .{vfs.root.lookup("other.txt")});
+    {
+        std.debug.assert(vfs.root.lookup("thing.txt") == error.NoEntry);
+        const thing_file = vfs.root.create("thing.txt", .{ .kind = .file }) catch |err| std.debug.panic("{}", .{err});
+        defer thing_file.decRef();
+    }
+
+    {
+        const thing_file = vfs.root.lookup("thing.txt") catch unreachable;
+        thing_file.destroy() catch unreachable;
+        std.debug.assert(vfs.root.lookup("thing.txt") == error.NoEntry);
+    }
+
+    const test_data1 = "very important stuff";
+    const test_data2 = "extra important info";
+
+    {
+        const other_file = vfs.root.create("other.thing", .{ .kind = .file }) catch unreachable;
+        defer other_file.decRef();
+
+        const thing = other_file.open() catch unreachable;
+        defer thing.close();
+
+        std.debug.assert(thing.write(test_data1) catch unreachable == test_data1.len);
+        thing.seek(0) catch unreachable;
+        std.debug.assert(thing.write(test_data2) catch unreachable == test_data2.len);
+    }
+
+    {
+        const other_file = vfs.root.lookup("other.thing") catch unreachable;
+        defer other_file.destroy() catch unreachable;
+
+        const thing = other_file.open() catch unreachable;
+        defer thing.close();
+
+        var buffer: [test_data2.len]u8 = undefined;
+        std.debug.assert(thing.read(buffer[0..]) catch unreachable == test_data2.len);
+        std.debug.assert(std.mem.eql(u8, buffer[0..], test_data2));
+    }
 
     scheduler.init();
     arch.pit.init();
