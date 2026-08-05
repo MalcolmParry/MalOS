@@ -45,6 +45,25 @@ pub fn disable() void {
     asm volatile ("cli");
 }
 
+pub fn popDisable() bool {
+    const rflags = asm volatile (
+        \\ pushfq
+        \\ cli
+        \\ popq %[flags]
+        : [flags] "=r" (-> arch.RFlags),
+    );
+
+    return rflags.IF;
+}
+
+pub fn set(enabled: bool) void {
+    if (enabled) {
+        enable();
+    } else {
+        disable();
+    }
+}
+
 fn setupIDT(index: u8, isr_type: GateType, dpl: u2, present: bool) void {
     const isr_ptr = stub_table[index];
     const isr_int: u64 = @intFromPtr(isr_ptr);

@@ -74,14 +74,14 @@ fn kernelMain() noreturn {
     std.log.info("Memory Allocated {Bi}", .{page_count * mem.page_size});
 
     var ramfs: Ramfs = undefined;
-    const ramfs_sb = ramfs.init(page_alloc) catch @panic("cant init ramfs");
-    vfs.root = vfs.super_blocks[@intFromEnum(ramfs_sb)].root;
-    vfs.root.incRef();
+    ramfs.init(page_alloc) catch @panic("cant init ramfs");
+    vfs.root = ramfs.sb.root;
+    vfs.root.ref_count += 1;
 
     {
         std.debug.assert(vfs.root.lookup("thing.txt") == error.NoEntry);
         const thing_file = vfs.root.create("thing.txt", .{ .kind = .file }) catch |err| std.debug.panic("{}", .{err});
-        defer thing_file.decRef();
+        defer thing_file.ref_count -= 1;
     }
 
     {
@@ -95,7 +95,7 @@ fn kernelMain() noreturn {
 
     {
         const other_file = vfs.root.create("other.thing", .{ .kind = .file }) catch unreachable;
-        defer other_file.decRef();
+        defer other_file.ref_count -= 1;
 
         const thing = other_file.open() catch unreachable;
         defer thing.close();
