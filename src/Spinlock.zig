@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const Spinlock = @This();
 
 status: std.atomic.Value(Status),
@@ -17,6 +18,7 @@ pub fn tryLock(sl: *Spinlock) bool {
 pub fn lock(sl: *Spinlock) void {
     while (true) {
         while (sl.status.load(.monotonic) == .locked) {
+            if (builtin.is_test) @panic("");
             std.atomic.spinLoopHint();
         }
 

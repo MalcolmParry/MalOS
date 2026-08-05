@@ -1,6 +1,5 @@
 const std = @import("std");
 const vfs = @import("vfs.zig");
-const mem = @import("../memory.zig");
 const Spinlock = @import("../Spinlock.zig");
 const Ramfs = @This();
 
@@ -83,6 +82,11 @@ pub fn init(fs: *Ramfs, alloc: std.mem.Allocator) !void {
     };
 }
 
+pub fn deinit(fs: *Ramfs) void {
+    fs.node_pool.deinit(fs.alloc);
+    fs.file_pool.deinit(fs.alloc);
+}
+
 fn lookup(dir_vfs: *vfs.Node, name: []const u8) vfs.Error!*vfs.Node {
     const fs: *Ramfs = @fieldParentPtr("sb", dir_vfs.sb);
     fs.lock.lock();
@@ -155,6 +159,11 @@ fn destroy(node_vfs: *vfs.Node) vfs.Error!void {
 
     // if there is a mount, then there should be another reference
     std.debug.assert(node_vfs.mount == null);
+
+    switch (node_vfs.kind) {
+        .file => node.data.file.data.deinit(fs.alloc),
+        .dir => {},
+    }
 
     const parent: *Node = @fieldParentPtr("vfs_node", node_vfs.parent);
     if (parent.data.dir.first_child == node) {
@@ -261,4 +270,61 @@ fn seek(vfs_file: *vfs.File, base: vfs.SeekBase, offset: isize) vfs.Error!void {
 
     const new_head = @max(0, base_int + offset);
     file.head = @intCast(new_head);
+}
+
+test "lookup/destroy" {
+    var ramfs: Ramfs = undefined;
+    try ramfs.init(std.testing.allocator);
+    defer ramfs.deinit();
+
+    vfs.root = ramfs.sb.root;
+    vfs.root.ref_count += 1;
+
+    {
+        try std.testing.expect(vfs.root.lookup("thing.txt") == error.NoEntry);
+        const thing_file = try vfs.root.create("thing.txt", .{ .kind = .file });
+        defer thing_file.ref_count -= 1;
+    }
+
+    {
+        const thing_file = try vfs.root.lookup("thing.txt");
+        try thing_file.destroy();
+        try std.testing.expect(vfs.root.lookup("thing.txt") == error.NoEntry);
+    }
+}
+
+test "read/write" {
+    var ramfs: Ramfs = undefined;
+    try ramfs.init(std.testing.allocator);
+    defer ramfs.deinit();
+
+    vfs.root = ramfs.sb.root;
+    vfs.root.ref_count += 1;
+
+    const test_data1 = "very important stuff";
+    const test_data2 = "extra important info";
+
+    {
+        const other_file = try vfs.root.create("other.thing", .{ .kind = .file });
+        defer other_file.ref_count -= 1;
+
+        const thing = try other_file.open();
+        defer thing.close();
+
+        try std.testing.expect(try thing.write(test_data1) == test_data1.len);
+        try thing.seek(.start, 0);
+        try std.testing.expect(try thing.write(test_data2) == test_data2.len);
+    }
+
+    {
+        const other_file = try vfs.root.lookup("other.thing");
+        defer other_file.destroy() catch unreachable;
+
+        const thing = try other_file.open();
+        defer thing.close();
+
+        var buffer: [test_data2.len]u8 = undefined;
+        try std.testing.expect(try thing.read(buffer[0..]) == test_data2.len);
+        try std.testing.expect(std.mem.eql(u8, buffer[0..], test_data2));
+    }
 }

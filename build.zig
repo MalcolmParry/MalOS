@@ -36,7 +36,7 @@ fn addBuildIsoStep(b: *Build, optimize: std.builtin.OptimizeMode, target: Build.
             .target = target,
             .optimize = optimize,
             .code_model = .kernel,
-            .single_threaded = true,
+            .single_threaded = false,
             .strip = !debug_info,
             .omit_frame_pointer = !debug_info,
         }),
@@ -92,6 +92,19 @@ fn addBuildIsoStep(b: *Build, optimize: std.builtin.OptimizeMode, target: Build.
     const iso_install = b.addInstallFile(iso, output_sub_dir ++ "kernel.iso");
     iso_install.step.dependOn(&iso_build.step);
     b.getInstallStep().dependOn(&iso_install.step);
+
+    const test_step = b.step("test", "run unit tests");
+    const unit_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/test.zig"),
+            .target = b.resolveTargetQuery(.{
+                .cpu_arch = .x86_64,
+            }),
+        }),
+    });
+
+    const run_unit_tests = b.addRunArtifact(unit_tests);
+    test_step.dependOn(&run_unit_tests.step);
 
     return iso;
 }

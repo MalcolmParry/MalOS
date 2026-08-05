@@ -72,51 +72,6 @@ fn kernelMain() noreturn {
 
     std.log.info("Pages Allocated 0x{x}", .{page_count});
     std.log.info("Memory Allocated {Bi}", .{page_count * mem.page_size});
-
-    var ramfs: Ramfs = undefined;
-    ramfs.init(page_alloc) catch @panic("cant init ramfs");
-    vfs.root = ramfs.sb.root;
-    vfs.root.ref_count += 1;
-
-    {
-        std.debug.assert(vfs.root.lookup("thing.txt") == error.NoEntry);
-        const thing_file = vfs.root.create("thing.txt", .{ .kind = .file }) catch unreachable;
-        defer thing_file.ref_count -= 1;
-    }
-
-    {
-        const thing_file = vfs.root.lookup("thing.txt") catch unreachable;
-        thing_file.destroy() catch unreachable;
-        std.debug.assert(vfs.root.lookup("thing.txt") == error.NoEntry);
-    }
-
-    const test_data1 = "very important stuff";
-    const test_data2 = "extra important info";
-
-    {
-        const other_file = vfs.root.create("other.thing", .{ .kind = .file }) catch unreachable;
-        defer other_file.ref_count -= 1;
-
-        const thing = other_file.open() catch unreachable;
-        defer thing.close();
-
-        std.debug.assert(thing.write(test_data1) catch unreachable == test_data1.len);
-        thing.seek(.start, 0) catch unreachable;
-        std.debug.assert(thing.write(test_data2) catch unreachable == test_data2.len);
-    }
-
-    {
-        const other_file = vfs.root.lookup("other.thing") catch unreachable;
-        defer other_file.destroy() catch unreachable;
-
-        const thing = other_file.open() catch unreachable;
-        defer thing.close();
-
-        var buffer: [test_data2.len]u8 = undefined;
-        std.debug.assert(thing.read(buffer[0..]) catch unreachable == test_data2.len);
-        std.debug.assert(std.mem.eql(u8, buffer[0..], test_data2));
-    }
-
     std.log.info("{Bi} used out of {Bi}", .{ pmm.pages_used * mem.page_size, pmm.total_pages * mem.page_size });
 
     scheduler.init();
