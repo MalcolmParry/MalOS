@@ -192,6 +192,7 @@ fn destroy(node: vfs.Node.Ref) vfs.Error!void {
     const node_ptr = &vfs.nodes[@intFromEnum(node)];
     std.debug.assert(node_ptr.ref_count != 0);
     if (node_ptr.ref_count != 1) return error.FileBusy;
+    if (node_ptr.mount != .none) return error.FileBusy;
 
     const ramfs_node: Node.Ref = @enumFromInt(node_ptr.userdata);
     const parent_vfs = node.get().parent;

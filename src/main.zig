@@ -117,6 +117,8 @@ fn kernelMain() noreturn {
         std.debug.assert(std.mem.eql(u8, buffer[0..], test_data2));
     }
 
+    std.log.info("{Bi} used out of {Bi}", .{ pmm.pages_used * mem.page_size, pmm.total_pages * mem.page_size });
+
     scheduler.init();
     arch.pit.init();
     scheduler.schedule();

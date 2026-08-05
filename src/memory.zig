@@ -5,15 +5,17 @@ const mem = @This();
 pub const page_size = arch.page_size;
 pub const kernel_virt_base: usize = arch.kernel_virt_base;
 
-pub const Page = [page_size]u8;
-pub const PagePtr = *align(page_size) Page;
-pub const PageManyPtr = [*]align(page_size) Page;
-pub const PageSlice = []align(page_size) Page;
-
 pub const PhysPage = Phys(Page);
-pub const PhysPagePtr = *align(page_size) PhysPage;
-pub const PhysPageManyPtr = [*]align(page_size) PhysPage;
-pub const PhysPageSlice = []align(page_size) PhysPage;
+pub const Page = extern struct {
+    bytes: [page_size]u8 align(page_size),
+};
+
+comptime {
+    std.debug.assert(@sizeOf(Page) == page_size);
+    std.debug.assert(@alignOf(Page) == page_size);
+    std.debug.assert(@sizeOf(PhysPage) == page_size);
+    std.debug.assert(@alignOf(PhysPage) == page_size);
+}
 
 pub fn pageAlignForward(addr: usize) usize {
     return std.mem.alignForward(usize, addr, page_size);
@@ -27,9 +29,9 @@ pub fn lengthPagesInclusive(length: usize) usize {
     return pageAlignForward(length) / page_size;
 }
 
-pub fn pageSliceFromBytesInclusive(bytes: []u8) PageSlice {
+pub fn pageSliceFromBytesInclusive(bytes: []u8) []Page {
     const start_aligned = pageAlignBackward(@intFromPtr(bytes.ptr));
-    const page_many_ptr: PageManyPtr = @ptrFromInt(start_aligned);
+    const page_many_ptr: [*]Page = @ptrFromInt(start_aligned);
     const pages = lengthPagesInclusive(bytes.len);
     return page_many_ptr[0..pages];
 }
@@ -52,9 +54,9 @@ pub fn alignOutwards(T: type, x: T, alignment: u16) T {
     return ptr[0..len];
 }
 
-pub fn physPageAlignOutwards(x: []Phys(u8)) PhysPageSlice {
+pub fn physPageAlignOutwards(x: []Phys(u8)) []PhysPage {
     const aligned = alignOutwards([]Phys(u8), x, page_size);
-    const start: PhysPageManyPtr = @ptrCast(@alignCast(aligned.ptr));
+    const start: [*]PhysPage = @ptrCast(@alignCast(aligned.ptr));
     return start[0 .. aligned.len / page_size];
 }
 

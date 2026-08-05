@@ -5,8 +5,8 @@ const pmm = @import("pmm.zig");
 const arch = @import("arch.zig");
 
 table: *arch.PageTable,
-allowed_range: mem.PageSlice,
-last_alloc_end: mem.PageManyPtr,
+allowed_range: []mem.Page,
+last_alloc_end: [*]mem.Page,
 
 const flags: vmm.PageFlags = .{
     .cache_mode = .full,
@@ -16,7 +16,7 @@ const flags: vmm.PageFlags = .{
     .writable = true,
 };
 
-pub fn init(table: *arch.PageTable, allowed_range: mem.PageSlice) @This() {
+pub fn init(table: *arch.PageTable, allowed_range: []mem.Page) @This() {
     return .{
         .table = table,
         .allowed_range = allowed_range,
@@ -36,7 +36,7 @@ pub fn allocator(this: *@This()) std.mem.Allocator {
     };
 }
 
-pub fn getAvailableVirtRange(this: *@This(), page_count: usize) ?mem.PageSlice {
+pub fn getAvailableVirtRange(this: *@This(), page_count: usize) ?[]mem.Page {
     var virtStart = this.last_alloc_end;
     if (virtStart == this.allowed_range.ptr + this.allowed_range.len) virtStart = this.allowed_range.ptr;
 
@@ -66,7 +66,7 @@ pub fn mapRange(this: *@This(), range: []mem.Phys(u8), page_flags: vmm.PageFlags
     return pages_as_bytes[offset_from_page_bounds..][0..range.len];
 }
 
-fn internalAlloc(this: *@This(), page_count: usize) !mem.PageSlice {
+fn internalAlloc(this: *@This(), page_count: usize) ![]mem.Page {
     const result = this.getAvailableVirtRange(page_count) orelse return error.OutOfVirtAddrSpace;
     this.last_alloc_end = result.ptr + page_count;
     var pages_allocated: usize = 0;
@@ -81,7 +81,7 @@ fn internalAlloc(this: *@This(), page_count: usize) !mem.PageSlice {
     return result;
 }
 
-fn internalResize(this: *@This(), pages: mem.PageSlice, new_page_count: usize) !bool {
+fn internalResize(this: *@This(), pages: []mem.Page, new_page_count: usize) !bool {
     if (pages.len == new_page_count) return true;
     if (pages.len > new_page_count) {
         const extra_pages = pages[new_page_count..pages.len];
@@ -102,7 +102,7 @@ fn internalResize(this: *@This(), pages: mem.PageSlice, new_page_count: usize) !
     return true;
 }
 
-fn internalFree(this: *@This(), pages: mem.PageSlice) void {
+fn internalFree(this: *@This(), pages: []mem.Page) void {
     for (pages) |*page| {
         const phys = this.table.getPhysAddrFromVirt(page);
         pmm.freePage(phys);

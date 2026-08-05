@@ -109,7 +109,7 @@ pub const tables = struct {
         entries: [512]Entry,
         tables: [512]?*L3,
 
-        pub fn mapPage(this: *L4, phys: mem.PhysPagePtr, virt: mem.PagePtr, page_flags: vmm.PageFlags, can_overwrite: bool) !void {
+        pub fn mapPage(this: *L4, phys: *mem.PhysPage, virt: *mem.Page, page_flags: vmm.PageFlags, can_overwrite: bool) !void {
             const indices = getIndicesFromVirtAddr(@intFromPtr(virt));
 
             const l4 = this;
@@ -134,7 +134,7 @@ pub const tables = struct {
             };
         }
 
-        pub fn getPhysAddrFromVirt(this: *@This(), virt: mem.PagePtr) mem.PhysPagePtr {
+        pub fn getPhysAddrFromVirt(this: *@This(), virt: *mem.Page) *mem.PhysPage {
             const indices = getIndicesFromVirtAddr(@intFromPtr(virt));
 
             const l4 = this;
@@ -148,7 +148,7 @@ pub const tables = struct {
             return @ptrFromInt(l1[indices[0]].address * mem.page_size);
         }
 
-        pub fn isAvailable(this: *@This(), page: mem.PagePtr) bool {
+        pub fn isAvailable(this: *@This(), page: *mem.Page) bool {
             const indices = getIndicesFromVirtAddr(@intFromPtr(page));
             const l4 = this;
             const l3 = l4.tables[indices[3]] orelse return true;
@@ -160,7 +160,7 @@ pub const tables = struct {
             return !l1[indices[0]].present;
         }
 
-        pub fn isRegionAvailable(this: *@This(), region: mem.PageSlice) bool {
+        pub fn isRegionAvailable(this: *@This(), region: []mem.Page) bool {
             for (region) |*page| {
                 if (!this.isAvailable(page)) return false;
             }
@@ -168,7 +168,7 @@ pub const tables = struct {
             return true;
         }
 
-        pub fn clearEntry(this: *@This(), virt: mem.PagePtr) !void {
+        pub fn clearEntry(this: *@This(), virt: *mem.Page) !void {
             const indices = getIndicesFromVirtAddr(@intFromPtr(virt));
 
             const l4 = this;
@@ -194,7 +194,7 @@ pub const tables = struct {
     // each entry is 4kb
     const L1 = [512]Entry;
 
-    fn getVirtAddrFromindices(l4: Index, l3: Index, l2: Index, l1: Index) mem.PagePtr {
+    fn getVirtAddrFromindices(l4: Index, l3: Index, l2: Index, l1: Index) *mem.Page {
         const ul4: usize = l4;
         const ul3: usize = l3;
         const ul2: usize = l2;
@@ -242,7 +242,7 @@ pub const tables = struct {
 
 const page_tables_l3_index = 510;
 const page_tables_start = tables.getVirtAddrFromindices(511, page_tables_l3_index, 0, 0);
-pub const heap_range = @as(mem.PageManyPtr, @ptrCast(tables.getVirtAddrFromindices(511, 0, 0, 0)))[0 .. 512 * 512 * 510];
+pub const heap_range = @as([*]mem.Page, @ptrCast(tables.getVirtAddrFromindices(511, 0, 0, 0)))[0 .. 512 * 512 * 510];
 var table_allocator: PageAllocator = undefined;
 
 pub var l4_table: tables.L4 align(4096) = undefined;
@@ -308,7 +308,7 @@ pub fn init() *tables.L4 {
 
     invalidatePages();
 
-    const page_table_many_ptr: mem.PageManyPtr = @ptrCast(page_tables_start);
+    const page_table_many_ptr: [*]mem.Page = @ptrCast(page_tables_start);
     table_allocator = .init(&l4_table, page_table_many_ptr[0 .. 512 * 512]);
     tables.reserve.allocate(table_allocator.allocator()) catch @panic("cant allocate tables");
 
@@ -362,7 +362,7 @@ pub fn invalidatePages() void {
     setCr3(@intFromPtr(&l4_table) - mem.kernel_virt_base);
 }
 
-pub fn invalidatePage(page: mem.PagePtr) void {
+pub fn invalidatePage(page: *mem.Page) void {
     asm volatile (
         \\invlpg (%[addr])
         :
@@ -370,10 +370,10 @@ pub fn invalidatePage(page: mem.PagePtr) void {
         : .{ .memory = true });
 }
 
-fn setCr3(physAddr: u64) void {
+fn setCr3(phys_addr: u64) void {
     asm volatile (
         \\movq %[addr], %cr3
         :
-        : [addr] "r" (physAddr),
+        : [addr] "r" (phys_addr),
     );
 }

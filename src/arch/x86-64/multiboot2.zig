@@ -109,9 +109,9 @@ extern var __KERNEL_END__: anyopaque;
 pub fn initBootInfo() void {
     multiboot_info = @ptrFromInt(@intFromPtr(phys_multiboot_info) + mem.kernel_virt_base);
 
-    const kernel_start: [*]align(page_size) Phys(u8) = @ptrCast(@alignCast(&__KERNEL_START__));
-    const kernel_len = @intFromPtr(&__KERNEL_END__) - @intFromPtr(&__KERNEL_START__);
-    pmm.kernel_range = kernel_start[0..kernel_len];
+    const kernel_start: [*]mem.Phys(u8) = @ptrCast(&__KERNEL_START__);
+    const kernel_size = @intFromPtr(&__KERNEL_END__) - @intFromPtr(&__KERNEL_START__);
+    pmm.kernel_range = kernel_start[0..kernel_size];
 
     var iter: BootInfoIterater = undefined;
     iter.reset();
@@ -157,7 +157,7 @@ pub fn initBootInfo() void {
                             continue;
 
                         const len = (end - start) / mem.page_size;
-                        const start_many_ptr: mem.PhysPageManyPtr = @ptrFromInt(start);
+                        const start_many_ptr: [*]mem.PhysPage = @ptrFromInt(start);
                         const range = start_many_ptr[0..len];
 
                         pmm.available_ranges.appendBounded(range) catch @panic("too many memory ranges");
@@ -189,7 +189,7 @@ pub fn initBootInfo() void {
 
                     if (start < mem.kernel_virt_base) continue;
 
-                    const start_ptr: mem.PageManyPtr = @ptrFromInt(start);
+                    const start_ptr: [*]mem.Page = @ptrFromInt(start);
                     const page_count = (end - start) / mem.page_size;
 
                     vmm.kernel_regions.appendBounded(.{

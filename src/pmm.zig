@@ -2,10 +2,10 @@ const std = @import("std");
 const mem = @import("memory.zig");
 const Phys = mem.Phys;
 
-var available_regions_buffer: [16]mem.PhysPageSlice = undefined;
+var available_regions_buffer: [16][]mem.PhysPage = undefined;
 
-pub var kernel_range: []align(mem.page_size) Phys(u8) = undefined;
-pub var available_ranges: std.ArrayList(mem.PhysPageSlice) = .initBuffer(&available_regions_buffer);
+pub var kernel_range: []mem.Phys(u8) = undefined;
+pub var available_ranges: std.ArrayList([]mem.PhysPage) = .initBuffer(&available_regions_buffer);
 
 pub var total_pages: usize = 0;
 pub var pages_used: usize = 0;
@@ -33,7 +33,7 @@ pub fn init(alloc: std.mem.Allocator) void {
     temp_mode = false;
 }
 
-pub fn allocatePage() !mem.PhysPagePtr {
+pub fn allocatePage() !*mem.PhysPage {
     if (temp_mode) {
         const result_index = next_alloc_index;
         if (result_index >= total_pages) return error.OutOfMemory;
@@ -57,7 +57,7 @@ pub fn allocatePage() !mem.PhysPagePtr {
     return indexToAddr(result_index);
 }
 
-pub fn freePage(page: mem.PhysPagePtr) void {
+pub fn freePage(page: *mem.PhysPage) void {
     if (temp_mode) @panic("can't free pages with temp pmm");
 
     const index = addrToIndex(page);
@@ -66,10 +66,10 @@ pub fn freePage(page: mem.PhysPagePtr) void {
     pages_used -= 1;
 }
 
-fn addrToIndex(page: mem.PhysPagePtr) usize {
+fn addrToIndex(page: *mem.PhysPage) usize {
     var cumulative_page_offset: usize = 0;
     for (available_ranges.items) |region| {
-        if (!mem.addrInSlice(mem.PhysPageSlice, region, page)) {
+        if (!mem.addrInSlice([]mem.PhysPage, region, page)) {
             cumulative_page_offset += region.len;
             continue;
         }
@@ -82,7 +82,7 @@ fn addrToIndex(page: mem.PhysPagePtr) usize {
     @panic("out of range");
 }
 
-fn indexToAddr(index: usize) mem.PhysPagePtr {
+fn indexToAddr(index: usize) *mem.PhysPage {
     var region_start_index: usize = 0;
     for (available_ranges.items) |region| {
         if (index < region_start_index + region.len) {
@@ -106,10 +106,10 @@ fn reserveAvailableRegion(reserved: []Phys(u8)) void {
         var start = range.ptr;
         var end = range.ptr + range.len;
 
-        if (mem.addrInSlice(mem.PhysPageSlice, res_aligned, start))
+        if (mem.addrInSlice([]mem.PhysPage, res_aligned, start))
             start = res_end;
 
-        if (mem.addrInSlice(mem.PhysPageSlice, res_aligned, end))
+        if (mem.addrInSlice([]mem.PhysPage, res_aligned, end))
             end = res_aligned.ptr;
 
         if (@intFromPtr(start) >= @intFromPtr(end)) {
@@ -120,7 +120,7 @@ fn reserveAvailableRegion(reserved: []Phys(u8)) void {
         const len = (@intFromPtr(end) - @intFromPtr(start)) / mem.page_size;
         const new_range = start[0..len];
 
-        if (mem.addrInSlice(mem.PhysPageSlice, new_range, res_aligned.ptr)) {
+        if (mem.addrInSlice([]mem.PhysPage, new_range, res_aligned.ptr)) {
             const add_len = (@intFromPtr(end) - @intFromPtr(res_end)) / mem.page_size;
             const additional = res_end[0..add_len];
 
@@ -128,7 +128,7 @@ fn reserveAvailableRegion(reserved: []Phys(u8)) void {
             end = res_aligned.ptr;
         }
 
-        available_ranges.items[i] = mem.fromStartAndEnd(mem.PhysPageSlice, start, end);
+        available_ranges.items[i] = mem.fromStartAndEnd([]mem.PhysPage, start, end);
         if (available_ranges.items[i].len <= mem.page_size) {
             _ = available_ranges.swapRemove(i);
             continue;

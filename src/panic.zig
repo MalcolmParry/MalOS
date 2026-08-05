@@ -76,20 +76,20 @@ fn getSymbolName(sym: *Symbol) []u8 {
 }
 
 fn getSymbolFromAddr(addr: usize) *Symbol {
-    var start: usize = 0;
-    var end: usize = symbol_table.?.len;
+    var syms = symbol_table.?;
 
     while (true) {
-        const index = (start + end) / 2;
-        const sym = &symbol_table.?[index];
-        if (end == start + 1) return sym;
+        if (syms.len <= 2) return &syms[0];
 
-        if (addr < sym.addr) {
-            end = index;
-        } else if (addr > sym.addr) {
-            start = index;
+        const mid_i = syms.len / 2;
+        const mid = &syms[mid_i];
+
+        if (addr < mid.addr) {
+            syms = syms[0..mid_i];
+        } else if (addr > mid.addr) {
+            syms = syms[mid_i + 1 ..];
         } else {
-            return sym;
+            return mid;
         }
     }
 }

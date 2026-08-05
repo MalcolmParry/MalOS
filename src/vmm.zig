@@ -6,7 +6,7 @@ var kernel_regions_buffer: [16]KernelRegion = undefined;
 pub var kernel_regions: std.ArrayList(KernelRegion) = .initBuffer(&kernel_regions_buffer);
 
 pub const KernelRegion = struct {
-    pages: mem.PageSlice,
+    pages: []mem.Page,
     flags: PageFlags,
 };
 
