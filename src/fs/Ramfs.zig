@@ -245,11 +245,20 @@ fn write(vfs_file: *vfs.File, data: []const u8) vfs.Error!usize {
     return data.len;
 }
 
-fn seek(vfs_file: *vfs.File, pos: usize) vfs.Error!void {
+fn seek(vfs_file: *vfs.File, base: vfs.SeekBase, offset: isize) vfs.Error!void {
     const fs: *Ramfs = @fieldParentPtr("sb", vfs_file.node.sb);
     fs.lock.lock();
     defer fs.lock.unlock();
 
+    const node: *Node = @fieldParentPtr("vfs_node", vfs_file.node);
     const file: *File = @alignCast(@fieldParentPtr("vfs_file", vfs_file));
-    file.head = pos;
+
+    const base_int: isize = switch (base) {
+        .start => 0,
+        .end => @intCast(node.data.file.data.items.len),
+        .head => @intCast(file.head),
+    };
+
+    const new_head = @max(0, base_int + offset);
+    file.head = @intCast(new_head);
 }

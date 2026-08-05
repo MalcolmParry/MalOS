@@ -21,6 +21,12 @@ pub const CreateOptions = struct {
     kind: Node.Kind,
 };
 
+pub const SeekBase = enum {
+    start,
+    end,
+    head,
+};
+
 pub const FileSystem = struct {
     lookup: *const fn (dir: *Node, name: []const u8) Error!*Node,
     create: *const fn (dir: *Node, name: []const u8, opts: CreateOptions) Error!*Node = &unimplementedCreate,
@@ -30,7 +36,7 @@ pub const FileSystem = struct {
     close: *const fn (file: *File) void = &unimplementedClose,
     read: *const fn (file: *File, buffer: []u8) Error!usize = &unimplementedRead,
     write: *const fn (file: *File, data: []const u8) Error!usize = &unimplementedWrite,
-    seek: *const fn (file: *File, pos: usize) Error!void = &unimplementedSeek,
+    seek: *const fn (file: *File, base: SeekBase, offset: isize) Error!void = &unimplementedSeek,
 };
 
 /// represents a single mounted filesystem
@@ -92,8 +98,8 @@ pub const File = struct {
         return file.node.sb.fs.write(file, data);
     }
 
-    pub fn seek(file: *File, pos: usize) Error!void {
-        return file.node.sb.fs.seek(file, pos);
+    pub fn seek(file: *File, base: SeekBase, offset: isize) Error!void {
+        return file.node.sb.fs.seek(file, base, offset);
     }
 };
 
@@ -119,6 +125,6 @@ pub fn unimplementedWrite(_: *File, _: []const u8) Error!usize {
     return error.NotSupported;
 }
 
-pub fn unimplementedSeek(_: *File, _: usize) Error!void {
+pub fn unimplementedSeek(_: *File, _: SeekBase, _: isize) Error!void {
     return error.NotSupported;
 }

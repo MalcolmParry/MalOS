@@ -80,7 +80,7 @@ fn kernelMain() noreturn {
 
     {
         std.debug.assert(vfs.root.lookup("thing.txt") == error.NoEntry);
-        const thing_file = vfs.root.create("thing.txt", .{ .kind = .file }) catch |err| std.debug.panic("{}", .{err});
+        const thing_file = vfs.root.create("thing.txt", .{ .kind = .file }) catch unreachable;
         defer thing_file.ref_count -= 1;
     }
 
@@ -101,7 +101,7 @@ fn kernelMain() noreturn {
         defer thing.close();
 
         std.debug.assert(thing.write(test_data1) catch unreachable == test_data1.len);
-        thing.seek(0) catch unreachable;
+        thing.seek(.start, 0) catch unreachable;
         std.debug.assert(thing.write(test_data2) catch unreachable == test_data2.len);
     }
 
