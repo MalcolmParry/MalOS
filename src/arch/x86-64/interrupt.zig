@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const mem = @import("../../memory.zig");
 const arch = @import("arch.zig");
 const isr = @import("../../isr.zig");
@@ -38,14 +39,18 @@ var idts: [256]IDT = undefined;
 var idtr: IDTR = undefined;
 
 pub fn enable() void {
+    if (builtin.is_test) return;
     asm volatile ("sti");
 }
 
 pub fn disable() void {
+    if (builtin.is_test) return;
     asm volatile ("cli");
 }
 
 pub fn popDisable() bool {
+    if (builtin.is_test) return false;
+
     const rflags = asm volatile (
         \\ pushfq
         \\ cli

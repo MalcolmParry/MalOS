@@ -1,4 +1,5 @@
 const std = @import("std");
+const Spinlock = @import("../Spinlock.zig");
 
 pub var root: *Node = undefined;
 
@@ -9,6 +10,7 @@ pub const Error = error{
     TooManyNodes,
     TooManyFiles,
     FileBusy,
+    NodeDead,
     NotEmpty,
     NotAFile,
     NotADir,
@@ -27,21 +29,9 @@ pub const SeekBase = enum {
     head,
 };
 
-pub const FileSystem = struct {
-    lookup: *const fn (dir: *Node, name: []const u8) Error!*Node,
-    create: *const fn (dir: *Node, name: []const u8, opts: CreateOptions) Error!*Node = &unimplementedCreate,
-    destroy: *const fn (node: *Node) Error!void = &unimplementedDestroy,
-
-    open: *const fn (node: *Node) Error!*File = &unimplementedOpen,
-    close: *const fn (file: *File) void = &unimplementedClose,
-    read: *const fn (file: *File, buffer: []u8) Error!usize = &unimplementedRead,
-    write: *const fn (file: *File, data: []const u8) Error!usize = &unimplementedWrite,
-    seek: *const fn (file: *File, base: SeekBase, offset: isize) Error!void = &unimplementedSeek,
-};
-
 /// represents a single mounted filesystem
 pub const SuperBlock = struct {
-    fs: *const FileSystem,
+    lock: Spinlock,
     root: *Node,
 };
 
@@ -49,58 +39,46 @@ pub const SuperBlock = struct {
 /// such as a file or directory
 pub const Node = struct {
     kind: Kind,
-    ref_count: u32,
-    /// superblock this node is from
+    vtable: *const Ops,
     sb: *SuperBlock,
-    /// the parent of this node
-    /// if this node is the root of this superblock,
-    /// the parent should be set to itself
     parent: *Node,
-    /// this is a directory node that is mounted onto this node
-    /// this is ignored if kind != .dir
-    mount: ?*Node,
+    mount: ?*Node = null,
+
+    ref_count: u32 = 0,
+    alive: bool = true,
+
+    pub fn decRef(node: *Node) void {
+        node.ref_count -= 1;
+        if (!node.alive and node.ref_count == 0)
+            node.vtable.free(node);
+    }
+
+    pub const Ops = struct {
+        /// only valid if ref_count == 0
+        free: *const fn (node: *Node) void,
+        lookup: *const fn (dir: *Node, name: []const u8) Error!*Node,
+        create: *const fn (dir: *Node, name: []const u8, opts: CreateOptions) Error!*Node = &unimplementedCreate,
+        /// must free the node if ref_count == 0
+        destroy: *const fn (node: *Node) Error!void = &unimplementedDestroy,
+        open: *const fn (node: *Node) Error!*File = &unimplementedOpen,
+    };
 
     pub const Kind = enum {
         file,
         dir,
     };
-
-    pub fn lookup(dir: *Node, name: []const u8) Error!*Node {
-        return dir.sb.fs.lookup(dir, name);
-    }
-
-    pub fn create(dir: *Node, name: []const u8, opts: CreateOptions) Error!*Node {
-        return dir.sb.fs.create(dir, name, opts);
-    }
-
-    pub fn destroy(node: *Node) Error!void {
-        try node.sb.fs.destroy(node);
-    }
-
-    pub fn open(node: *Node) Error!*File {
-        return node.sb.fs.open(node);
-    }
 };
 
-/// represents and opened file
 pub const File = struct {
     node: *Node,
+    vtable: *const Ops,
 
-    pub fn close(file: *File) void {
-        file.node.sb.fs.close(file);
-    }
-
-    pub fn read(file: *File, buffer: []u8) Error!usize {
-        return file.node.sb.fs.read(file, buffer);
-    }
-
-    pub fn write(file: *File, data: []const u8) Error!usize {
-        return file.node.sb.fs.write(file, data);
-    }
-
-    pub fn seek(file: *File, base: SeekBase, offset: isize) Error!void {
-        return file.node.sb.fs.seek(file, base, offset);
-    }
+    pub const Ops = struct {
+        close: *const fn (file: *File) void = &unimplementedClose,
+        read: *const fn (file: *File, buffer: []u8) Error!usize = &unimplementedRead,
+        write: *const fn (file: *File, data: []const u8) Error!usize = &unimplementedWrite,
+        seek: *const fn (file: *File, base: SeekBase, offset: isize) Error!void = &unimplementedSeek,
+    };
 };
 
 pub fn unimplementedCreate(_: *Node, _: []const u8, _: CreateOptions) Error!*Node {

@@ -1,4 +1,5 @@
 const std = @import("std");
+const arch = @import("arch.zig");
 const builtin = @import("builtin");
 const Spinlock = @This();
 
@@ -11,22 +12,47 @@ const Status = enum(u8) {
     locked,
 };
 
-pub fn tryLock(sl: *Spinlock) bool {
-    return sl.status.cmpxchgStrong(.unlocked, .locked, .acquire, .monotonic) == null;
+pub fn tryLock(sl: *Spinlock) ?Lock {
+    const int = arch.interrupt.popDisable();
+
+    if (sl.status.cmpxchgStrong(.unlocked, .locked, .acquire, .monotonic) == null) {
+        return .{
+            .sl = sl,
+            .int_enable = int,
+        };
+    } else {
+        arch.interrupt.set(int);
+        return null;
+    }
 }
 
-pub fn lock(sl: *Spinlock) void {
+pub fn lock(sl: *Spinlock) Lock {
     while (true) {
+        const int = arch.interrupt.popDisable();
+        if (sl.status.cmpxchgWeak(.unlocked, .locked, .acquire, .monotonic) == null) {
+            @branchHint(.likely);
+
+            return .{
+                .sl = sl,
+                .int_enable = int,
+            };
+        }
+
+        arch.interrupt.set(int);
         while (sl.status.load(.monotonic) == .locked) {
             if (builtin.is_test) @panic("");
             std.atomic.spinLoopHint();
         }
-
-        if (sl.status.cmpxchgWeak(.unlocked, .locked, .acquire, .monotonic) == null) break;
     }
 }
 
-pub fn unlock(sl: *Spinlock) void {
-    std.debug.assert(sl.status.load(.unordered) == .locked);
-    sl.status.store(.unlocked, .release);
-}
+pub const Lock = struct {
+    sl: *Spinlock,
+    int_enable: bool,
+
+    pub fn unlock(l: Lock) void {
+        std.debug.assert(l.sl.status.load(.unordered) == .locked);
+        l.sl.status.store(.unlocked, .release);
+        arch.interrupt.set(l.int_enable);
+    }
+};

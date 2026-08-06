@@ -89,8 +89,8 @@ pub fn log(
     comptime format: []const u8,
     args: anytype,
 ) void {
-    arch.serial.writer_spinlock.lock();
-    defer arch.serial.writer_spinlock.unlock();
+    const lock = arch.serial.writer_spinlock.lock();
+    defer lock.unlock();
 
     std.log.defaultLogFileTerminal(level, scope, format, args, arch.serial.term) catch @panic("failed to print");
 }
