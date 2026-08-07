@@ -109,7 +109,7 @@ const PageFaultFlags = packed struct(u64) {
     unused: u59,
 };
 
-export fn handler(state: *align(1) arch.CPUState) callconv(.{ .x86_64_sysv = .{ .incoming_stack_alignment = 1 } }) noreturn {
+fn handler(state: *align(1) arch.CPUState) callconv(.{ .x86_64_sysv = .{ .incoming_stack_alignment = 1 } }) noreturn {
     scheduler.saveThreadState(state);
 
     switch (state.int_code) {
@@ -163,7 +163,7 @@ export fn handler(state: *align(1) arch.CPUState) callconv(.{ .x86_64_sysv = .{ 
     }
 }
 
-export fn commonStub() callconv(.naked) void {
+fn commonStub() callconv(.naked) void {
     asm volatile (
         \\ pushq %r15
         \\ pushq %r14
@@ -194,6 +194,13 @@ export fn commonStub() callconv(.naked) void {
         \\ movq %rsp, %rdi // 1st arg in rdi
         \\ jmp handler
     );
+}
+
+comptime {
+    if (!builtin.is_test) {
+        @export(&commonStub, .{ .name = "commonStub" });
+        @export(&handler, .{ .name = "handler" });
+    }
 }
 
 const Stub = fn () callconv(.naked) void;

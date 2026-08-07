@@ -27,7 +27,6 @@ pub const SeekBase = enum {
 
 /// represents a single mounted filesystem
 pub const SuperBlock = struct {
-    lock: Spinlock,
     root: *Node,
 };
 
@@ -38,17 +37,14 @@ pub const Node = struct {
     vtable: *const Ops,
     sb: *SuperBlock,
     mount: ?*Node = null,
-    ref_count: u32 = 0,
 
-    pub fn decRef(node: *Node) void {
-        node.ref_count -= 1;
-        if (node.ref_count == 0)
-            node.vtable.free(node);
-    }
+    ref_count: std.atomic.Value(u32),
+    lock: Spinlock = .init,
+    data: Data,
 
     pub const Ops = struct {
         free: *const fn (node: *Node) void,
-        lookup: *const fn (dir: *Node, name: []const u8) Error!*Node,
+        lookup: *const fn (dir: *Node, name: []const u8) Error!*Node = &unimplementedLookup,
         create: *const fn (dir: *Node, name: []const u8, opts: CreateOptions) Error!*Node = &unimplementedCreate,
         unlink: *const fn (dir: *Node, name: []const u8) Error!void = &unimplementedUnlink,
         open: *const fn (node: *Node) Error!*File = &unimplementedOpen,
@@ -58,6 +54,51 @@ pub const Node = struct {
         file,
         dir,
     };
+
+    pub const Data = union {
+        none: void,
+        dir: Dir,
+
+        pub const Dir = struct {
+            entry_cache: std.ArrayList(DirEntry),
+        };
+    };
+
+    pub fn decRef(node: *Node) void {
+        const prev_count = node.ref_count.fetchSub(1, .monotonic);
+
+        std.debug.assert(prev_count != 0);
+        if (prev_count == 1) {
+            node.vtable.free(node);
+        }
+    }
+
+    pub fn lookup(dir: *Node, name: []const u8) Error!*Node {
+        if (dir.kind != .dir) return error.NotADir;
+
+        {
+            const lock = dir.lock.lock();
+            defer lock.unlock();
+
+            for (dir.data.dir.entry_cache.items) |*entry| {
+                if (!std.mem.eql(u8, entry.name(), name)) continue;
+                return entry.node;
+            }
+        }
+
+        return dir.vtable.lookup(dir, name);
+    }
+};
+
+pub const max_embedded_name_len = 64 - @sizeOf(*Node) - @sizeOf(u16);
+pub const DirEntry = struct {
+    node: *Node,
+    name_len: u16,
+    name_buf: [max_embedded_name_len]u8,
+
+    pub fn name(entry: *const DirEntry) []const u8 {
+        return entry.name_buf[0..entry.name_len];
+    }
 };
 
 pub const File = struct {
@@ -71,6 +112,11 @@ pub const File = struct {
         seek: *const fn (file: *File, base: SeekBase, offset: isize) Error!void = &unimplementedSeek,
     };
 };
+
+pub fn unimplementedLookup(dir: *Node, _: []const u8) Error!*Node {
+    if (dir.kind != .dir) return error.NotADir;
+    return error.NoEntry;
+}
 
 pub fn unimplementedCreate(_: *Node, _: []const u8, _: CreateOptions) Error!*Node {
     return error.NotSupported;
