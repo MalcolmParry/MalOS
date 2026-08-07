@@ -62,10 +62,9 @@ fn printStackTrace(frame_addr: usize) void {
 }
 
 pub fn writeTraceAddr(addr: usize) void {
-    if (symbol_table != null and symbol_names != null) {
-        const sym = getSymbolFromAddr(addr);
+    if (getSymbolFromAddr(addr)) |sym| {
         const name = getSymbolName(sym);
-        std.log.err("{s}", .{name});
+        std.log.err("{s} + 0x{x}", .{ name, addr - sym.addr });
     }
 
     std.log.err("at 0x{x}\n", .{addr});
@@ -75,11 +74,15 @@ fn getSymbolName(sym: *Symbol) []u8 {
     return symbol_names.?[sym.name_offset..][0..sym.name_len];
 }
 
-fn getSymbolFromAddr(addr: usize) *Symbol {
+fn getSymbolFromAddr(addr: usize) ?*Symbol {
+    if (symbol_table == null or symbol_names == null) return null;
     var syms = symbol_table.?;
 
     while (true) {
-        if (syms.len <= 2) return &syms[0];
+        if (syms.len == 1) {
+            if (syms[0].addr > addr) return null;
+            return &syms[0];
+        }
 
         const mid_i = syms.len / 2;
         const mid = &syms[mid_i];
@@ -87,7 +90,7 @@ fn getSymbolFromAddr(addr: usize) *Symbol {
         if (addr < mid.addr) {
             syms = syms[0..mid_i];
         } else if (addr > mid.addr) {
-            syms = syms[mid_i + 1 ..];
+            syms = syms[mid_i..];
         } else {
             return mid;
         }

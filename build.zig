@@ -25,7 +25,7 @@ fn addBuildIsoStep(b: *Build, optimize: std.builtin.OptimizeMode, target: Build.
 
     const debug_info = switch (optimize) {
         .Debug, .ReleaseSafe => true,
-        .ReleaseFast, .ReleaseSmall => false,
+        .ReleaseFast, .ReleaseSmall => true,
     };
 
     const kernel_compile = b.addObject(.{
@@ -44,7 +44,15 @@ fn addBuildIsoStep(b: *Build, optimize: std.builtin.OptimizeMode, target: Build.
     kernel_compile.bundle_compiler_rt = true;
 
     const iso_install_dir = b.addInstallDirectory(.{ .source_dir = b.path(iso_dir_path), .install_dir = .{ .custom = output_sub_dir ++ "iso" }, .install_subdir = "" });
-    const link = b.addSystemCommand(&.{ "ld", "-n", "--gc-sections", "-T", "build/x86-64/linker.ld" });
+    const link = b.addSystemCommand(&.{
+        // zig fmt: off
+        "ld",
+        "-n",
+        "--gc-sections",
+        "-T", "build/x86-64/linker.ld",
+        "-z", "noexecstack",
+        // zig fmt: on
+    });
     switch (debug_info) {
         true => link.addArg("-g"),
         false => link.addArg("-s"),
@@ -65,9 +73,7 @@ fn addBuildIsoStep(b: *Build, optimize: std.builtin.OptimizeMode, target: Build.
     kernel_install.step.dependOn(&iso_install_dir.step);
     kernel_install.step.dependOn(&multiboot_check.step);
 
-    const symbol_table_build = try b.allocator.create(GenSymTabStep);
-    symbol_table_build.* = .init(b, kernel);
-    symbol_table_build.step.dependOn(&link.step);
+    const symbol_table_build = GenSymTabStep.init(b, kernel);
 
     const iso_build = b.addSystemCommand(&.{
         "grub-mkrescue",
@@ -77,6 +83,7 @@ fn addBuildIsoStep(b: *Build, optimize: std.builtin.OptimizeMode, target: Build.
     const iso = iso_build.addOutputFileArg(output_sub_dir ++ "kernel.iso");
     iso_build.addArg(b.fmt("{s}/{s}", .{ b.install_prefix, output_sub_dir ++ "iso" }));
     iso_build.addFileInput(kernel);
+    iso_build.expectStdErrMatch(" completed successfully.");
     iso_build.step.dependOn(&kernel_install.step);
     iso_build.step.dependOn(&symbol_table_build.step);
 
@@ -163,28 +170,31 @@ const GenSymTabStep = struct {
 
     const Symbol = @import("src/panic.zig").Symbol;
 
-    fn init(b: *Build, kernel_elf: Build.LazyPath) @This() {
-        return .{
+    fn init(b: *Build, kernel_elf: Build.LazyPath) *@This() {
+        const this = b.allocator.create(GenSymTabStep) catch @panic("oom");
+        this.* = .{
             .step = .init(.{
                 .owner = b,
                 .id = .custom,
-                .name = "GenSymTabStep",
+                .name = "generate symbol table",
                 .makeFn = make,
             }),
             .kernel_elf = kernel_elf,
         };
+
+        kernel_elf.addStepDependencies(&this.step);
+        return this;
     }
 
     fn make(step: *Build.Step, opts: Build.Step.MakeOptions) anyerror!void {
         const this: *@This() = @fieldParentPtr("step", step);
         const b = step.owner;
         const io = b.graph.io;
+        const alloc = b.allocator;
         const cwd = std.Io.Dir.cwd();
         var man = b.graph.cache.obtain();
         defer man.deinit();
         _ = opts;
-
-        if (b.verbose) std.log.info("generating symbol table", .{});
 
         var buffer: [2048]u8 = undefined;
         const kernel_path = this.kernel_elf.generated.file.path orelse return error.NoKernel;
@@ -193,26 +203,16 @@ const GenSymTabStep = struct {
         defer kernel.close(io);
 
         if (try step.cacheHitAndWatch(&man)) {
+            if (b.verbose) std.log.info("symbol table cached", .{});
             step.result_cached = true;
             return;
         }
 
-        const module_dir = b.fmt("{s}/{s}", .{ b.install_prefix, output_sub_dir ++ "iso/boot/" });
-        try cwd.createDirPath(io, module_dir);
-        const symbol_file = try cwd.createFile(io, b.fmt("{s}/symbol_table.mod", .{module_dir}), .{ .truncate = true });
-        defer symbol_file.close(io);
-        const symbol_names_file = try cwd.createFile(io, b.fmt("{s}/symbol_names.mod", .{module_dir}), .{ .truncate = true });
-        defer symbol_names_file.close(io);
-
-        var symbol_file_buffer: [64]u8 = undefined;
-        var symbol_file_name_buffer: [64]u8 = undefined;
-        var symbol_file_writer = symbol_file.writer(io, &symbol_file_buffer);
-        var symbol_file_name_writer = symbol_names_file.writer(io, &symbol_file_name_buffer);
-        var name_index: usize = 0;
+        if (b.verbose) std.log.info("generating symbol table", .{});
 
         var reader = kernel.reader(io, &buffer);
         const header = try std.elf.Header.read(&reader.interface);
-        std.debug.assert(header.is_64);
+        if (!header.is_64) return error.Failed;
         const sections = try b.allocator.alloc(std.elf.Elf64_Shdr, header.shnum);
 
         var iter = header.iterateSectionHeaders(&reader);
@@ -220,46 +220,63 @@ const GenSymTabStep = struct {
             sections[iter.index - 1] = shdr;
         }
 
-        var own_symbols = std.ArrayList(Symbol).empty;
-        defer own_symbols.deinit(b.allocator);
+        var own_syms = std.ArrayList(Symbol).empty;
+        defer own_syms.deinit(alloc);
+
+        var elf_syms: std.ArrayList(std.elf.Elf64.Sym) = .empty;
+        defer elf_syms.deinit(alloc);
+
+        var own_strs: std.ArrayList(u8) = .empty;
+        defer own_strs.deinit(alloc);
 
         for (sections) |section| {
             if (section.sh_type != std.elf.SHT_SYMTAB) continue;
             const strtab_header = &sections[section.sh_link];
             const strtab_offset = strtab_header.sh_offset;
 
-            if (section.sh_entsize != @sizeOf(std.elf.Elf64_Sym)) return error.Failed;
-            const symbol_count = section.sh_size / @sizeOf(std.elf.Elf64_Sym);
-            try own_symbols.ensureTotalCapacity(b.allocator, own_symbols.items.len + symbol_count);
+            if (section.sh_entsize != @sizeOf(std.elf.Elf64.Sym)) return error.Failed;
+            const symbol_count = section.sh_size / @sizeOf(std.elf.Elf64.Sym);
 
-            for (0..symbol_count) |i| {
-                try reader.seekTo(section.sh_offset + i * @sizeOf(std.elf.Elf64_Sym));
-                var sym: std.elf.Elf64_Sym = undefined;
-                const sym_slice = @as([*]std.elf.Elf64_Sym, @ptrCast(&sym))[0..1];
-                try reader.interface.readSliceEndian(std.elf.Elf64_Sym, sym_slice, .little);
-                // if (sym.st_type() != std.elf.STT_FUNC) continue;
+            try elf_syms.resize(alloc, symbol_count);
+            try reader.seekTo(section.sh_offset);
+            try reader.interface.readSliceEndian(std.elf.Elf64.Sym, elf_syms.items, .little);
 
-                try reader.seekTo(strtab_offset + sym.st_name);
+            try own_syms.ensureUnusedCapacity(b.allocator, symbol_count);
+            for (elf_syms.items) |elf_sym| {
+                try reader.seekTo(strtab_offset + elf_sym.name);
                 const name = try reader.interface.takeDelimiter(0) orelse continue;
-                try symbol_file_name_writer.interface.writeAll(name);
 
-                own_symbols.appendAssumeCapacity(.{
-                    .addr = sym.st_value,
-                    .name_offset = @intCast(name_index),
+                own_syms.appendAssumeCapacity(.{
+                    .addr = elf_sym.value,
+                    .name_offset = @intCast(own_strs.items.len),
                     .name_len = @intCast(name.len),
                 });
-                name_index += name.len;
+
+                try own_strs.appendSlice(alloc, name);
             }
         }
 
-        std.mem.sort(Symbol, own_symbols.items, @as(u8, 0), struct {
-            fn lessThan(_: u8, lhs: Symbol, rhs: Symbol) bool {
+        std.mem.sort(Symbol, own_syms.items, {}, struct {
+            fn lessThan(_: void, lhs: Symbol, rhs: Symbol) bool {
                 return lhs.addr < rhs.addr;
             }
         }.lessThan);
 
-        try symbol_file_writer.interface.writeSliceEndian(Symbol, own_symbols.items, .little);
-        try symbol_file_writer.interface.flush();
-        try symbol_file_name_writer.interface.flush();
+        const module_dir = b.fmt("{s}/{s}", .{ b.install_prefix, output_sub_dir ++ "iso/boot/" });
+        try cwd.createDirPath(io, module_dir);
+
+        {
+            const sym_tab_file = try cwd.createFile(io, b.fmt("{s}/symbol_table.mod", .{module_dir}), .{ .truncate = true });
+            defer sym_tab_file.close(io);
+            try sym_tab_file.writePositionalAll(io, std.mem.sliceAsBytes(own_syms.items), 0);
+        }
+
+        {
+            const sym_name_file = try cwd.createFile(io, b.fmt("{s}/symbol_names.mod", .{module_dir}), .{ .truncate = true });
+            defer sym_name_file.close(io);
+            try sym_name_file.writePositionalAll(io, own_strs.items, 0);
+        }
+
+        try step.writeManifestAndWatch(&man);
     }
 };

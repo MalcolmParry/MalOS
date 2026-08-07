@@ -77,7 +77,8 @@ pub fn kernelMain() noreturn {
 
     scheduler.init();
     arch.pit.init();
-    scheduler.schedule();
+    @panic("e");
+    // scheduler.schedule();
 }
 
 pub fn log(
