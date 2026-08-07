@@ -36,7 +36,7 @@ fn addBuildIsoStep(b: *Build, optimize: std.builtin.OptimizeMode, target: Build.
             .target = target,
             .optimize = optimize,
             .code_model = .kernel,
-            .single_threaded = false,
+            .single_threaded = true,
             .strip = !debug_info,
             .omit_frame_pointer = !debug_info,
         }),

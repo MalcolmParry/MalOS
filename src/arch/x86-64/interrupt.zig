@@ -141,7 +141,7 @@ export fn handler(state: *align(1) arch.CPUState) callconv(.{ .x86_64_sysv = .{ 
                     if (l2.tables[indices[1]]) |l1| {
                         std.log.err("l1 addr 0x{x}, {x}", .{ @intFromPtr(l1), l2.entries[indices[1]].address });
 
-                        const entry = l1.*[indices[0]];
+                        const entry = l1.entries[indices[0]];
                         std.log.err("present: {}", .{entry.present});
                         std.log.err("phys addr: 0x{x}", .{@as(usize, entry.address) * 4096});
                     }
