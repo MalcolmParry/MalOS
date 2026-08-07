@@ -6,11 +6,7 @@ pub var root: *Node = undefined;
 pub const Error = error{
     OutOfMemory,
     NoEntry,
-    TooManySuperBlocks,
-    TooManyNodes,
-    TooManyFiles,
     FileBusy,
-    NodeDead,
     NotEmpty,
     NotAFile,
     NotADir,
@@ -41,25 +37,20 @@ pub const Node = struct {
     kind: Kind,
     vtable: *const Ops,
     sb: *SuperBlock,
-    parent: *Node,
     mount: ?*Node = null,
-
     ref_count: u32 = 0,
-    alive: bool = true,
 
     pub fn decRef(node: *Node) void {
         node.ref_count -= 1;
-        if (!node.alive and node.ref_count == 0)
+        if (node.ref_count == 0)
             node.vtable.free(node);
     }
 
     pub const Ops = struct {
-        /// only valid if ref_count == 0
         free: *const fn (node: *Node) void,
         lookup: *const fn (dir: *Node, name: []const u8) Error!*Node,
         create: *const fn (dir: *Node, name: []const u8, opts: CreateOptions) Error!*Node = &unimplementedCreate,
-        /// must free the node if ref_count == 0
-        destroy: *const fn (node: *Node) Error!void = &unimplementedDestroy,
+        unlink: *const fn (dir: *Node, name: []const u8) Error!void = &unimplementedUnlink,
         open: *const fn (node: *Node) Error!*File = &unimplementedOpen,
     };
 
@@ -85,7 +76,7 @@ pub fn unimplementedCreate(_: *Node, _: []const u8, _: CreateOptions) Error!*Nod
     return error.NotSupported;
 }
 
-pub fn unimplementedDestroy(_: *Node) Error!void {
+pub fn unimplementedUnlink(_: *Node, _: []const u8) Error!void {
     return error.NotSupported;
 }
 
@@ -93,7 +84,9 @@ pub fn unimplementedOpen(_: *Node) Error!*File {
     return error.NotSupported;
 }
 
-pub fn unimplementedClose(_: *File) void {}
+pub fn unimplementedClose(_: *File) void {
+    @panic("not implemented");
+}
 
 pub fn unimplementedRead(_: *File, _: []u8) Error!usize {
     return error.NotSupported;

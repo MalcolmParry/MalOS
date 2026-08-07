@@ -12,27 +12,30 @@ node_pool: std.heap.MemoryPool(Node),
 file_pool: std.heap.MemoryPool(File),
 
 const Node = struct {
-    vfs_node: vfs.Node,
-    next_sibling: ?*Node,
-    name_buf: [max_name_len]u8,
-    name_len: u8,
+    vfs: vfs.Node,
 
     data: union {
         file: struct {
             data: std.ArrayList(u8),
         },
         dir: struct {
-            first_child: ?*Node,
+            entries: std.ArrayList(DirEntry),
         },
     },
+};
 
-    fn name(node: *const Node) []const u8 {
-        return node.name_buf[0..node.name_len];
+const DirEntry = struct {
+    name_buf: [max_name_len]u8,
+    name_len: u8,
+    node: *Node,
+
+    fn name(entry: *DirEntry) []u8 {
+        return entry.name_buf[0..entry.name_len];
     }
 };
 
 const File = struct {
-    vfs_file: vfs.File,
+    vfs: vfs.File,
     head: usize,
 };
 
@@ -40,7 +43,7 @@ const node_ops: vfs.Node.Ops = .{
     .free = &free,
     .lookup = &lookup,
     .create = &create,
-    .destroy = &destroy,
+    .unlink = &unlink,
     .open = &open,
 };
 
@@ -64,125 +67,115 @@ pub fn init(fs: *Ramfs, alloc: std.mem.Allocator) !void {
 
     fs.sb = .{
         .lock = .init,
-        .root = &root.vfs_node,
+        .root = &root.vfs,
     };
 
     root.* = .{
-        .vfs_node = .{
+        .vfs = .{
             .kind = .dir,
             .vtable = &node_ops,
             .sb = &fs.sb,
-            .parent = &root.vfs_node,
         },
-        .next_sibling = null,
-        .name_buf = @as([1]u8, "/".*) ++ @as([max_name_len - 1]u8, @splat(0)),
-        .name_len = 1,
         .data = .{ .dir = .{
-            .first_child = null,
+            .entries = .empty,
         } },
     };
 }
 
 pub fn deinit(fs: *Ramfs) void {
+    fs.sb.root.decRef();
+
     fs.node_pool.deinit(fs.alloc);
     fs.file_pool.deinit(fs.alloc);
 }
 
 fn free(node_vfs: *vfs.Node) void {
-    std.debug.assert(node_vfs.ref_count == 0 and !node_vfs.alive);
+    std.debug.assert(node_vfs.ref_count == 0);
     const fs: *Ramfs = @fieldParentPtr("sb", node_vfs.sb);
-    const node: *Node = @fieldParentPtr("vfs_node", node_vfs);
+    const node: *Node = @fieldParentPtr("vfs", node_vfs);
+
+    switch (node_vfs.kind) {
+        .file => node.data.file.data.deinit(fs.alloc),
+        .dir => {
+            for (node.data.dir.entries.items) |entry| {
+                entry.node.vfs.decRef();
+            }
+
+            node.data.dir.entries.deinit(fs.alloc);
+        },
+    }
+
     fs.node_pool.destroy(node);
 }
 
 fn lookup(dir_vfs: *vfs.Node, name: []const u8) vfs.Error!*vfs.Node {
-    if (!dir_vfs.alive) return error.NodeDead;
     if (dir_vfs.kind != .dir) return error.NotADir;
-    const dir: *Node = @fieldParentPtr("vfs_node", dir_vfs);
+    const dir: *Node = @fieldParentPtr("vfs", dir_vfs);
 
-    var maybe_next = dir.data.dir.first_child;
-    while (maybe_next) |next| : (maybe_next = next.next_sibling) {
-        if (!next.vfs_node.alive) continue;
-
-        if (std.mem.eql(u8, name, next.name())) {
-            return &next.vfs_node;
-        }
+    for (dir.data.dir.entries.items) |*entry| {
+        if (!std.mem.eql(u8, entry.name(), name)) continue;
+        entry.node.vfs.ref_count += 1;
+        return &entry.node.vfs;
     }
 
     return error.NoEntry;
 }
 
 fn create(dir_vfs: *vfs.Node, name: []const u8, opts: vfs.CreateOptions) vfs.Error!*vfs.Node {
-    if (!dir_vfs.alive) return error.NodeDead;
     if (name.len > max_name_len) return error.NameTooLong;
+    if (dir_vfs.kind != .dir) return error.NotADir;
 
     const fs: *Ramfs = @fieldParentPtr("sb", dir_vfs.sb);
-
-    if (dir_vfs.kind != .dir) return error.NotADir;
-    const dir: *Node = @fieldParentPtr("vfs_node", dir_vfs);
+    const dir: *Node = @fieldParentPtr("vfs", dir_vfs);
 
     const new = try fs.node_pool.create(fs.alloc);
     errdefer fs.node_pool.destroy(new);
 
     new.* = .{
-        .vfs_node = .{
+        .vfs = .{
             .kind = opts.kind,
             .vtable = &node_ops,
             .sb = dir_vfs.sb,
-            .parent = dir_vfs,
+            .ref_count = 2,
         },
-        .next_sibling = dir.data.dir.first_child,
-        .name_buf = @splat(0),
-        .name_len = @intCast(name.len),
         .data = switch (opts.kind) {
             .file => .{ .file = .{
                 .data = .empty,
             } },
             .dir => .{ .dir = .{
-                .first_child = null,
+                .entries = .empty,
             } },
         },
     };
 
-    @memcpy(new.name_buf[0..name.len], name);
-    dir.data.dir.first_child = new;
+    var entry: DirEntry = .{
+        .name_buf = @splat(0),
+        .name_len = @intCast(name.len),
+        .node = new,
+    };
 
-    return &new.vfs_node;
+    @memcpy(entry.name_buf[0..name.len], name);
+    try dir.data.dir.entries.append(fs.alloc, entry);
+
+    return &new.vfs;
 }
 
-fn destroy(node_vfs: *vfs.Node) vfs.Error!void {
-    const fs: *Ramfs = @fieldParentPtr("sb", node_vfs.sb);
-    const node: *Node = @fieldParentPtr("vfs_node", node_vfs);
-    if (!node_vfs.alive) return error.NodeDead;
-    if (node_vfs.mount != null) return error.NotEmpty;
+fn unlink(dir_vfs: *vfs.Node, name: []const u8) vfs.Error!void {
+    const dir: *Node = @fieldParentPtr("vfs", dir_vfs);
+    if (dir_vfs.kind != .dir) return error.NotADir;
 
-    switch (node_vfs.kind) {
-        .file => node.data.file.data.deinit(fs.alloc),
-        .dir => if (node.data.dir.first_child != null) return error.NotEmpty,
-    }
+    const index: usize = blk: for (dir.data.dir.entries.items, 0..) |*entry, i| {
+        if (!std.mem.eql(u8, entry.name(), name)) continue;
+        break :blk i;
+    } else return error.NoEntry;
 
-    const parent: *Node = @fieldParentPtr("vfs_node", node_vfs.parent);
-    if (parent.data.dir.first_child == node) {
-        parent.data.dir.first_child = node.next_sibling;
-    } else {
-        var maybe_next = parent.data.dir.first_child;
-
-        while (maybe_next) |next| : (maybe_next = next.next_sibling) {
-            if (next.next_sibling == node) {
-                next.next_sibling = node.next_sibling;
-                break;
-            }
-        }
-    }
-
-    node.vfs_node.alive = false;
-    if (node.vfs_node.ref_count == 0) {
-        fs.node_pool.destroy(node);
-    }
+    // TODO: this will cause problems later when iterating dir entries
+    const entry = dir.data.dir.entries.swapRemove(index);
+    entry.node.vfs.decRef();
+    std.log.info("{}", .{entry.node.vfs.ref_count});
 }
 
 fn open(node_vfs: *vfs.Node) vfs.Error!*vfs.File {
-    if (!node_vfs.alive) return error.NodeDead;
     const fs: *Ramfs = @fieldParentPtr("sb", node_vfs.sb);
     if (node_vfs.kind != .file) return error.NotAFile;
 
@@ -190,7 +183,7 @@ fn open(node_vfs: *vfs.Node) vfs.Error!*vfs.File {
     errdefer fs.file_pool.destroy(file);
 
     file.* = .{
-        .vfs_file = .{
+        .vfs = .{
             .node = node_vfs,
             .vtable = &file_ops,
         },
@@ -198,25 +191,19 @@ fn open(node_vfs: *vfs.Node) vfs.Error!*vfs.File {
     };
 
     node_vfs.ref_count += 1;
-    return &file.vfs_file;
+    return &file.vfs;
 }
 
 fn close(vfs_file: *vfs.File) void {
     const fs: *Ramfs = @fieldParentPtr("sb", vfs_file.node.sb);
-    const file: *File = @alignCast(@fieldParentPtr("vfs_file", vfs_file));
-    const vfs_node = vfs_file.node;
-
-    vfs_node.ref_count -= 1;
-    if (!vfs_node.alive and vfs_node.ref_count == 0)
-        vfs_node.vtable.free(vfs_node);
-
+    const file: *File = @alignCast(@fieldParentPtr("vfs", vfs_file));
+    vfs_file.node.decRef();
     fs.file_pool.destroy(file);
 }
 
 fn read(vfs_file: *vfs.File, buffer: []u8) vfs.Error!usize {
-    const node: *Node = @fieldParentPtr("vfs_node", vfs_file.node);
-    const file: *File = @alignCast(@fieldParentPtr("vfs_file", vfs_file));
-    if (!node.vfs_node.alive) return error.NodeDead;
+    const node: *Node = @fieldParentPtr("vfs", vfs_file.node);
+    const file: *File = @alignCast(@fieldParentPtr("vfs", vfs_file));
 
     const data = &node.data.file.data;
     if (file.head >= data.items.len) return error.EndOfFile;
@@ -230,9 +217,8 @@ fn read(vfs_file: *vfs.File, buffer: []u8) vfs.Error!usize {
 
 fn write(vfs_file: *vfs.File, data: []const u8) vfs.Error!usize {
     const fs: *Ramfs = @fieldParentPtr("sb", vfs_file.node.sb);
-    const node: *Node = @fieldParentPtr("vfs_node", vfs_file.node);
-    const file: *File = @alignCast(@fieldParentPtr("vfs_file", vfs_file));
-    if (!node.vfs_node.alive) return error.NodeDead;
+    const node: *Node = @fieldParentPtr("vfs", vfs_file.node);
+    const file: *File = @alignCast(@fieldParentPtr("vfs", vfs_file));
 
     const file_data = &node.data.file.data;
     const old_size = file_data.items.len;
@@ -248,9 +234,8 @@ fn write(vfs_file: *vfs.File, data: []const u8) vfs.Error!usize {
 }
 
 fn seek(vfs_file: *vfs.File, base: vfs.SeekBase, offset: isize) vfs.Error!void {
-    const node: *Node = @fieldParentPtr("vfs_node", vfs_file.node);
-    const file: *File = @alignCast(@fieldParentPtr("vfs_file", vfs_file));
-    if (!node.vfs_node.alive) return error.NodeDead;
+    const node: *Node = @fieldParentPtr("vfs", vfs_file.node);
+    const file: *File = @alignCast(@fieldParentPtr("vfs", vfs_file));
 
     const base_uint: usize = switch (base) {
         .start => 0,
@@ -272,12 +257,14 @@ test "lookup/destroy" {
 
     {
         try std.testing.expect(lookup(vfs.root, "thing.txt") == error.NoEntry);
-        _ = try create(vfs.root, "thing.txt", .{ .kind = .file });
+        const thing = try create(vfs.root, "thing.txt", .{ .kind = .file });
+        thing.decRef();
     }
 
     {
         const thing_file = try lookup(vfs.root, "thing.txt");
-        try destroy(thing_file);
+        thing_file.decRef();
+        try unlink(vfs.root, "thing.txt");
         try std.testing.expect(lookup(vfs.root, "thing.txt") == error.NoEntry);
     }
 }
@@ -295,6 +282,8 @@ test "read/write" {
 
     {
         const other_file = try create(vfs.root, "other.thing", .{ .kind = .file });
+        defer other_file.decRef();
+
         const thing = try open(other_file);
         defer close(thing);
 
@@ -305,8 +294,10 @@ test "read/write" {
 
     {
         const other_file = try lookup(vfs.root, "other.thing");
-        defer destroy(other_file) catch unreachable;
+        defer unlink(vfs.root, "other.thing") catch unreachable;
+        defer other_file.decRef();
 
+        try std.testing.expect(other_file.ref_count == 2);
         const thing = try open(other_file);
         defer close(thing);
 
