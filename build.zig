@@ -96,7 +96,7 @@ fn addBuildIsoStep(b: *Build, optimize: std.builtin.OptimizeMode, target: Build.
     const test_step = b.step("test", "run unit tests");
     const unit_tests = b.addTest(.{
         .root_module = b.createModule(.{
-            .root_source_file = b.path("src/test.zig"),
+            .root_source_file = b.path("src/main.zig"),
             .target = b.resolveTargetQuery(.{
                 .cpu_arch = .x86_64,
             }),

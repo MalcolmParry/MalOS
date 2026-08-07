@@ -10,7 +10,6 @@ pub const serial = @import("serial.zig");
 pub const page_size = 1024 * 4;
 pub const kernel_virt_base: u64 = 0xffff_ffff_c000_0000;
 
-pub const boot_call_conv = std.builtin.CallingConvention{ .x86_64_sysv = .{ .incoming_stack_alignment = 16 } };
 pub const initBootInfo = multiboot.initBootInfo;
 pub const PageTable = paging.tables.L4;
 
@@ -219,4 +218,8 @@ pub fn writeMSR(msr: u32, value: u64) void {
           [low] "{eax}" (low),
           [high] "{edx}" (high),
         : .{});
+}
+
+pub fn kernelEntry() callconv(.{ .x86_64_sysv = .{ .incoming_stack_alignment = 16 } }) noreturn {
+    @import("../../main.zig").kernelMain();
 }

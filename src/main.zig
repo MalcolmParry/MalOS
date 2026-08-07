@@ -5,6 +5,7 @@ const pmm = @import("pmm.zig");
 const vmm = @import("vmm.zig");
 const PageAllocator = @import("PageAllocator.zig");
 const std = @import("std");
+const builtin = @import("builtin");
 const scheduler = @import("scheduler.zig");
 const vfs = @import("fs/vfs.zig");
 const Ramfs = @import("fs/Ramfs.zig");
@@ -22,7 +23,7 @@ pub const os = struct {
     };
 };
 
-fn kernelMain() noreturn {
+pub fn kernelMain() noreturn {
     arch.serial.init();
     arch.interrupt.init();
 
@@ -79,10 +80,6 @@ fn kernelMain() noreturn {
     scheduler.schedule();
 }
 
-export fn kernelEntry() callconv(arch.boot_call_conv) noreturn {
-    kernelMain();
-}
-
 pub fn log(
     comptime level: std.log.Level,
     comptime scope: @EnumLiteral(),
@@ -93,4 +90,14 @@ pub fn log(
     defer lock.unlock();
 
     std.log.defaultLogFileTerminal(level, scope, format, args, arch.serial.term) catch @panic("failed to print");
+}
+
+comptime {
+    if (!builtin.is_test) {
+        @export(&arch.kernelEntry, .{ .name = "kernelEntry" });
+    }
+}
+
+test {
+    _ = @import("fs/Ramfs.zig");
 }

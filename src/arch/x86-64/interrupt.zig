@@ -192,15 +192,10 @@ fn commonStub() callconv(.naked) void {
         \\
         \\ xor %ebp, %ebp
         \\ movq %rsp, %rdi // 1st arg in rdi
-        \\ jmp handler
+        \\ jmp %[handler:P]
+        :
+        : [handler] "X" (&handler),
     );
-}
-
-comptime {
-    if (!builtin.is_test) {
-        @export(&commonStub, .{ .name = "commonStub" });
-        @export(&handler, .{ .name = "handler" });
-    }
 }
 
 const Stub = fn () callconv(.naked) void;
@@ -229,9 +224,10 @@ fn generateInterruptStub(comptime int_num: u8) Stub {
 
             asm volatile (
                 \\ pushq %[int_num]
-                \\ jmp commonStub
+                \\ jmp %[commonStub:P]
                 :
                 : [int_num] "n" (@as(u64, int_num)),
+                  [commonStub] "X" (&commonStub),
             );
         }
     }.func;

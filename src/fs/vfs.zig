@@ -82,6 +82,7 @@ pub const Node = struct {
 
             for (dir.data.dir.entry_cache.items) |*entry| {
                 if (!std.mem.eql(u8, entry.name(), name)) continue;
+                _ = entry.node.ref_count.fetchAdd(1, .monotonic);
                 return entry.node;
             }
         }

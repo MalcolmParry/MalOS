@@ -267,10 +267,8 @@ fn seek(vfs_file: *vfs.File, base: vfs.SeekBase, offset: isize) vfs.Error!void {
 test "lookup/destroy" {
     var ramfs: Ramfs = undefined;
     const root = try ramfs.init(std.testing.allocator);
-    defer {
-        root.decRef();
-        ramfs.deinit();
-    }
+    root.decRef();
+    defer ramfs.deinit();
 
     {
         try std.testing.expect(root.lookup("thing.txt") == error.NoEntry);
@@ -289,10 +287,8 @@ test "lookup/destroy" {
 test "read/write" {
     var ramfs: Ramfs = undefined;
     const root = try ramfs.init(std.testing.allocator);
-    defer {
-        root.decRef();
-        ramfs.deinit();
-    }
+    root.decRef();
+    defer ramfs.deinit();
 
     const test_data1 = "very important stuff";
     const test_data2 = "extra important info";
