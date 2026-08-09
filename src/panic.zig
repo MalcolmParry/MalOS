@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const arch = @import("arch.zig");
 const mem = @import("memory.zig");
 
@@ -36,9 +37,7 @@ pub fn getSymbolTable() void {
         const name = module.name();
 
         if (std.mem.eql(u8, name, "symbol_table")) {
-            const count = data.len / @sizeOf(Symbol);
-            const many_ptr: [*]Symbol = @ptrCast(@alignCast(data));
-            symbol_table = many_ptr[0..count];
+            symbol_table = std.mem.bytesAsSlice(Symbol, data);
         }
 
         if (std.mem.eql(u8, name, "symbol_names")) {
@@ -53,6 +52,11 @@ const Frame = extern struct {
 };
 
 fn printStackTrace(frame_addr: usize) void {
+    if (builtin.omit_frame_pointer) {
+        std.log.err("no stack trace available (frame pointer omitted)", .{});
+        return;
+    }
+
     var maybe_frame: ?*Frame = @ptrFromInt(frame_addr);
 
     while (maybe_frame) |frame| {

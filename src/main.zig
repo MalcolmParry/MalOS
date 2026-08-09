@@ -30,7 +30,7 @@ pub fn kernelMain() noreturn {
     arch.initBootInfo();
 
     for (pmm.available_ranges.items) |range| {
-        std.log.info("Available: {f}", .{mem.fmtRange(range)});
+        std.log.info("Available: {f}\x1b[48G{Bi}", .{ mem.fmtRange(range), range.len * mem.page_size });
     }
 
     std.log.info("Kernel {f}", .{mem.fmtRange(pmm.kernel_range)});
@@ -77,8 +77,7 @@ pub fn kernelMain() noreturn {
 
     scheduler.init();
     arch.pit.init();
-    @panic("e");
-    // scheduler.schedule();
+    scheduler.schedule();
 }
 
 pub fn log(

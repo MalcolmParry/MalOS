@@ -6,12 +6,12 @@ pub var root: *Node = undefined;
 pub const Error = error{
     OutOfMemory,
     NoEntry,
-    FileBusy,
+    AlreadyExists,
+    Busy,
     NotEmpty,
     NotAFile,
     NotADir,
     NameTooLong,
-    EndOfFile,
     NotSupported,
 };
 
@@ -22,7 +22,7 @@ pub const CreateOptions = struct {
 pub const SeekBase = enum {
     start,
     end,
-    head,
+    current,
 };
 
 /// represents a single mounted filesystem
@@ -36,7 +36,6 @@ pub const Node = struct {
     kind: Kind,
     vtable: *const Ops,
     sb: *SuperBlock,
-    mount: ?*Node = null,
 
     ref_count: std.atomic.Value(u32),
     lock: Spinlock = .init,
@@ -44,9 +43,10 @@ pub const Node = struct {
 
     pub const Ops = struct {
         free: *const fn (node: *Node) void,
-        lookup: *const fn (dir: *Node, name: []const u8) Error!*Node = &unimplementedLookup,
-        create: *const fn (dir: *Node, name: []const u8, opts: CreateOptions) Error!*Node = &unimplementedCreate,
-        unlink: *const fn (dir: *Node, name: []const u8) Error!void = &unimplementedUnlink,
+        free_dir_entry: *const fn (entry: *DirEntry) void,
+        lookup: *const fn (parent: *DirEntry, name: []const u8) Error!*DirEntry = &unimplementedLookup,
+        create: *const fn (parent: *DirEntry, name: []const u8, opts: CreateOptions) Error!*DirEntry = &unimplementedCreate,
+        unlink: *const fn (parent: *DirEntry, child: *DirEntry) Error!void = &unimplementedUnlink,
         open: *const fn (node: *Node) Error!*File = &unimplementedOpen,
     };
 
@@ -60,45 +60,70 @@ pub const Node = struct {
         dir: Dir,
 
         pub const Dir = struct {
-            entry_cache: std.ArrayList(DirEntry),
+            first_child: ?*DirEntry,
         };
     };
 
+    pub fn incRef(node: *Node) void {
+        const prev_count = node.ref_count.fetchAdd(1, .acquire);
+        std.debug.assert(prev_count != 0);
+    }
+
     pub fn decRef(node: *Node) void {
-        const prev_count = node.ref_count.fetchSub(1, .monotonic);
+        const prev_count = node.ref_count.fetchSub(1, .release);
 
         std.debug.assert(prev_count != 0);
         if (prev_count == 1) {
             node.vtable.free(node);
         }
     }
-
-    pub fn lookup(dir: *Node, name: []const u8) Error!*Node {
-        if (dir.kind != .dir) return error.NotADir;
-
-        {
-            const lock = dir.lock.lock();
-            defer lock.unlock();
-
-            for (dir.data.dir.entry_cache.items) |*entry| {
-                if (!std.mem.eql(u8, entry.name(), name)) continue;
-                _ = entry.node.ref_count.fetchAdd(1, .monotonic);
-                return entry.node;
-            }
-        }
-
-        return dir.vtable.lookup(dir, name);
-    }
 };
 
-pub const max_embedded_name_len = 64 - @sizeOf(*Node) - @sizeOf(u16);
+pub const max_embedded_name_len = 32;
 pub const DirEntry = struct {
     node: *Node,
     name_len: u16,
     name_buf: [max_embedded_name_len]u8,
 
-    pub fn name(entry: *const DirEntry) []const u8 {
+    parent: ?*DirEntry,
+    next_sibling: ?*DirEntry,
+
+    ref_count: std.atomic.Value(u32),
+
+    pub fn incRef(entry: *DirEntry) void {
+        const prev_count = entry.ref_count.fetchAdd(1, .acquire);
+        std.debug.assert(prev_count != 0);
+    }
+
+    pub fn decRef(entry: *DirEntry) void {
+        const prev_count = entry.ref_count.fetchSub(1, .release);
+
+        std.debug.assert(prev_count != 0);
+        if (prev_count == 1) {
+            entry.node.vtable.free_dir_entry(entry);
+        }
+    }
+
+    pub fn getName(entry: *const DirEntry) []const u8 {
         return entry.name_buf[0..entry.name_len];
+    }
+
+    pub fn lookup(parent: *DirEntry, name: []const u8) Error!*DirEntry {
+        if (parent.node.kind != .dir) return error.NotADir;
+
+        {
+            const lock = parent.node.lock.lock();
+            defer lock.unlock();
+
+            var maybe_entry = parent.node.data.dir.first_child;
+            while (maybe_entry) |entry| : (maybe_entry = entry.next_sibling) {
+                if (!std.mem.eql(u8, entry.getName(), name)) continue;
+                entry.incRef();
+                return entry;
+            }
+        }
+
+        return parent.node.vtable.lookup(parent, name);
     }
 };
 
@@ -114,16 +139,16 @@ pub const File = struct {
     };
 };
 
-pub fn unimplementedLookup(dir: *Node, _: []const u8) Error!*Node {
-    if (dir.kind != .dir) return error.NotADir;
+pub fn unimplementedLookup(parent: *DirEntry, _: []const u8) Error!*DirEntry {
+    if (parent.node.kind != .dir) return error.NotADir;
     return error.NoEntry;
 }
 
-pub fn unimplementedCreate(_: *Node, _: []const u8, _: CreateOptions) Error!*Node {
+pub fn unimplementedCreate(_: *DirEntry, _: []const u8, _: CreateOptions) Error!*DirEntry {
     return error.NotSupported;
 }
 
-pub fn unimplementedUnlink(_: *Node, _: []const u8) Error!void {
+pub fn unimplementedUnlink(_: *DirEntry, _: *DirEntry) Error!void {
     return error.NotSupported;
 }
 
