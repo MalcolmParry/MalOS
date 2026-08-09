@@ -2,6 +2,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const arch = @import("arch.zig");
 const mem = @import("memory.zig");
+const log = @import("log.zig");
 
 /// Symbol as it appears in symbol_table module
 /// Definition also used by build file
@@ -21,11 +22,11 @@ pub fn panic(str: []const u8, trace: ?*std.builtin.StackTrace, return_address: ?
     _ = trace;
     _ = return_address;
 
-    arch.serial.writer_spinlock.status.store(.unlocked, .monotonic);
+    arch.interrupt.disable();
+    log.spinlock.status.store(.unlocked, .monotonic);
 
     printStackTrace(@frameAddress());
     std.log.err("Kernel Panic: {s}", .{str});
-    arch.interrupt.disable();
     arch.spinWait();
 }
 

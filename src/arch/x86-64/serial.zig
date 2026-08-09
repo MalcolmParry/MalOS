@@ -1,6 +1,5 @@
 const std = @import("std");
 const arch = @import("arch.zig");
-const Spinlock = @import("../../Spinlock.zig");
 
 const port = 0x3f8;
 
@@ -83,5 +82,3 @@ fn drain(this: *std.Io.Writer, data: []const []const u8, splat: usize) !usize {
 
 const writer_vtable: std.Io.Writer.VTable = .{ .drain = &drain };
 pub var writer: std.Io.Writer = .{ .vtable = &writer_vtable, .buffer = &.{} };
-pub var term: std.Io.Terminal = .{ .writer = &writer, .mode = .escape_codes };
-pub var writer_spinlock: Spinlock = .init;

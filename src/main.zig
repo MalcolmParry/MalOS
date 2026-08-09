@@ -9,10 +9,11 @@ const builtin = @import("builtin");
 const scheduler = @import("scheduler.zig");
 const vfs = @import("fs/vfs.zig");
 const Ramfs = @import("fs/Ramfs.zig");
+const log = @import("log.zig");
 
 pub const panic = @import("panic.zig").panic;
 pub const std_options: std.Options = .{
-    .logFn = log,
+    .logFn = log.log,
     .page_size_min = mem.page_size,
     .page_size_max = mem.page_size,
 };
@@ -79,18 +80,6 @@ pub fn kernelMain() noreturn {
     scheduler.init();
     arch.pit.init();
     scheduler.schedule();
-}
-
-pub fn log(
-    comptime level: std.log.Level,
-    comptime scope: @EnumLiteral(),
-    comptime format: []const u8,
-    args: anytype,
-) void {
-    const lock = arch.serial.writer_spinlock.lock();
-    defer lock.unlock();
-
-    std.log.defaultLogFileTerminal(level, scope, format, args, arch.serial.term) catch @panic("failed to print");
 }
 
 comptime {
