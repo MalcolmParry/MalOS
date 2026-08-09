@@ -2,17 +2,11 @@ const std = @import("std");
 const builtin = @import("builtin");
 const mem = @import("memory.zig");
 const Spinlock = @import("Spinlock.zig");
+const BootInfo = @import("BootInfo.zig");
 const debug = switch (builtin.mode) {
     .Debug, .ReleaseSafe => true,
     else => false,
 };
-
-var available_ranges_buffer: [16][]mem.PhysPage = undefined;
-var init_free_ranges_buffer: [16][]mem.PhysPage = undefined;
-
-pub var kernel_range: []mem.Phys(u8) = undefined;
-pub var available_ranges: std.ArrayList([]mem.PhysPage) = .initBuffer(&available_ranges_buffer);
-var init_free_ranges: std.ArrayList([]mem.PhysPage) = .initBuffer(&init_free_ranges_buffer);
 
 pub var total_pages: usize = 0;
 pub var used_pages: std.atomic.Value(usize) = .init(0);
@@ -20,18 +14,21 @@ pub var used_pages: std.atomic.Value(usize) = .init(0);
 var next_bump_alloc: std.atomic.Value(usize) = .init(0);
 var largest_bump_alloc: u32 = 0;
 
+var init_free_ranges_buffer: [16][]mem.PhysPage = undefined;
+var init_free_ranges: std.ArrayList([]mem.PhysPage) = .initBuffer(&init_free_ranges_buffer);
+
 var spinlock: Spinlock = .init;
 var page_descs: []PageDesc = &.{};
 var maybe_first_free: OptIndex = .none;
 
-pub fn tempInit() void {
-    init_free_ranges.appendSliceBounded(available_ranges.items) catch @panic("too many ranges");
-    reserveAvailableRegion(kernel_range);
-    for (mem.modules.items) |module| {
+pub fn tempInit(boot_info: *const BootInfo) void {
+    init_free_ranges.appendSliceBounded(boot_info.availablePhysRanges()) catch @panic("too many ranges");
+    reserveAvailableRegion(boot_info.kernel_phys_range);
+    for (boot_info.modules()) |module| {
         reserveAvailableRegion(module.phys_range);
     }
 
-    for (available_ranges.items) |range| {
+    for (boot_info.availablePhysRanges()) |range| {
         total_pages += range.len;
     }
 
@@ -43,9 +40,9 @@ pub fn tempInit() void {
     largest_bump_alloc = @intCast(free_pages);
 }
 
-pub fn init(alloc: std.mem.Allocator) void {
+pub fn init(boot_info: *const BootInfo, alloc: std.mem.Allocator) void {
     var highest: [*]allowzero mem.PhysPage = @ptrFromInt(0);
-    for (available_ranges.items) |range| {
+    for (boot_info.availablePhysRanges()) |range| {
         const end = range.ptr + range.len;
         if (@intFromPtr(highest) < @intFromPtr(end)) {
             highest = end;
@@ -178,7 +175,7 @@ fn reserveAvailableRegion(reserved: []mem.Phys(u8)) void {
             end = res_aligned.ptr;
 
         if (@intFromPtr(start) >= @intFromPtr(end)) {
-            _ = available_ranges.swapRemove(i);
+            _ = init_free_ranges.swapRemove(i);
             continue;
         }
 

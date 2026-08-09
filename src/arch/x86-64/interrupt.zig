@@ -125,7 +125,6 @@ fn handler(state: *align(1) arch.CPUState) callconv(.{ .x86_64_sysv = .{ .incomi
             );
 
             std.log.err("page fault\n{}", .{flags});
-            panic.getSymbolTable();
             panic.writeTraceAddr(cr2);
 
             const indices = arch.paging.tables.getIndicesFromVirtAddr(cr2);

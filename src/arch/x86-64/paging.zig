@@ -5,6 +5,7 @@ const vmm = @import("../../vmm.zig");
 const pmm = @import("../../pmm.zig");
 const arch = @import("arch.zig");
 const PageAllocator = @import("../../PageAllocator.zig");
+const BootInfo = @import("../../BootInfo.zig");
 
 pub const tables = struct {
     pub const Index = u9;
@@ -287,7 +288,7 @@ fn enableExecuteDisable() void {
     arch.writeMSR(msr, old | (1 << 11));
 }
 
-pub fn init() *tables.L4 {
+pub fn init(boot_info: *const BootInfo) *tables.L4 {
     enableExecuteDisable();
     gdt.init();
 
@@ -335,7 +336,7 @@ pub fn init() *tables.L4 {
     tables.reserve.allocate(table_allocator.allocator()) catch @panic("cant allocate tables");
 
     tables.initEmpty(&l2_kernel_table);
-    for (vmm.kernel_regions.items) |region| {
+    for (boot_info.kernelRegions()) |region| {
         for (region.pages) |*page| {
             const phys = @intFromPtr(page) - mem.kernel_virt_base;
             std.debug.assert(phys < 4096 * 512 * 512);

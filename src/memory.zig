@@ -105,9 +105,6 @@ pub fn RangeFormatter(Range: type) type {
     };
 }
 
-var modules_buffer: [8]Module = undefined;
-pub var modules: std.ArrayList(Module) = .initBuffer(&modules_buffer);
-
 pub const Module = struct {
     pub const max_name_len = 16;
 

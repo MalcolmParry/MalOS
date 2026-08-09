@@ -2,14 +2,6 @@ const std = @import("std");
 const arch = @import("arch.zig");
 const mem = @import("memory.zig");
 
-var kernel_regions_buffer: [16]KernelRegion = undefined;
-pub var kernel_regions: std.ArrayList(KernelRegion) = .initBuffer(&kernel_regions_buffer);
-
-pub const KernelRegion = struct {
-    pages: []mem.Page,
-    flags: PageFlags,
-};
-
 pub const PageFlags = packed struct {
     const CacheMode = enum(u4) {
         full,

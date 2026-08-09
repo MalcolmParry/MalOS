@@ -27,22 +27,23 @@ pub fn kernelMain() noreturn {
     arch.serial.init();
     arch.interrupt.init();
 
-    arch.initBootInfo();
+    var boot_info = arch.initBootInfo();
 
-    for (pmm.available_ranges.items) |range| {
+    for (boot_info.availablePhysRanges()) |range| {
         std.log.info("Available: {f}\x1b[48G{Bi}", .{ mem.fmtRange(range), range.len * mem.page_size });
     }
 
-    std.log.info("Kernel {f}", .{mem.fmtRange(pmm.kernel_range)});
+    std.log.info("Kernel {f}", .{mem.fmtRange(boot_info.kernel_phys_range)});
     std.log.info("KernelVirtBase: 0x{x}", .{mem.kernel_virt_base});
 
-    pmm.tempInit();
+    pmm.tempInit(&boot_info);
 
-    const page_table = arch.paging.init();
+    const page_table = arch.paging.init(&boot_info);
     var page_allocator_object: PageAllocator = .init(page_table, arch.paging.heap_range);
     const page_alloc = page_allocator_object.allocator();
+    pmm.init(&boot_info, page_alloc);
 
-    for (mem.modules.items) |*module| {
+    for (boot_info.module_buffer[0..boot_info.module_count]) |*module| {
         module.data = @alignCast(page_allocator_object.mapRange(module.phys_range, .{
             .writable = false,
             .executable = false,
@@ -53,7 +54,7 @@ pub fn kernelMain() noreturn {
         std.log.info("Module '{s}' at {f} and mapped at 0x{x}", .{ module.name(), mem.fmtRange(module.phys_range), @intFromPtr(module.data.?.ptr) });
     }
 
-    pmm.init(page_alloc);
+    @import("panic.zig").loadSymbolTable(boot_info.modules());
 
     // var gpa_obj = std.heap.DebugAllocator(.{
     //     .thread_safe = false,

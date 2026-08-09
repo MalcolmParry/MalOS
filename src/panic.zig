@@ -18,7 +18,6 @@ var symbol_names: ?[]u8 = null;
 
 pub fn panic(str: []const u8, trace: ?*std.builtin.StackTrace, return_address: ?usize) noreturn {
     @branchHint(.cold);
-    getSymbolTable();
     _ = trace;
     _ = return_address;
 
@@ -30,8 +29,8 @@ pub fn panic(str: []const u8, trace: ?*std.builtin.StackTrace, return_address: ?
     arch.spinWait();
 }
 
-pub fn getSymbolTable() void {
-    for (mem.modules.items) |*module| {
+pub fn loadSymbolTable(modules: []const mem.Module) void {
+    for (modules) |*module| {
         if (module.data == null) continue;
         const data = module.data.?;
         const name = module.name();

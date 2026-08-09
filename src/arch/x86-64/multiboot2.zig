@@ -3,6 +3,7 @@ const pmm = @import("../../pmm.zig");
 const vmm = @import("../../vmm.zig");
 const vga = @import("vga.zig");
 const std = @import("std");
+const BootInfo = @import("../../BootInfo.zig");
 
 const Phys = mem.Phys;
 const page_size = mem.page_size;
@@ -106,12 +107,25 @@ const BootInfoIterater = struct {
 extern var __KERNEL_START__: anyopaque;
 extern var __KERNEL_END__: anyopaque;
 
-pub fn initBootInfo() void {
-    multiboot_info = @ptrFromInt(@intFromPtr(phys_multiboot_info) + mem.kernel_virt_base);
-
+pub fn initBootInfo() BootInfo {
     const kernel_start: [*]mem.Phys(u8) = @ptrCast(&__KERNEL_START__);
     const kernel_size = @intFromPtr(&__KERNEL_END__) - @intFromPtr(&__KERNEL_START__);
-    pmm.kernel_range = kernel_start[0..kernel_size];
+
+    var boot_info: BootInfo = .{
+        .kernel_phys_range = kernel_start[0..kernel_size],
+        .available_phys_range_buffer = undefined,
+        .available_phys_range_count = 0,
+        .kernel_region_buffer = undefined,
+        .kernel_region_count = 0,
+        .module_buffer = undefined,
+        .module_count = 0,
+    };
+
+    var available_ranges: std.ArrayList([]mem.PhysPage) = .initBuffer(&boot_info.available_phys_range_buffer);
+    var kernel_regions: std.ArrayList(BootInfo.KernelRegion) = .initBuffer(&boot_info.kernel_region_buffer);
+    var modules: std.ArrayList(mem.Module) = .initBuffer(&boot_info.module_buffer);
+
+    multiboot_info = @ptrFromInt(@intFromPtr(phys_multiboot_info) + mem.kernel_virt_base);
 
     var iter: BootInfoIterater = undefined;
     iter.reset();
@@ -128,7 +142,7 @@ pub fn initBootInfo() void {
                 const len: u32 = module_tag.end - module_tag.start;
                 const start: [*]align(page_size) Phys(u8) = @ptrFromInt(module_tag.start);
 
-                const module = mem.modules.addOneBounded() catch @panic("too many modules");
+                const module = modules.addOneBounded() catch @panic("too many modules");
                 module.* = .{
                     .phys_range = start[0..len],
                     .data = null,
@@ -160,7 +174,7 @@ pub fn initBootInfo() void {
                         const start_many_ptr: [*]mem.PhysPage = @ptrFromInt(start);
                         const range = start_many_ptr[0..len];
 
-                        pmm.available_ranges.appendBounded(range) catch @panic("too many memory ranges");
+                        available_ranges.appendBounded(range) catch @panic("too many memory ranges");
                     },
                     .acpi_reclaimable => {
                         std.log.info("ACPI Reclaimable memory at 0x{x} - 0x{x}", .{ entry.base, entry.base + entry.length });
@@ -192,7 +206,7 @@ pub fn initBootInfo() void {
                     const start_ptr: [*]mem.Page = @ptrFromInt(start);
                     const page_count = (end - start) / mem.page_size;
 
-                    vmm.kernel_regions.appendBounded(.{
+                    kernel_regions.appendBounded(.{
                         .pages = start_ptr[0..page_count],
                         .flags = .{
                             .cache_mode = .full,
@@ -206,18 +220,15 @@ pub fn initBootInfo() void {
             },
             .load_base_addr => {
                 const load_base_addr: *Tag.LoadBaseAddr = @ptrCast(tag);
-                if (load_base_addr.addr != @intFromPtr(pmm.kernel_range.ptr))
+                if (load_base_addr.addr != @intFromPtr(boot_info.kernel_phys_range.ptr))
                     @panic("wrong kernel load address");
             },
             else => std.log.info("multiboot tag: {s}", .{@tagName(tag.t)}),
         }
     }
 
-    vmm.kernel_regions.appendBounded(.{ .pages = mem.pageSliceFromBytesInclusive(std.mem.asBytes(vga.video_memory)), .flags = .{
-        .cache_mode = .disabled,
-        .writable = true,
-        .executable = false,
-        .user = false,
-        .global = false,
-    } }) catch @panic("too many elf kernel sections");
+    boot_info.module_count = @intCast(modules.items.len);
+    boot_info.kernel_region_count = @intCast(kernel_regions.items.len);
+    boot_info.available_phys_range_count = @intCast(available_ranges.items.len);
+    return boot_info;
 }
