@@ -73,7 +73,7 @@ pub fn kernelMain() noreturn {
 
     std.log.info("Pages Allocated 0x{x}", .{page_count});
     std.log.info("Memory Allocated {Bi}", .{page_count * mem.page_size});
-    std.log.info("{Bi} used out of {Bi}", .{ pmm.pages_used * mem.page_size, pmm.total_pages * mem.page_size });
+    std.log.info("{Bi} used out of {Bi}", .{ pmm.used_pages.load(.monotonic) * mem.page_size, pmm.total_pages * mem.page_size });
 
     scheduler.init();
     arch.pit.init();

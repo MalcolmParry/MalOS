@@ -1,21 +1,32 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const mem = @import("memory.zig");
-const Phys = mem.Phys;
+const Spinlock = @import("Spinlock.zig");
+const debug = switch (builtin.mode) {
+    .Debug, .ReleaseSafe => true,
+    else => false,
+};
 
-var available_regions_buffer: [16][]mem.PhysPage = undefined;
+var available_ranges_buffer: [16][]mem.PhysPage = undefined;
+var init_free_ranges_buffer: [16][]mem.PhysPage = undefined;
 
 pub var kernel_range: []mem.Phys(u8) = undefined;
-pub var available_ranges: std.ArrayList([]mem.PhysPage) = .initBuffer(&available_regions_buffer);
+pub var available_ranges: std.ArrayList([]mem.PhysPage) = .initBuffer(&available_ranges_buffer);
+var init_free_ranges: std.ArrayList([]mem.PhysPage) = .initBuffer(&init_free_ranges_buffer);
 
 pub var total_pages: usize = 0;
-pub var pages_used: usize = 0;
-var temp_mode: bool = true;
-var bitset: std.DynamicBitSetUnmanaged = .{};
-var next_alloc_index: usize = 0;
+pub var used_pages: std.atomic.Value(usize) = .init(0);
+
+var next_bump_alloc: std.atomic.Value(usize) = .init(0);
+var largest_bump_alloc: u32 = 0;
+
+var spinlock: Spinlock = .init;
+var page_descs: []PageDesc = &.{};
+var maybe_first_free: OptIndex = .none;
 
 pub fn tempInit() void {
+    init_free_ranges.appendSliceBounded(available_ranges.items) catch @panic("too many ranges");
     reserveAvailableRegion(kernel_range);
-
     for (mem.modules.items) |module| {
         reserveAvailableRegion(module.phys_range);
     }
@@ -23,86 +34,140 @@ pub fn tempInit() void {
     for (available_ranges.items) |range| {
         total_pages += range.len;
     }
+
+    var free_pages: usize = 0;
+    for (init_free_ranges.items) |range| {
+        free_pages += range.len;
+    }
+    used_pages.raw = total_pages - free_pages;
+    largest_bump_alloc = @intCast(free_pages);
 }
 
 pub fn init(alloc: std.mem.Allocator) void {
-    bitset = std.DynamicBitSetUnmanaged.initEmpty(alloc, total_pages) catch @panic("can't allocate pmm bitset");
-    if (next_alloc_index != 0)
-        bitset.setRangeValue(.{ .start = 0, .end = next_alloc_index - 1 }, true);
+    var highest: [*]allowzero mem.PhysPage = @ptrFromInt(0);
+    for (available_ranges.items) |range| {
+        const end = range.ptr + range.len;
+        if (@intFromPtr(highest) < @intFromPtr(end)) {
+            highest = end;
+        }
+    }
 
-    temp_mode = false;
+    const desc_count = @intFromPtr(highest) / mem.page_size;
+    page_descs = alloc.alloc(PageDesc, desc_count) catch @panic("cant allocate physical page descs");
 }
 
 pub fn allocatePage() !*mem.PhysPage {
-    if (temp_mode) {
-        const result_index = next_alloc_index;
-        if (result_index >= total_pages) return error.OutOfMemory;
+    if (next_bump_alloc.load(.monotonic) < largest_bump_alloc) {
+        const bump_alloc = next_bump_alloc.fetchAdd(1, .monotonic);
+        if (bump_alloc < largest_bump_alloc) {
+            var offset: usize = 0;
+            for (init_free_ranges.items) |range| {
+                if (offset + range.len > bump_alloc) {
+                    _ = used_pages.fetchAdd(1, .monotonic);
+                    return &range[bump_alloc - offset];
+                }
 
-        next_alloc_index += 1;
-        pages_used += 1;
-        return indexToAddr(result_index);
+                offset += range.len;
+            }
+
+            unreachable;
+        }
     }
 
-    var result_index = next_alloc_index;
-    while (bitset.isSet(result_index)) {
-        result_index += 1;
-        if (result_index >= total_pages) result_index = 0;
-        if (result_index == next_alloc_index) return error.OutOfMemory;
+    const lock = spinlock.lock();
+    defer lock.unlock();
+
+    if (maybe_first_free.unwrap()) |first_free| {
+        const desc = &page_descs[@intFromEnum(first_free)];
+        maybe_first_free = desc.next;
+
+        if (debug) {
+            std.debug.assert(desc.magic == PageDesc.magic_num);
+            std.debug.assert(desc.state == .free);
+        }
+
+        desc.* = .{
+            .state = if (debug) .used else {},
+            .next = .none,
+        };
+
+        _ = used_pages.fetchAdd(1, .monotonic);
+        return first_free.toPtr();
     }
 
-    pages_used += 1;
-    next_alloc_index = result_index + 1;
-    if (next_alloc_index >= total_pages) next_alloc_index = 0;
-    bitset.set(result_index);
-    return indexToAddr(result_index);
+    return error.OutOfMemory;
 }
 
 pub fn freePage(page: *mem.PhysPage) void {
-    if (temp_mode) @panic("can't free pages with temp pmm");
+    const lock = spinlock.lock();
+    defer lock.unlock();
 
-    const index = addrToIndex(page);
-    std.debug.assert(bitset.isSet(index));
-    bitset.unset(index);
-    pages_used -= 1;
-}
+    std.debug.assert(page_descs.len != 0);
+    const desc_index: Index = .fromPtr(page);
+    const desc = &page_descs[@intFromEnum(desc_index)];
 
-fn addrToIndex(page: *mem.PhysPage) usize {
-    var cumulative_page_offset: usize = 0;
-    for (available_ranges.items) |region| {
-        if (!mem.addrInSlice([]mem.PhysPage, region, page)) {
-            cumulative_page_offset += region.len;
-            continue;
-        }
-
-        const offset = @intFromPtr(page) - @intFromPtr(region.ptr);
-        const page_offset = offset / mem.page_size;
-        return cumulative_page_offset + page_offset;
+    if (debug and desc.magic == PageDesc.magic_num) {
+        std.debug.assert(desc.state == .used);
     }
 
-    @panic("out of range");
+    desc.* = .{
+        .next = maybe_first_free,
+        .state = if (debug) .free else {},
+    };
+    maybe_first_free = .wrap(desc_index);
+    _ = used_pages.fetchSub(1, .monotonic);
 }
 
-fn indexToAddr(index: usize) *mem.PhysPage {
-    var region_start_index: usize = 0;
-    for (available_ranges.items) |region| {
-        if (index < region_start_index + region.len) {
-            const offset = index - region_start_index;
-            return &region[offset];
-        }
+pub const Index = enum(u32) {
+    _,
 
-        region_start_index += region.len;
+    pub fn fromPtr(ptr: *mem.PhysPage) Index {
+        return @enumFromInt(@intFromPtr(ptr) / mem.page_size);
     }
 
-    @panic("out of range");
-}
+    pub fn toPtr(index: Index) *mem.PhysPage {
+        return @ptrFromInt(@intFromEnum(index) * mem.page_size);
+    }
+};
 
-fn reserveAvailableRegion(reserved: []Phys(u8)) void {
+pub const OptIndex = enum(u32) {
+    none = 0,
+    _,
+
+    pub inline fn wrap(maybe_index: ?Index) OptIndex {
+        if (maybe_index) |index| {
+            std.debug.assert(@intFromEnum(index) != 0);
+            return @enumFromInt(@intFromEnum(index));
+        } else {
+            return .none;
+        }
+    }
+
+    pub inline fn unwrap(opt_index: OptIndex) ?Index {
+        return if (opt_index == .none) null else @enumFromInt(@intFromEnum(opt_index));
+    }
+};
+
+const PageDesc = struct {
+    next: OptIndex,
+
+    magic: if (debug) u32 else void = if (debug) magic_num else {},
+    state: if (debug) State else void,
+
+    const magic_num: u32 = 0x6769_0420;
+    const State = enum(u8) {
+        free,
+        used,
+    };
+};
+
+fn reserveAvailableRegion(reserved: []mem.Phys(u8)) void {
     const res_aligned = mem.physPageAlignOutwards(reserved);
     const res_end = res_aligned.ptr + res_aligned.len;
 
     var i: u32 = 0;
-    while (i < available_ranges.items.len) {
-        const range = available_ranges.items[i];
+    while (i < init_free_ranges.items.len) {
+        const range = init_free_ranges.items[i];
         var start = range.ptr;
         var end = range.ptr + range.len;
 
@@ -124,16 +189,11 @@ fn reserveAvailableRegion(reserved: []Phys(u8)) void {
             const add_len = (@intFromPtr(end) - @intFromPtr(res_end)) / mem.page_size;
             const additional = res_end[0..add_len];
 
-            available_ranges.appendBounded(additional) catch @panic("not enough memory ranges");
+            init_free_ranges.appendBounded(additional) catch @panic("not enough memory ranges");
             end = res_aligned.ptr;
         }
 
-        available_ranges.items[i] = mem.fromStartAndEnd([]mem.PhysPage, start, end);
-        if (available_ranges.items[i].len <= mem.page_size) {
-            _ = available_ranges.swapRemove(i);
-            continue;
-        }
-
+        init_free_ranges.items[i] = mem.fromStartAndEnd([]mem.PhysPage, start, end);
         i += 1;
     }
 }
