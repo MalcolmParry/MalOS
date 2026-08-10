@@ -33,7 +33,7 @@ var in_buffer: [8]u8 = undefined;
 var in_head: std.atomic.Value(u64) = .init(0);
 var in_tail: std.atomic.Value(u64) = .init(0);
 
-fn thread1() callconv(.{ .x86_64_sysv = .{} }) noreturn {
+fn thread1() callconv(.{ .x86_64_sysv = .{ .incoming_stack_alignment = 8 } }) noreturn {
     std.log.info("thread 1", .{});
 
     while (true) {
@@ -47,7 +47,7 @@ fn thread1() callconv(.{ .x86_64_sysv = .{} }) noreturn {
     }
 }
 
-fn thread2() callconv(.{ .x86_64_sysv = .{} }) noreturn {
+fn thread2() callconv(.{ .x86_64_sysv = .{ .incoming_stack_alignment = 8 } }) noreturn {
     std.log.info("thread 2", .{});
 
     while (true) {
@@ -62,8 +62,8 @@ fn thread2() callconv(.{ .x86_64_sysv = .{} }) noreturn {
 }
 
 pub fn init() void {
-    spawnThread(@intFromPtr(&thread1), @intFromPtr(&thread1_stack) + thread1_stack.len - 8);
-    spawnThread(@intFromPtr(&thread2), @intFromPtr(&thread2_stack) + thread2_stack.len - 8);
+    spawnThread(@intFromPtr(&thread1), @intFromPtr(&thread1_stack) + thread1_stack.len);
+    spawnThread(@intFromPtr(&thread2), @intFromPtr(&thread2_stack) + thread2_stack.len);
     initialized = true;
 }
 

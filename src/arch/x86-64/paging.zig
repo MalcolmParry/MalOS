@@ -43,7 +43,7 @@ pub const Entry = packed struct(u64) {
     /// only use if this entry isn't a leaf
     pub fn getLower(entry: Entry) *Table {
         std.debug.assert(!entry.huge);
-        return @ptrFromInt(entry.address * 4096 + @intFromPtr(direct_map.ptr));
+        return @ptrFromInt(entry.address * 4096 + direct_map_base);
     }
 
     /// dont use on a leaf
@@ -68,6 +68,10 @@ pub const Table = extern struct {
         std.debug.assert(@alignOf(Table) == 4096);
     }
 
+    fn physAddr(table: *Table) *mem.PhysPage {
+        return @ptrFromInt(@intFromPtr(table) - direct_map_base);
+    }
+
     fn clear(table: *Table) void {
         @memset(&table.entries, .blank);
     }
@@ -79,6 +83,13 @@ pub const Table = extern struct {
         l4,
     };
 };
+
+fn allocTable() !*Table {
+    const phys = try pmm.allocatePage();
+    const index = @intFromPtr(phys) / mem.page_size;
+    const direct = &direct_map[index];
+    return @ptrCast(direct);
+}
 
 fn getOrCreateTable(entry: *Entry) !*Table {
     if (entry.present) return entry.getLower();
@@ -203,6 +214,7 @@ fn getVirtAddrFromIndices(l4: Table.Index, l3: Table.Index, l2: Table.Index, l1:
 
 pub const heap_range = @as([*]mem.Page, @ptrCast(getVirtAddrFromIndices(511, 0, 0, 0)))[0 .. 512 * 512 * 511];
 const direct_map = @as([*]mem.Page, @ptrCast(getVirtAddrFromIndices(256, 0, 0, 0)))[0 .. 512 * 512 * 512];
+const direct_map_base = @intFromPtr(direct_map.ptr);
 
 pub var l4_table: Table = undefined;
 var l3_kernel_table: Table = undefined;
@@ -231,36 +243,7 @@ pub fn init(boot_info: *const BootInfo) *Table {
     @memset(l4_table.entries[0..511], .blank);
     @memset(l3_kernel_table.entries[0..511], .blank);
 
-    if (@intFromPtr(boot_info.max_phys_addr) > 1024 * 1024 * 1024)
-        @panic("too much virtual memory to direct map with 1 l2 table");
-
-    for (&first_direct_map_l2.entries, 0..) |*entry, i| {
-        entry.* = .{
-            .present = true,
-            .writable = true,
-            .user = false,
-            .write_through = false,
-            .disable_cache = false,
-            .huge = true,
-            .global = true,
-            .address = @intCast(i * 512),
-            .disable_execute = true,
-        };
-    }
-
-    @memset(direct_map_l3.entries[1..], .blank);
-    direct_map_l3.entries[0] = .{
-        .present = true,
-        .writable = true,
-        .user = false,
-        .write_through = false,
-        .disable_cache = false,
-        .huge = false,
-        .global = false,
-        .address = @intCast((@intFromPtr(&first_direct_map_l2) - mem.kernel_virt_base) / mem.page_size),
-        .disable_execute = false,
-    };
-
+    @memset(direct_map_l3.entries[0..], .blank);
     l4_table.entries[256] = .{
         .present = true,
         .writable = true,
@@ -270,10 +253,58 @@ pub fn init(boot_info: *const BootInfo) *Table {
         .huge = false,
         .global = false,
         .address = @intCast((@intFromPtr(&direct_map_l3) - mem.kernel_virt_base) / mem.page_size),
-        .disable_execute = false,
+        .disable_execute = true,
     };
 
     invalidatePages();
+
+    if (@intFromPtr(boot_info.max_phys_addr) > 4096 * 512 * 512 * 512)
+        @panic("cant direct map more than 512gb");
+
+    const max_page_index = @intFromPtr(boot_info.max_phys_addr) / mem.page_size;
+    var direct_page_index: usize = 0;
+
+    while (direct_page_index < max_page_index) {
+        const l3_entry_index = direct_page_index / 512 / 512;
+
+        const l2: *Table = if (direct_page_index == 0)
+            &first_direct_map_l2
+        else
+            allocTable() catch @panic("failed to allocate tables for direct map");
+
+        const l2_phys: *mem.PhysPage = if (direct_page_index == 0)
+            @ptrFromInt(@intFromPtr(&first_direct_map_l2) - mem.kernel_virt_base)
+        else
+            l2.physAddr();
+
+        for (&l2.entries) |*entry| {
+            entry.* = .{
+                .present = true,
+                .writable = true,
+                .user = false,
+                .write_through = false,
+                .disable_cache = false,
+                .huge = true,
+                .global = true,
+                .address = @intCast(direct_page_index),
+                .disable_execute = true,
+            };
+
+            direct_page_index += 512;
+        }
+
+        direct_map_l3.entries[l3_entry_index] = .{
+            .present = true,
+            .writable = true,
+            .user = false,
+            .write_through = false,
+            .disable_cache = false,
+            .huge = false,
+            .global = false,
+            .address = @intCast(@intFromPtr(l2_phys) / mem.page_size),
+            .disable_execute = true,
+        };
+    }
 
     l2_kernel_table.clear();
     for (boot_info.kernelRegions()) |region| {
@@ -304,7 +335,10 @@ pub fn init(boot_info: *const BootInfo) *Table {
 }
 
 pub fn invalidatePages() void {
-    setCr3(@intFromPtr(&l4_table) - mem.kernel_virt_base);
+    asm volatile (
+        \\movq %%cr3, %%rax
+        \\movq %%rax, %%cr3
+        ::: .{ .rax = true, .memory = true });
 }
 
 // TODO: when i get multiple cores i need to change this
@@ -322,5 +356,5 @@ fn setCr3(phys_addr: u64) void {
         \\movq %[addr], %cr3
         :
         : [addr] "r" (phys_addr),
-    );
+        : .{ .memory = true });
 }

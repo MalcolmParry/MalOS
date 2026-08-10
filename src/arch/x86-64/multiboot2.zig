@@ -215,7 +215,7 @@ pub fn initBootInfo() BootInfo {
                             .writable = section.sh_flags & std.elf.SHF_WRITE > 0,
                             .executable = section.sh_flags & std.elf.SHF_EXECINSTR > 0,
                             .user = false,
-                            .global = false,
+                            .global = true,
                         },
                     }) catch @panic("too many elf kernel sections");
                 }
