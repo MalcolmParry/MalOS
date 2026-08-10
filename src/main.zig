@@ -36,6 +36,7 @@ pub fn kernelMain() noreturn {
 
     std.log.info("Kernel {f}", .{mem.fmtRange(boot_info.kernel_phys_range)});
     std.log.info("KernelVirtBase: 0x{x}", .{mem.kernel_virt_base});
+    std.log.info("Max Physical Address: 0x{x}", .{@intFromPtr(boot_info.max_phys_addr)});
 
     pmm.tempInit(&boot_info);
 

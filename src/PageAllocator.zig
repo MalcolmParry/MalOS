@@ -4,7 +4,7 @@ const vmm = @import("vmm.zig");
 const pmm = @import("pmm.zig");
 const arch = @import("arch.zig");
 
-table: *arch.PageTable,
+table: *arch.paging.Table,
 allowed_range: []mem.Page,
 last_alloc_end: [*]mem.Page,
 
@@ -16,7 +16,7 @@ const flags: vmm.PageFlags = .{
     .writable = true,
 };
 
-pub fn init(table: *arch.PageTable, allowed_range: []mem.Page) @This() {
+pub fn init(table: *arch.paging.Table, allowed_range: []mem.Page) @This() {
     return .{
         .table = table,
         .allowed_range = allowed_range,
@@ -41,7 +41,7 @@ pub fn getAvailableVirtRange(this: *@This(), page_count: usize) ?[]mem.Page {
     if (virtStart == this.allowed_range.ptr + this.allowed_range.len) virtStart = this.allowed_range.ptr;
 
     while (true) {
-        if (this.table.isRegionAvailable(virtStart[0..page_count])) break;
+        if (arch.paging.isRegionAvailable(this.table, virtStart[0..page_count])) break;
 
         virtStart += 1;
         if (virtStart + page_count == this.allowed_range.ptr + this.allowed_range.len) virtStart = this.allowed_range.ptr;
@@ -58,7 +58,7 @@ pub fn mapRange(this: *@This(), range: []mem.Phys(u8), page_flags: vmm.PageFlags
 
     const virt = this.getAvailableVirtRange(phys_pages.len) orelse return error.OutOfVirtAddrSpace;
     for (phys_pages, virt) |*phys, *page| {
-        try this.table.mapPage(phys, page, page_flags, false);
+        try arch.paging.mapPage(this.table, .l4, page, phys, page_flags);
     }
 
     const offset_from_page_bounds = @intFromPtr(range.ptr) - @intFromPtr(phys_pages.ptr);
@@ -74,7 +74,7 @@ fn internalAlloc(this: *@This(), page_count: usize) ![]mem.Page {
 
     for (result) |*page| {
         const phys = try pmm.allocatePage();
-        try this.table.mapPage(phys, page, flags, false);
+        try arch.paging.mapPage(this.table, .l4, page, phys, flags);
         pages_allocated += 1;
     }
 
@@ -91,11 +91,11 @@ fn internalResize(this: *@This(), pages: []mem.Page, new_page_count: usize) !boo
 
     const extra_pages = pages.ptr[pages.len..new_page_count];
     var pages_allocated: usize = 0;
-    if (!this.table.isRegionAvailable(extra_pages)) return false;
+    if (!arch.paging.isRegionAvailable(this.table, extra_pages)) return false;
     errdefer if (pages_allocated != 0) this.internalFree(extra_pages[0..pages_allocated]);
     for (extra_pages) |*page| {
         const phys = try pmm.allocatePage();
-        try this.table.mapPage(phys, page, flags, false);
+        try arch.paging.mapPage(this.table, .l4, page, phys, flags);
         pages_allocated += 1;
     }
 
@@ -104,9 +104,9 @@ fn internalResize(this: *@This(), pages: []mem.Page, new_page_count: usize) !boo
 
 fn internalFree(this: *@This(), pages: []mem.Page) void {
     for (pages) |*page| {
-        const phys = this.table.getPhysAddrFromVirt(page);
+        const phys = arch.paging.getPhysFromVirt(this.table, page);
         pmm.freePage(phys);
-        this.table.clearEntry(page) catch @panic("not mapped");
+        arch.paging.clearEntry(this.table, page);
         if (&this.last_alloc_end[0] == &pages.ptr[pages.len]) this.last_alloc_end = pages.ptr;
     }
 }

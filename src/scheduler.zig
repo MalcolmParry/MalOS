@@ -64,16 +64,20 @@ fn thread2() callconv(.{ .x86_64_sysv = .{} }) noreturn {
 pub fn init() void {
     spawnThread(@intFromPtr(&thread1), @intFromPtr(&thread1_stack) + thread1_stack.len - 8);
     spawnThread(@intFromPtr(&thread2), @intFromPtr(&thread2_stack) + thread2_stack.len - 8);
+    initialized = true;
 }
 
+var initialized: bool = false;
 var current_tid: usize = 0;
 pub fn saveThreadState(state: *align(1) const arch.arch.CPUState) void {
+    if (!initialized) return;
     const thread = &threads.items[current_tid];
     thread.ext_cpu_state.save();
     thread.cpu_state = state.*;
 }
 
 pub fn schedule() noreturn {
+    std.debug.assert(initialized);
     current_tid = (current_tid + 1) % threads.items.len;
     const thread = &threads.items[current_tid];
 

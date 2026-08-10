@@ -51,7 +51,7 @@ const Frame = extern struct {
     ret_addr: usize,
 };
 
-fn printStackTrace(frame_addr: usize) void {
+pub fn printStackTrace(frame_addr: usize) void {
     if (builtin.omit_frame_pointer) {
         std.log.err("no stack trace available (frame pointer omitted)", .{});
         return;

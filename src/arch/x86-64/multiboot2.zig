@@ -112,6 +112,7 @@ pub fn initBootInfo() BootInfo {
     const kernel_size = @intFromPtr(&__KERNEL_END__) - @intFromPtr(&__KERNEL_START__);
 
     var boot_info: BootInfo = .{
+        .max_phys_addr = @ptrFromInt(4096),
         .kernel_phys_range = kernel_start[0..kernel_size],
         .available_phys_range_buffer = undefined,
         .available_phys_range_count = 0,
@@ -175,6 +176,7 @@ pub fn initBootInfo() BootInfo {
                         const range = start_many_ptr[0..len];
 
                         available_ranges.appendBounded(range) catch @panic("too many memory ranges");
+                        if (end > @intFromPtr(boot_info.max_phys_addr)) boot_info.max_phys_addr = @ptrFromInt(end);
                     },
                     .acpi_reclaimable => {
                         std.log.info("ACPI Reclaimable memory at 0x{x} - 0x{x}", .{ entry.base, entry.base + entry.length });

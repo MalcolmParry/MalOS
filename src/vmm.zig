@@ -3,7 +3,7 @@ const arch = @import("arch.zig");
 const mem = @import("memory.zig");
 
 pub const PageFlags = packed struct {
-    const CacheMode = enum(u4) {
+    const CacheMode = enum(u2) {
         full,
         // for memory that is read by hardware
         write_through,

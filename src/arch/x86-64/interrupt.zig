@@ -113,6 +113,13 @@ fn handler(state: *align(1) arch.CPUState) callconv(.{ .x86_64_sysv = .{ .incomi
     scheduler.saveThreadState(state);
 
     switch (state.int_code) {
+        0...31 => {
+            panic.printStackTrace(state.rbp);
+        },
+        else => {},
+    }
+
+    switch (state.int_code) {
         0x20 => {
             pic.eoi();
             scheduler.schedule();
@@ -127,17 +134,17 @@ fn handler(state: *align(1) arch.CPUState) callconv(.{ .x86_64_sysv = .{ .incomi
             std.log.err("page fault\n{}", .{flags});
             panic.writeTraceAddr(cr2);
 
-            const indices = arch.paging.tables.getIndicesFromVirtAddr(cr2);
+            const indices = arch.paging.getIndicesFromVirtAddr(cr2);
             std.log.err("page table indices: {any}", .{indices});
 
-            const l4: *arch.paging.tables.L4 = @ptrFromInt(state.cr3 + arch.kernel_virt_base);
-            if (l4.tables[indices[3]]) |l3| {
+            const l4: *arch.paging.Table = @ptrFromInt(state.cr3 + arch.kernel_virt_base);
+            if (l4.entries[indices[3]].getLowerSafe()) |l3| {
                 std.log.err("l3 addr 0x{x}", .{@intFromPtr(l3)});
 
-                if (l3.tables[indices[2]]) |l2| {
+                if (l3.entries[indices[2]].getLowerSafe()) |l2| {
                     std.log.err("l2 addr 0x{x}", .{@intFromPtr(l2)});
 
-                    if (l2.tables[indices[1]]) |l1| {
+                    if (l2.entries[indices[1]].getLowerSafe()) |l1| {
                         std.log.err("l1 addr 0x{x}, {x}", .{ @intFromPtr(l1), l2.entries[indices[1]].address });
 
                         const entry = l1.entries[indices[0]];

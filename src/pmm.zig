@@ -41,15 +41,7 @@ pub fn tempInit(boot_info: *const BootInfo) void {
 }
 
 pub fn init(boot_info: *const BootInfo, alloc: std.mem.Allocator) void {
-    var highest: [*]allowzero mem.PhysPage = @ptrFromInt(0);
-    for (boot_info.availablePhysRanges()) |range| {
-        const end = range.ptr + range.len;
-        if (@intFromPtr(highest) < @intFromPtr(end)) {
-            highest = end;
-        }
-    }
-
-    const desc_count = @intFromPtr(highest) / mem.page_size;
+    const desc_count = @intFromPtr(boot_info.max_phys_addr) / mem.page_size;
     page_descs = alloc.alloc(PageDesc, desc_count) catch @panic("cant allocate physical page descs");
 }
 

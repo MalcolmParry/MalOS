@@ -12,7 +12,6 @@ pub const page_size = arch.page_size;
 pub const interrupt = arch.interrupt;
 pub const vga = arch.vga;
 pub const paging = arch.paging;
-pub const PageTable = arch.PageTable;
 pub const pit = arch.pit;
 
 pub const initBootInfo = arch.initBootInfo;

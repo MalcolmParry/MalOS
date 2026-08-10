@@ -11,7 +11,6 @@ pub const page_size = 1024 * 4;
 pub const kernel_virt_base: u64 = 0xffff_ffff_c000_0000;
 
 pub const initBootInfo = multiboot.initBootInfo;
-pub const PageTable = paging.tables.L4;
 
 pub const CpuExtendedState = struct {
     fxsave: [512]u8 align(16),
