@@ -1,7 +1,7 @@
 const std = @import("std");
 const gdt = @import("gdt.zig");
 const mem = @import("../../memory.zig");
-const vmm = @import("../../vmm.zig");
+const Vmm = @import("../../Vmm.zig");
 const pmm = @import("../../pmm.zig");
 const arch = @import("arch.zig");
 const BootInfo = @import("../../BootInfo.zig");
@@ -117,13 +117,19 @@ fn getOrCreateTable(entry: *Entry) !*Table {
     return table;
 }
 
-pub fn mapPage(table: *Table, level: Table.Level, virt: *mem.Page, phys: *mem.PhysPage, page_flags: vmm.PageFlags) !void {
+pub fn mapPage(table: *Table, level: Table.Level, virt: *mem.Page, phys: *mem.PhysPage, page_flags: Vmm.PageFlags) !void {
     const indices = getIndicesFromVirtAddr(@intFromPtr(virt));
+    std.debug.assert((@intFromPtr(virt) < @intFromPtr(getVirtAddrFromIndices(256, 0, 0, 0))) == page_flags.user);
 
     var cur = table;
     var cur_level: u8 = @intFromEnum(level);
     while (cur_level > 0) : (cur_level -= 1) {
-        cur = try getOrCreateTable(&cur.entries[indices[cur_level]]);
+        const entry = &cur.entries[indices[cur_level]];
+
+        if (@as(Table.Level, @enumFromInt(cur_level)) == .l4 and !page_flags.user)
+            cur = entry.getLowerSafe() orelse return error.CantAllocateKernelL3Table;
+
+        cur = try getOrCreateTable(entry);
     }
 
     const entry = &cur.entries[indices[0]];
@@ -200,6 +206,7 @@ pub fn getIndicesFromVirtAddr(addr: usize) [4]Table.Index {
         @intCast(l4),
     };
 }
+
 fn getVirtAddrFromIndices(l4: Table.Index, l3: Table.Index, l2: Table.Index, l1: Table.Index) *mem.Page {
     const ul4: usize = l4;
     const ul3: usize = l3;
@@ -213,7 +220,7 @@ fn getVirtAddrFromIndices(l4: Table.Index, l3: Table.Index, l2: Table.Index, l1:
 }
 
 pub const heap_range = @as([*]mem.Page, @ptrCast(getVirtAddrFromIndices(511, 0, 0, 0)))[0 .. 512 * 512 * 511];
-const direct_map = @as([*]mem.Page, @ptrCast(getVirtAddrFromIndices(256, 0, 0, 0)))[0 .. 512 * 512 * 512];
+pub const direct_map = @as([*]mem.Page, @ptrCast(getVirtAddrFromIndices(256, 0, 0, 0)))[0 .. 512 * 512 * 512];
 const direct_map_base = @intFromPtr(direct_map.ptr);
 
 pub var l4_table: Table = undefined;

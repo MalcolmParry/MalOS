@@ -1,6 +1,6 @@
 const std = @import("std");
 const mem = @import("memory.zig");
-const vmm = @import("vmm.zig");
+const Vmm = @import("Vmm.zig");
 const BootInfo = @This();
 
 max_phys_addr: *mem.PhysPage,
@@ -14,7 +14,7 @@ module_count: u16,
 
 pub const KernelRegion = struct {
     pages: []mem.Page,
-    flags: vmm.PageFlags,
+    flags: Vmm.PageFlags,
 };
 
 pub fn availablePhysRanges(info: *const BootInfo) []const []mem.PhysPage {

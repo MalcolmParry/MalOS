@@ -2,7 +2,6 @@ const std = @import("std");
 const builtin = @import("builtin");
 const mem = @import("../../memory.zig");
 const arch = @import("arch.zig");
-const isr = @import("../../isr.zig");
 const pic = @import("pic.zig");
 const scheduler = @import("../../scheduler.zig");
 const panic = @import("../../panic.zig");

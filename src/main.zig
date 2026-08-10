@@ -2,8 +2,8 @@ const arch = @import("arch.zig");
 const tty = @import("tty.zig");
 const mem = @import("memory.zig");
 const pmm = @import("pmm.zig");
-const vmm = @import("vmm.zig");
-const PageAllocator = @import("PageAllocator.zig");
+const Vmm = @import("Vmm.zig");
+const PageAllocator = @import("heap/PageAllocator.zig");
 const std = @import("std");
 const builtin = @import("builtin");
 const scheduler = @import("scheduler.zig");
@@ -41,18 +41,34 @@ pub fn kernelMain() noreturn {
     pmm.tempInit(&boot_info);
 
     const page_table = arch.paging.init(&boot_info);
-    var page_allocator_object: PageAllocator = .init(page_table, arch.paging.heap_range);
-    const page_alloc = page_allocator_object.allocator();
+    PageAllocator.global = .{
+        .table = page_table,
+        .vmm = Vmm.init(arch.paging.heap_range) catch @panic("failed to init vmm"),
+        .default_flags = .{
+            .writable = true,
+            .executable = false,
+            .global = true,
+            .user = false,
+            .cache_mode = .full,
+        },
+        .lock = .init,
+    };
+    const page_alloc = PageAllocator.global.allocator();
+
     pmm.init(&boot_info, page_alloc);
 
     for (boot_info.module_buffer[0..boot_info.module_count]) |*module| {
-        module.data = @alignCast(page_allocator_object.mapRange(module.phys_range, .{
+        const phys_pages = mem.physPageAlignOutwards(module.phys_range);
+        const pages = PageAllocator.global.map(phys_pages, .{
             .writable = false,
             .executable = false,
             .global = true,
             .user = false,
             .cache_mode = .full,
-        }) catch @panic("can't map module"));
+        }) catch @panic("can't map module");
+        const bytes = std.mem.sliceAsBytes(pages);
+        module.data = bytes;
+
         std.log.info("Module '{s}' at {f} and mapped at 0x{x}", .{ module.name(), mem.fmtRange(module.phys_range), @intFromPtr(module.data.?.ptr) });
     }
 
