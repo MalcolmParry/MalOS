@@ -85,7 +85,7 @@ pub const Table = extern struct {
 };
 
 fn allocTable() !*Table {
-    const phys = try pmm.allocatePage();
+    const phys = try pmm.allocPage();
     const index = @intFromPtr(phys) / mem.page_size;
     const direct = &direct_map[index];
     return @ptrCast(direct);
@@ -94,7 +94,7 @@ fn allocTable() !*Table {
 fn getOrCreateTable(entry: *Entry) !*Table {
     if (entry.present) return entry.getLower();
 
-    const phys = try pmm.allocatePage();
+    const phys = try pmm.allocPage();
     errdefer pmm.freePage(phys);
 
     const phys_index = @intFromPtr(phys) / mem.page_size;

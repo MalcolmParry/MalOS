@@ -60,14 +60,6 @@ pub fn popDisable() bool {
     return rflags.IF;
 }
 
-pub fn set(enabled: bool) void {
-    if (enabled) {
-        enable();
-    } else {
-        disable();
-    }
-}
-
 fn setupIDT(index: u8, isr_type: GateType, dpl: u2, present: bool) void {
     const isr_ptr = stub_table[index];
     const isr_int: u64 = @intFromPtr(isr_ptr);
@@ -144,7 +136,7 @@ fn handler(state: *align(1) arch.CPUState) callconv(.{ .x86_64_sysv = .{ .incomi
                     std.log.err("l2 addr 0x{x}", .{@intFromPtr(l2)});
 
                     if (l2.entries[indices[1]].getLowerSafe()) |l1| {
-                        std.log.err("l1 addr 0x{x}, {x}", .{ @intFromPtr(l1), l2.entries[indices[1]].address });
+                        std.log.err("l1 addr 0x{x}", .{@intFromPtr(l1)});
 
                         const entry = l1.entries[indices[0]];
                         std.log.err("present: {}", .{entry.present});

@@ -18,12 +18,6 @@ pub const std_options: std.Options = .{
     .page_size_max = mem.page_size,
 };
 
-pub const os = struct {
-    pub const heap = struct {
-        pub const page_allocator = std.testing.failing_allocator;
-    };
-};
-
 pub fn kernelMain() noreturn {
     arch.serial.init();
     arch.interrupt.init();
@@ -92,7 +86,7 @@ pub fn kernelMain() noreturn {
 
     std.log.info("Pages Allocated 0x{x}", .{page_count});
     std.log.info("Memory Allocated {Bi}", .{page_count * mem.page_size});
-    std.log.info("{Bi} used out of {Bi}", .{ pmm.used_pages.load(.monotonic) * mem.page_size, pmm.total_pages * mem.page_size });
+    pmm.printStats();
 
     scheduler.init();
     arch.pit.init();

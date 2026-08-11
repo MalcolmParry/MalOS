@@ -17,7 +17,7 @@ const page_allocator = struct {
         if (len > mem.page_size) return null;
         if (alignment.toByteUnits() > mem.page_size) return null;
 
-        const phys = pmm.allocatePage() catch return null;
+        const phys = pmm.allocPage() catch return null;
         const index = @intFromPtr(phys) / mem.page_size;
         return @ptrCast(&mem.direct_map[index]);
     }

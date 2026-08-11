@@ -21,7 +21,7 @@ pub fn tryLock(sl: *Spinlock) ?Lock {
             .int_enable = int,
         };
     } else {
-        arch.interrupt.set(int);
+        if (int) arch.interrupt.enable();
         return null;
     }
 }
@@ -38,7 +38,7 @@ pub fn lock(sl: *Spinlock) Lock {
             };
         }
 
-        arch.interrupt.set(int);
+        if (int) arch.interrupt.enable();
         while (sl.status.load(.monotonic) == .locked) {
             if (builtin.is_test) @panic("");
             std.atomic.spinLoopHint();
@@ -53,6 +53,6 @@ pub const Lock = struct {
     pub fn unlock(l: Lock) void {
         std.debug.assert(l.sl.status.load(.monotonic) == .locked);
         l.sl.status.store(.unlocked, .release);
-        arch.interrupt.set(l.int_enable);
+        if (l.int_enable) arch.interrupt.enable();
     }
 };

@@ -28,7 +28,7 @@ pub fn alloc(page_alloc: *PageAllocator, page_count: usize, flags: Vmm.PageFlags
     };
 
     for (range) |*page| {
-        const phys = try pmm.allocatePage();
+        const phys = try pmm.allocPage();
         errdefer pmm.freePage(phys);
 
         try arch.paging.mapPage(page_alloc.table, .l4, page, phys, flags);
