@@ -67,8 +67,8 @@ pub fn allocatePage() !*mem.PhysPage {
     defer lock.unlock();
 
     if (maybe_first_free.unwrap()) |first_free| {
-        const desc = &page_descs[@intFromEnum(first_free)];
-        maybe_first_free = desc.next;
+        const desc = getPageDesc(first_free);
+        maybe_first_free = desc.data.next_free;
 
         if (debug) {
             std.debug.assert(desc.magic == PageDesc.magic_num);
@@ -77,7 +77,7 @@ pub fn allocatePage() !*mem.PhysPage {
 
         desc.* = .{
             .state = if (debug) .used else {},
-            .next = .none,
+            .data = .{ .none = {} },
         };
 
         _ = used_pages.fetchAdd(1, .monotonic);
@@ -93,18 +93,22 @@ pub fn freePage(page: *mem.PhysPage) void {
 
     std.debug.assert(page_descs.len != 0);
     const desc_index: Index = .fromPtr(page);
-    const desc = &page_descs[@intFromEnum(desc_index)];
+    const desc = getPageDesc(desc_index);
 
     if (debug and desc.magic == PageDesc.magic_num) {
         std.debug.assert(desc.state == .used);
     }
 
     desc.* = .{
-        .next = maybe_first_free,
+        .data = .{ .next_free = maybe_first_free },
         .state = if (debug) .free else {},
     };
     maybe_first_free = .wrap(desc_index);
     _ = used_pages.fetchSub(1, .monotonic);
+}
+
+pub fn getPageDesc(page: Index) *PageDesc {
+    return &page_descs[@intFromEnum(page)];
 }
 
 pub const Index = enum(u32) {
@@ -116,6 +120,10 @@ pub const Index = enum(u32) {
 
     pub fn toPtr(index: Index) *mem.PhysPage {
         return @ptrFromInt(@intFromEnum(index) * mem.page_size);
+    }
+
+    pub fn toDirectMap(index: Index) *mem.Page {
+        return &mem.direct_map[@intFromEnum(index)];
     }
 };
 
@@ -138,7 +146,7 @@ pub const OptIndex = enum(u32) {
 };
 
 const PageDesc = struct {
-    next: OptIndex,
+    data: Data,
 
     magic: if (debug) u32 else void = if (debug) magic_num else {},
     state: if (debug) State else void,
@@ -147,6 +155,17 @@ const PageDesc = struct {
     const State = enum(u8) {
         free,
         used,
+    };
+
+    const Data = union {
+        none: void,
+        next_free: OptIndex,
+        vfs_cache: VfsCache,
+
+        const VfsCache = struct {
+            lock: Spinlock,
+            dirty: bool,
+        };
     };
 };
 

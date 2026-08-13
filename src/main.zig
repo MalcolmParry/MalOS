@@ -94,9 +94,39 @@ pub fn kernelMain() noreturn {
     std.log.info("Memory Allocated {Bi}", .{page_count * mem.page_size});
     std.log.info("{Bi} used out of {Bi}", .{ pmm.used_pages.load(.monotonic) * mem.page_size, pmm.total_pages * mem.page_size });
 
+    fsTest() catch |err| {
+        std.debug.panic("fs test failed: {}", .{err});
+    };
+
     scheduler.init();
     arch.pit.init();
     scheduler.schedule();
+}
+
+fn fsTest() !void {
+    const alloc = PageAllocator.global.allocator();
+
+    var ramfs: Ramfs = undefined;
+    const root = try ramfs.init(alloc);
+    defer {
+        root.decRef();
+        ramfs.deinit();
+    }
+
+    const dentry = try root.node.vtable.node_create(root, "thing.txt", .{ .kind = .file });
+    defer dentry.decRef();
+    defer root.node.vtable.node_unlink(root, dentry) catch @panic("");
+
+    const open = try dentry.node.vtable.file_open(dentry.node);
+    defer open.node.vtable.file_close(open);
+
+    const test_str = "hello world";
+    std.debug.assert(try open.write(test_str) == test_str.len);
+
+    open.head = 0;
+    var buffer: [test_str.len]u8 = undefined;
+    std.debug.assert(try open.read(&buffer) == test_str.len);
+    std.debug.assert(std.mem.eql(u8, buffer[0..], test_str));
 }
 
 comptime {
