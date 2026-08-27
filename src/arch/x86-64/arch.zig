@@ -1,4 +1,6 @@
 const std = @import("std");
+const scheduler = @import("../../scheduler.zig");
+const mem = @import("../../memory.zig");
 
 pub const vga = @import("vga.zig");
 pub const interrupt = @import("interrupt.zig");
@@ -100,6 +102,19 @@ pub const CPUState = packed struct {
         );
 
         unreachable;
+    }
+
+    pub fn fromKernelThreadSpawnInfo(info: scheduler.KernelThreadSpawnInfo) CPUState {
+        const stack_top = @intFromPtr(info.stack.ptr + info.stack.len);
+
+        return .{
+            .cr3 = @intFromPtr(info.phys_page_table),
+            .rbp = stack_top,
+            .rip = @intFromPtr(info.entry),
+            .flags = .{ .IF = true },
+            .rsp = stack_top,
+            .rdi = info.arg,
+        };
     }
 };
 
@@ -221,4 +236,8 @@ pub fn writeMSR(msr: u32, value: u64) void {
 
 pub fn kernelEntry() callconv(.{ .x86_64_sysv = .{ .incoming_stack_alignment = 16 } }) noreturn {
     @import("../../main.zig").kernelMain();
+}
+
+comptime {
+    @export(&kernelEntry, .{ .name = "kernelEntry" });
 }

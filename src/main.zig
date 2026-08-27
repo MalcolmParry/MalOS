@@ -129,12 +129,6 @@ fn fsTest() !void {
     std.debug.assert(std.mem.eql(u8, buffer[0..], test_str));
 }
 
-comptime {
-    if (!builtin.is_test) {
-        @export(&arch.kernelEntry, .{ .name = "kernelEntry" });
-    }
-}
-
 test {
     _ = @import("fs/Ramfs.zig");
 }

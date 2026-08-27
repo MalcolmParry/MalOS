@@ -13,6 +13,7 @@ pkgs.mkShell {
     mtools
     dosfstools
     qemu
+    gf
   ];
 
   shellHook = ''

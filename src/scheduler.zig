@@ -2,6 +2,7 @@ const std = @import("std");
 const arch = @import("arch.zig");
 const mem = @import("memory.zig");
 const Spinlock = @import("Spinlock.zig");
+const PageAllocator = @import("heap/PageAllocator.zig");
 
 const Thread = struct {
     cpu_state: arch.arch.CPUState,
@@ -10,22 +11,35 @@ const Thread = struct {
     pub const Slot = u32;
 };
 
+pub const ThreadEntry = fn (arg: u64) callconv(.{ .x86_64_sysv = .{ .incoming_stack_alignment = 8 } }) noreturn;
+pub const KernelThreadSpawnInfo = struct {
+    entry: ?*const ThreadEntry,
+    stack: []u8,
+    phys_page_table: *mem.Phys(arch.paging.Table),
+    arg: u64,
+};
+
 var thread_buffer: [32]Thread = undefined;
 var threads: std.ArrayList(Thread) = .initBuffer(&thread_buffer);
 
-var thread1_stack: [1024 * 16]u8 align(16) = undefined;
-var thread2_stack: [1024 * 16]u8 align(16) = undefined;
+pub fn spawnKernelThread(entry: *const ThreadEntry, arg: u64) void {
+    const stack_size = 16 * 1024;
+    const stack = PageAllocator.global.alloc(stack_size / mem.page_size, .{
+        .cache_mode = .full,
+        .global = true,
+        .executable = false,
+        .user = false,
+        .writable = true,
+    }) catch @panic("can't allocate stack for kernel thread");
 
-pub fn spawnThread(rip: usize, stack_top: usize) void {
     threads.appendBounded(.{
         .ext_cpu_state = .zero,
-        .cpu_state = .{
-            .cr3 = @intFromPtr(&arch.paging.l4_table) - mem.kernel_virt_base,
-            .rbp = stack_top,
-            .rip = rip,
-            .flags = .{ .IF = true },
-            .rsp = stack_top,
-        },
+        .cpu_state = .fromKernelThreadSpawnInfo(.{
+            .entry = entry,
+            .stack = std.mem.sliceAsBytes(stack),
+            .phys_page_table = @ptrFromInt(@intFromPtr(&arch.paging.l4_table) - mem.kernel_virt_base),
+            .arg = arg,
+        }),
     }) catch @panic("too many threads");
 }
 
@@ -33,7 +47,7 @@ var in_buffer: [8]u8 = undefined;
 var in_head: std.atomic.Value(u64) = .init(0);
 var in_tail: std.atomic.Value(u64) = .init(0);
 
-fn thread1() callconv(.{ .x86_64_sysv = .{ .incoming_stack_alignment = 8 } }) noreturn {
+fn thread1(_: u64) callconv(.{ .x86_64_sysv = .{ .incoming_stack_alignment = 8 } }) noreturn {
     std.log.info("thread 1", .{});
 
     while (true) {
@@ -47,7 +61,7 @@ fn thread1() callconv(.{ .x86_64_sysv = .{ .incoming_stack_alignment = 8 } }) no
     }
 }
 
-fn thread2() callconv(.{ .x86_64_sysv = .{ .incoming_stack_alignment = 8 } }) noreturn {
+fn thread2(_: u64) callconv(.{ .x86_64_sysv = .{ .incoming_stack_alignment = 8 } }) noreturn {
     std.log.info("thread 2", .{});
 
     while (true) {
@@ -57,13 +71,14 @@ fn thread2() callconv(.{ .x86_64_sysv = .{ .incoming_stack_alignment = 8 } }) no
 
         const tail = in_tail.fetchAdd(1, .acquire);
         const byte = in_buffer[tail % in_buffer.len];
-        arch.serial.writer.print("\x1b[2K\r{}\t0x{x}\t'{c}'", .{ byte, byte, byte }) catch {};
+        arch.serial.writer.print("\x1b[2K\r{d: >3}   0x{x:0>2}   '{c}'", .{ byte, byte, byte }) catch {};
     }
 }
 
 pub fn init() void {
-    spawnThread(@intFromPtr(&thread1), @intFromPtr(&thread1_stack) + thread1_stack.len);
-    spawnThread(@intFromPtr(&thread2), @intFromPtr(&thread2_stack) + thread2_stack.len);
+    spawnKernelThread(&thread1, 0);
+    spawnKernelThread(&thread2, 0);
+
     initialized = true;
 }
 

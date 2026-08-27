@@ -5,7 +5,6 @@ pub const arch = switch (builtin.cpu.arch) {
     else => @compileError("Unknown architecture."),
 };
 
-pub const kernelEntry = arch.kernelEntry;
 pub const kernel_virt_base = arch.kernel_virt_base;
 pub const page_size = arch.page_size;
 
