@@ -88,16 +88,20 @@ fn poll(io_base: u16) !void {
 
         if (status.err or status.df) {
             @branchHint(.unlikely);
-
             return error.Failed;
         }
 
-        if (!status.bsy and status.drq) break;
+        if (status.bsy) continue;
+        if (status.drq) return;
+
+        return error.Failed;
     }
 }
 
 fn read(bd: *BlockDevice, block_offset: u64, block_count: u64, buffer_ptr: [*]u8) BlockDevice.Error!void {
     if (block_count == 0) return;
+    if (block_offset > bd.block_count or block_count > bd.block_count - block_offset) return error.OutOfRange;
+    if (block_count > std.math.maxInt(u16)) return error.Unknown;
 
     const drive: *Drive = @fieldParentPtr("bd", bd);
     const buffer = buffer_ptr[0 .. block_count * sector_size];
@@ -105,37 +109,32 @@ fn read(bd: *BlockDevice, block_offset: u64, block_count: u64, buffer_ptr: [*]u8
     const io_base = drive.io_base;
     arch.out(io_base + 6, @as(u8, if (drive.slave) 0x50 else 0x40));
 
-    const sector_count: u16 = @intCast(block_count);
-    const lba: u48 = @intCast(block_offset);
-    const lba1: u8 = @truncate(lba);
-    const lba2: u8 = @truncate(lba >> 8);
-    const lba3: u8 = @truncate(lba >> 16);
-    const lba4: u8 = @truncate(lba >> 24);
-    const lba5: u8 = @truncate(lba >> 32);
-    const lba6: u8 = @truncate(lba >> 40);
+    arch.out(io_base + 2, @as(u8, @truncate(block_count >> 8)));
+    arch.out(io_base + 3, @as(u8, @truncate(block_offset >> 24)));
+    arch.out(io_base + 4, @as(u8, @truncate(block_offset >> 32)));
+    arch.out(io_base + 5, @as(u8, @truncate(block_offset >> 40)));
 
-    arch.out(io_base + 2, @as(u8, @truncate(sector_count >> 8)));
-    arch.out(io_base + 3, lba4);
-    arch.out(io_base + 4, lba5);
-    arch.out(io_base + 5, lba6);
-
-    arch.out(io_base + 2, @as(u8, @truncate(sector_count & 0xff)));
-    arch.out(io_base + 3, lba1);
-    arch.out(io_base + 4, lba2);
-    arch.out(io_base + 5, lba3);
+    arch.out(io_base + 2, @as(u8, @truncate(block_count & 0xff)));
+    arch.out(io_base + 3, @as(u8, @truncate(block_offset)));
+    arch.out(io_base + 4, @as(u8, @truncate(block_offset >> 8)));
+    arch.out(io_base + 5, @as(u8, @truncate(block_offset >> 16)));
 
     arch.out(io_base + 7, @as(u8, 0x24));
 
-    for (0..sector_count) |i| {
-        const sector_u16 = @as([*]align(1) u16, @ptrCast(buffer.ptr + i * sector_size))[0..256];
+    for (0..block_count) |i| {
         poll(io_base) catch return error.Unknown;
-        for (sector_u16) |*word| {
-            word.* = arch.in(u16, io_base);
-        }
+
+        asm volatile (
+            \\ rep insw
+            :
+            : [port] "{dx}" (io_base),
+              [buffer] "{rdi}" (buffer.ptr + i * sector_size),
+              [count] "{rcx}" (256),
+            : .{ .rdi = true, .rcx = true, .memory = true });
     }
 }
 
-fn write(bd: *BlockDevice, block_offset: u64, block_count: u64, buffer: [*]u8) BlockDevice.Error!void {
+fn write(bd: *BlockDevice, block_offset: u64, block_count: u64, buffer: [*]const u8) BlockDevice.Error!void {
     _ = bd;
     _ = block_offset;
     _ = block_count;
