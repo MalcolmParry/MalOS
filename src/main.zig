@@ -10,6 +10,7 @@ const scheduler = @import("scheduler.zig");
 const vfs = @import("fs/vfs.zig");
 const Ramfs = @import("fs/Ramfs.zig");
 const log = @import("log.zig");
+const ata_pio = @import("arch/x86-64/ata_pio.zig");
 
 pub const panic = @import("panic.zig").panic;
 pub const std_options: std.Options = .{
@@ -97,6 +98,16 @@ pub fn kernelMain() noreturn {
     fsTest() catch |err| {
         std.debug.panic("fs test failed: {}", .{err});
     };
+
+    var drive = ata_pio.getDrive(0x1f0, false) orelse @panic("cant find drive");
+    var sector: [512]u8 = undefined;
+    drive.bd.read(&drive.bd, 2, 1, &sector) catch @panic("failed to read from drive");
+
+    for (&sector, 0..) |byte, i| {
+        if (i % 32 == 0 and i != 0) log.writer.print("\n", .{}) catch @panic("failed to print");
+        log.writer.print("{x:0>2} ", .{byte}) catch @panic("failed to print");
+    }
+    log.writer.print("\n", .{}) catch @panic("failed to print");
 
     scheduler.init();
     arch.pit.init();

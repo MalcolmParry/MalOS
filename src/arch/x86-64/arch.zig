@@ -185,22 +185,24 @@ pub fn out(port: u16, data: anytype) void {
     }
 }
 
-pub fn in(comptime Type: type, port: u16) Type {
-    return switch (Type) {
-        u8 => asm volatile ("inb %[port], %[result]"
-            : [result] "={al}" (-> Type),
+pub fn in(comptime T: type, port: u16) T {
+    const Int = @Int(.unsigned, @bitSizeOf(T));
+
+    return @bitCast(switch (@bitSizeOf(T)) {
+        8 => asm volatile ("inb %[port], %[result]"
+            : [result] "={al}" (-> Int),
             : [port] "N{dx}" (port),
         ),
-        u16 => asm volatile ("inw %[port], %[result]"
-            : [result] "={ax}" (-> Type),
+        16 => asm volatile ("inw %[port], %[result]"
+            : [result] "={ax}" (-> Int),
             : [port] "N{dx}" (port),
         ),
-        u32 => asm volatile ("inl %[port], %[result]"
-            : [result] "={eax}" (-> Type),
+        32 => asm volatile ("inl %[port], %[result]"
+            : [result] "={eax}" (-> Int),
             : [port] "N{dx}" (port),
         ),
-        else => @compileError("Invalid data type. Expected u8, u16, or u32, found " ++ @typeName(Type)),
-    };
+        else => @compileError("bit size of type must be 8, 16, or 32. found " ++ @typeName(T)),
+    });
 }
 
 pub fn ioWait() void {

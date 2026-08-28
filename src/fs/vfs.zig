@@ -221,6 +221,7 @@ pub const File = struct {
             const to_read = end_offset_from_page - head_offset_from_page;
 
             @memcpy(buffer[bytes_read..][0..to_read], direct.bytes[head_offset_from_page..end_offset_from_page]);
+            pmm.getPageDesc(page_index).data.vfs_cache.dirty = true;
 
             head += to_read;
             bytes_read += to_read;

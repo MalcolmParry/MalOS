@@ -153,6 +153,7 @@ fn addRunIsoStep(b: *Build, iso: Build.LazyPath) !void {
         // "-vga", "std",
         "-m", "32M",
         "-smp", "4",
+        "-drive", "file=zig-out/disk.img,format=raw,if=ide",
         "-cdrom",
         // zig fmt: on
     });

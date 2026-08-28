@@ -14,6 +14,7 @@ pkgs.mkShell {
     dosfstools
     qemu
     gf
+    e2fsprogs
   ];
 
   shellHook = ''
