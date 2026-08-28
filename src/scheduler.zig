@@ -1,12 +1,13 @@
 const std = @import("std");
-const arch = @import("arch.zig");
+const arch = @import("arch.zig").current;
 const mem = @import("memory.zig");
 const Spinlock = @import("Spinlock.zig");
 const PageAllocator = @import("heap/PageAllocator.zig");
+const serial = @import("drivers/x86/serial.zig");
 
 const Thread = struct {
-    cpu_state: arch.arch.CPUState,
-    ext_cpu_state: arch.arch.CpuExtendedState,
+    cpu_state: arch.cpu.State,
+    ext_cpu_state: arch.cpu.ExtendedState,
 
     pub const Slot = u32;
 };
@@ -51,7 +52,7 @@ fn thread1(_: u64) callconv(.{ .x86_64_sysv = .{ .incoming_stack_alignment = 8 }
     std.log.info("thread 1", .{});
 
     while (true) {
-        const byte = arch.serial.read();
+        const byte = serial.read();
         while (in_head.load(.monotonic) >= in_tail.load(.monotonic) + in_buffer.len) {
             std.atomic.spinLoopHint();
         }
@@ -71,7 +72,7 @@ fn thread2(_: u64) callconv(.{ .x86_64_sysv = .{ .incoming_stack_alignment = 8 }
 
         const tail = in_tail.fetchAdd(1, .acquire);
         const byte = in_buffer[tail % in_buffer.len];
-        arch.serial.writer.print("\x1b[2K\r{d: >3}   0x{x:0>2}   '{c}'", .{ byte, byte, byte }) catch {};
+        serial.writer.print("\x1b[2K\r{d: >3}   0x{x:0>2}   '{c}'", .{ byte, byte, byte }) catch {};
     }
 }
 
@@ -84,7 +85,7 @@ pub fn init() void {
 
 var initialized: bool = false;
 var current_tid: usize = 0;
-pub fn saveThreadState(state: *align(1) const arch.arch.CPUState) void {
+pub fn saveThreadState(state: *align(1) const arch.cpu.State) void {
     if (!initialized) return;
     const thread = &threads.items[current_tid];
     thread.ext_cpu_state.save();

@@ -1,7 +1,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const mem = @import("../../memory.zig");
-const arch = @import("arch.zig");
+const arch = @import("x86_64.zig");
 const pic = @import("pic.zig");
 const scheduler = @import("../../scheduler.zig");
 const panic = @import("../../panic.zig");
@@ -54,7 +54,7 @@ pub fn popDisable() bool {
         \\ pushfq
         \\ cli
         \\ popq %[flags]
-        : [flags] "=r" (-> arch.RFlags),
+        : [flags] "=r" (-> arch.cpu.Flags),
     );
 
     return rflags.IF;
@@ -108,7 +108,7 @@ const PageFaultFlags = packed struct(u64) {
     unused: u59,
 };
 
-fn handler(state: *align(1) arch.CPUState) callconv(.{ .x86_64_sysv = .{ .incoming_stack_alignment = 1 } }) noreturn {
+fn handler(state: *align(1) arch.cpu.State) callconv(.{ .x86_64_sysv = .{ .incoming_stack_alignment = 1 } }) noreturn {
     scheduler.saveThreadState(state);
 
     switch (state.int_code) {

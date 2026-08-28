@@ -1,24 +1,12 @@
-const std = @import("std");
+const arch = @import("x86_64.zig");
 const scheduler = @import("../../scheduler.zig");
 const mem = @import("../../memory.zig");
 
-pub const vga = @import("vga.zig");
-pub const interrupt = @import("interrupt.zig");
-pub const multiboot = @import("multiboot2.zig");
-pub const paging = @import("paging.zig");
-pub const pit = @import("pit.zig");
-pub const serial = @import("serial.zig");
-
-pub const page_size = 1024 * 4;
-pub const kernel_virt_base: u64 = 0xffff_ffff_c000_0000;
-
-pub const initBootInfo = multiboot.initBootInfo;
-
-pub const CpuExtendedState = struct {
+pub const ExtendedState = struct {
     fxsave: [512]u8 align(16),
 
-    pub const zero: CpuExtendedState = .{ .fxsave = @splat(0) };
-    pub inline fn save(state: *CpuExtendedState) void {
+    pub const zero: ExtendedState = .{ .fxsave = @splat(0) };
+    pub inline fn save(state: *ExtendedState) void {
         asm volatile (
             \\fxsave (%[addr])
             :
@@ -26,7 +14,7 @@ pub const CpuExtendedState = struct {
         );
     }
 
-    pub inline fn load(state: *const CpuExtendedState) void {
+    pub inline fn load(state: *const ExtendedState) void {
         asm volatile (
             \\fxrstor (%[addr])
             :
@@ -42,7 +30,7 @@ pub const CpuExtendedState = struct {
     }
 };
 
-pub const CPUState = packed struct {
+pub const State = packed struct {
     cr3: u64,
     rbp: u64,
 
@@ -66,11 +54,11 @@ pub const CPUState = packed struct {
 
     rip: u64,
     cs: u64 = 0x8,
-    flags: RFlags,
+    flags: Flags,
     rsp: u64,
     ss: u64 = 0x10,
 
-    pub fn restore(state: *align(1) const CPUState) noreturn {
+    pub fn restore(state: *align(1) const State) noreturn {
         asm volatile (
             \\ pop %rax
             \\ mov %cr3, %rbx
@@ -104,7 +92,7 @@ pub const CPUState = packed struct {
         unreachable;
     }
 
-    pub fn fromKernelThreadSpawnInfo(info: scheduler.KernelThreadSpawnInfo) CPUState {
+    pub fn fromKernelThreadSpawnInfo(info: scheduler.KernelThreadSpawnInfo) State {
         const stack_top = @intFromPtr(info.stack.ptr + info.stack.len);
 
         return .{
@@ -118,7 +106,7 @@ pub const CPUState = packed struct {
     }
 };
 
-pub const RFlags = packed struct(u64) {
+pub const Flags = packed struct(u64) {
     CF: bool = false,
     _1: bool = true,
     PF: bool = false,
@@ -209,7 +197,7 @@ pub fn ioWait() void {
     out(0x80, @as(u8, 0));
 }
 
-pub fn readMSR(msr: u32) u64 {
+pub fn readMsr(msr: u32) u64 {
     var high: u32 = undefined;
     var low: u32 = undefined;
 
@@ -223,7 +211,7 @@ pub fn readMSR(msr: u32) u64 {
     return @as(u64, high) << 32 | low;
 }
 
-pub fn writeMSR(msr: u32, value: u64) void {
+pub fn writeMsr(msr: u32, value: u64) void {
     const high: u32 = @intCast(value >> 32);
     const low: u32 = @truncate(value);
 
@@ -234,12 +222,4 @@ pub fn writeMSR(msr: u32, value: u64) void {
           [low] "{eax}" (low),
           [high] "{edx}" (high),
         : .{});
-}
-
-pub fn kernelEntry() callconv(.{ .x86_64_sysv = .{ .incoming_stack_alignment = 16 } }) noreturn {
-    @import("../../main.zig").kernelMain();
-}
-
-comptime {
-    @export(&kernelEntry, .{ .name = "kernelEntry" });
 }

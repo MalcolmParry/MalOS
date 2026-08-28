@@ -1,5 +1,5 @@
 const std = @import("std");
-const arch = @import("arch.zig");
+const arch = @import("../../arch.zig").current;
 const mem = @import("../../memory.zig");
 const pmm = @import("../../pmm.zig");
 

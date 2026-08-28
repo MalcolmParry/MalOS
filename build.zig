@@ -2,9 +2,9 @@ const std = @import("std");
 const builtin = @import("builtin");
 const Build = std.Build;
 
-const output_sub_dir = "x86-64/";
-const asm_source_path = "src/arch/x86-64/";
-const iso_dir_path = "build/x86-64/iso/";
+const output_sub_dir = "x86_64/";
+const asm_source_path = "src/arch/x86_64/";
+const iso_dir_path = "build/x86_64/iso/";
 
 pub fn build(b: *Build) !void {
     const optimize = b.standardOptimizeOption(.{});
@@ -49,7 +49,7 @@ fn addBuildIsoStep(b: *Build, optimize: std.builtin.OptimizeMode, target: Build.
         "ld",
         "-n",
         "--gc-sections",
-        "-T", "build/x86-64/linker.ld",
+        "-T", "build/x86_64/linker.ld",
         "-z", "noexecstack",
         // zig fmt: on
     });

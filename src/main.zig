@@ -1,5 +1,4 @@
-const arch = @import("arch.zig");
-const tty = @import("tty.zig");
+const arch = @import("arch.zig").current;
 const mem = @import("memory.zig");
 const pmm = @import("pmm.zig");
 const Vmm = @import("Vmm.zig");
@@ -10,7 +9,9 @@ const scheduler = @import("scheduler.zig");
 const vfs = @import("fs/vfs.zig");
 const Ramfs = @import("fs/Ramfs.zig");
 const log = @import("log.zig");
-const ata_pio = @import("arch/x86-64/ata_pio.zig");
+
+const ata_pio = @import("drivers/x86/ata_pio.zig");
+const pit = @import("drivers/x86/pit.zig");
 
 pub const panic = @import("panic.zig").panic;
 pub const std_options: std.Options = .{
@@ -26,7 +27,7 @@ pub const os = struct {
 };
 
 pub fn kernelMain() noreturn {
-    arch.serial.init();
+    log.init();
     arch.interrupt.init();
 
     var boot_info = arch.initBootInfo();
@@ -110,7 +111,7 @@ pub fn kernelMain() noreturn {
     log.writer.print("\n", .{}) catch @panic("failed to print");
 
     scheduler.init();
-    arch.pit.init();
+    pit.init();
     scheduler.schedule();
 }
 

@@ -1,6 +1,5 @@
 const mem = @import("../../memory.zig");
 const pmm = @import("../../pmm.zig");
-const vga = @import("vga.zig");
 const std = @import("std");
 const BootInfo = @import("../../BootInfo.zig");
 

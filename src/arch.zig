@@ -1,20 +1,6 @@
 const builtin = @import("builtin");
 
-pub const arch = switch (builtin.cpu.arch) {
-    .x86_64 => @import("arch/x86-64/arch.zig"),
+pub const current = switch (builtin.cpu.arch) {
+    .x86_64 => @import("arch/x86_64/x86_64.zig"),
     else => @compileError("Unknown architecture."),
 };
-
-pub const kernel_virt_base = arch.kernel_virt_base;
-pub const page_size = arch.page_size;
-
-pub const interrupt = arch.interrupt;
-pub const vga = arch.vga;
-pub const paging = arch.paging;
-pub const pit = arch.pit;
-
-pub const initBootInfo = arch.initBootInfo;
-pub const halt = arch.halt;
-pub const spinWait = arch.spinWait;
-pub const syscall = arch.syscall;
-pub const serial = arch.serial;

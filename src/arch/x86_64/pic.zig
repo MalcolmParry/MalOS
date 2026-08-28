@@ -1,4 +1,4 @@
-const arch = @import("arch.zig");
+const arch = @import("x86_64.zig");
 
 const pic1_cmd = 0x20;
 const pic1_data = pic1_cmd + 1;

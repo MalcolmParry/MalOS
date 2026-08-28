@@ -1,4 +1,4 @@
-const arch = @import("arch.zig");
+const arch = @import("arch.zig").current;
 const std = @import("std");
 const mem = @This();
 

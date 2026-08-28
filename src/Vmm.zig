@@ -1,5 +1,4 @@
 const std = @import("std");
-const arch = @import("arch.zig");
 const mem = @import("memory.zig");
 const direct_map = @import("heap/direct_map.zig");
 const Vmm = @This();

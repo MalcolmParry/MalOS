@@ -3,7 +3,7 @@ const gdt = @import("gdt.zig");
 const mem = @import("../../memory.zig");
 const Vmm = @import("../../Vmm.zig");
 const pmm = @import("../../pmm.zig");
-const arch = @import("arch.zig");
+const arch = @import("x86_64.zig");
 const BootInfo = @import("../../BootInfo.zig");
 
 pub const Entry = packed struct(u64) {
@@ -239,8 +239,8 @@ comptime {
 
 fn enableExecuteDisable() void {
     const msr = 0xc000_0080;
-    const old = arch.readMSR(msr);
-    arch.writeMSR(msr, old | (1 << 11));
+    const old = arch.cpu.readMsr(msr);
+    arch.cpu.writeMsr(msr, old | (1 << 11));
 }
 
 pub fn init(boot_info: *const BootInfo) *Table {
