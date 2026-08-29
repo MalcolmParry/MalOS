@@ -1,5 +1,5 @@
 const std = @import("std");
-const arch = @import("../../arch.zig").current;
+const arch = @import("../../arch/arch.zig").current;
 
 const port = 0x3f8;
 

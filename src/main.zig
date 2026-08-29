@@ -1,4 +1,4 @@
-const arch = @import("arch.zig").current;
+const arch = @import("arch/arch.zig").current;
 const mem = @import("memory.zig");
 const pmm = @import("pmm.zig");
 const Vmm = @import("Vmm.zig");

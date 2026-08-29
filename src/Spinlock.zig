@@ -1,5 +1,5 @@
 const std = @import("std");
-const arch = @import("arch.zig").current;
+const arch = @import("arch/arch.zig").current;
 const builtin = @import("builtin");
 const Spinlock = @This();
 

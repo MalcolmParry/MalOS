@@ -1,6 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const arch = @import("arch.zig").current;
+const arch = @import("arch/arch.zig").current;
 const mem = @import("memory.zig");
 const log = @import("log.zig");
 

@@ -1,5 +1,5 @@
 const std = @import("std");
-const arch = @import("arch.zig").current;
+const arch = @import("arch/arch.zig").current;
 const mem = @import("memory.zig");
 const Spinlock = @import("Spinlock.zig");
 const PageAllocator = @import("heap/PageAllocator.zig");

@@ -1,4 +1,4 @@
-const arch = @import("../../arch.zig").current;
+const arch = @import("../../arch/arch.zig").current;
 
 pub const pit_hz = 1_193_182;
 pub const divisor = pit_hz / 100;
