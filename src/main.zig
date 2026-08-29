@@ -103,6 +103,9 @@ pub fn kernelMain() noreturn {
     var drive = ata_pio.getDrive(0x1f0, false) orelse @panic("cant find drive");
     var sector: [512]u8 = undefined;
     drive.bd.read(&drive.bd, 2, 1, &sector) catch @panic("failed to read from drive");
+    std.log.info("drive block size: {}", .{drive.bd.blockSize()});
+    std.log.info("drive block count: {}", .{drive.bd.block_count});
+    std.log.info("drive byte size: {Bi}", .{drive.bd.block_count * drive.bd.blockSize()});
 
     for (&sector, 0..) |byte, i| {
         if (i % 32 == 0 and i != 0) log.writer.print("\n", .{}) catch @panic("failed to print");

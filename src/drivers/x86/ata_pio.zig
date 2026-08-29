@@ -22,13 +22,13 @@ const Status = packed struct(u8) {
 };
 
 pub fn getDrive(io_base: u16, slave: bool) ?Drive {
-    arch.out(io_base + 6, @as(u8, if (slave) 0xb0 else 0xa0));
-    arch.out(io_base + 2, @as(u16, 0));
-    arch.out(io_base + 3, @as(u16, 0));
-    arch.out(io_base + 4, @as(u16, 0));
-    arch.out(io_base + 5, @as(u16, 0));
+    arch.outb(io_base + 6, if (slave) 0xb0 else 0xa0);
+    arch.outw(io_base + 2, 0);
+    arch.outw(io_base + 3, 0);
+    arch.outw(io_base + 4, 0);
+    arch.outw(io_base + 5, 0);
 
-    arch.out(io_base + 7, @as(u8, 0xec));
+    arch.outb(io_base + 7, 0xec);
     if (arch.in(u8, io_base + 7) == 0) return null;
 
     while (arch.in(Status, io_base + 7).bsy) {}
@@ -68,8 +68,6 @@ pub fn getDrive(io_base: u16, slave: bool) ?Drive {
         break :blk w0 | (w1 << 16) | (w2 << 32) | (w3 << 48);
     };
 
-    std.log.info("sector_count = {}", .{sector_count});
-
     return .{
         .bd = .{
             .block_count = sector_count,
@@ -107,19 +105,19 @@ fn read(bd: *BlockDevice, block_offset: u64, block_count: u64, buffer_ptr: [*]u8
     const buffer = buffer_ptr[0 .. block_count * sector_size];
 
     const io_base = drive.io_base;
-    arch.out(io_base + 6, @as(u8, if (drive.slave) 0x50 else 0x40));
+    arch.outb(io_base + 6, if (drive.slave) 0x50 else 0x40);
 
-    arch.out(io_base + 2, @as(u8, @truncate(block_count >> 8)));
-    arch.out(io_base + 3, @as(u8, @truncate(block_offset >> 24)));
-    arch.out(io_base + 4, @as(u8, @truncate(block_offset >> 32)));
-    arch.out(io_base + 5, @as(u8, @truncate(block_offset >> 40)));
+    arch.outb(io_base + 2, @truncate(block_count >> 8));
+    arch.outb(io_base + 3, @truncate(block_offset >> 24));
+    arch.outb(io_base + 4, @truncate(block_offset >> 32));
+    arch.outb(io_base + 5, @truncate(block_offset >> 40));
 
-    arch.out(io_base + 2, @as(u8, @truncate(block_count & 0xff)));
-    arch.out(io_base + 3, @as(u8, @truncate(block_offset)));
-    arch.out(io_base + 4, @as(u8, @truncate(block_offset >> 8)));
-    arch.out(io_base + 5, @as(u8, @truncate(block_offset >> 16)));
+    arch.outb(io_base + 2, @truncate(block_count));
+    arch.outb(io_base + 3, @truncate(block_offset));
+    arch.outb(io_base + 4, @truncate(block_offset >> 8));
+    arch.outb(io_base + 5, @truncate(block_offset >> 16));
 
-    arch.out(io_base + 7, @as(u8, 0x24));
+    arch.outb(io_base + 7, 0x24);
 
     for (0..block_count) |i| {
         poll(io_base) catch return error.Unknown;

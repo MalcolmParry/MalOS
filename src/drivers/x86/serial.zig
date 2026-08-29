@@ -4,21 +4,21 @@ const arch = @import("../../arch.zig").current;
 const port = 0x3f8;
 
 pub fn init() void {
-    arch.out(port + 1, @as(u8, 0x00));
-    arch.out(port + 3, @as(u8, 0x80));
-    arch.out(port + 0, @as(u8, 0x03));
-    arch.out(port + 1, @as(u8, 0x00));
-    arch.out(port + 3, @as(u8, 0x03));
-    arch.out(port + 2, @as(u8, 0xc7));
-    arch.out(port + 4, @as(u8, 0x0b));
-    arch.out(port + 4, @as(u8, 0x1e));
-    arch.out(port + 0, @as(u8, 0xae));
+    arch.outb(port + 1, 0x00);
+    arch.outb(port + 3, 0x80);
+    arch.outb(port + 0, 0x03);
+    arch.outb(port + 1, 0x00);
+    arch.outb(port + 3, 0x03);
+    arch.outb(port + 2, 0xc7);
+    arch.outb(port + 4, 0x0b);
+    arch.outb(port + 4, 0x1e);
+    arch.outb(port + 0, 0xae);
 
     if (arch.in(u8, port + 0) != 0xae) {
         @panic("failed to init serial port");
     }
 
-    arch.out(port + 4, @as(u8, 0x0f));
+    arch.outb(port + 4, 0x0f);
 }
 
 fn isTransmitEmpty() bool {
@@ -30,7 +30,7 @@ pub fn writeByte(x: u8) void {
         std.atomic.spinLoopHint();
     }
 
-    arch.out(port, x);
+    arch.outb(port, x);
 }
 
 pub fn writeChar(c: u8) void {

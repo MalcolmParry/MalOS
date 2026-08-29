@@ -30,7 +30,7 @@ const Command = packed struct(u8) {
 };
 
 pub fn read_count(channel: u2) u16 {
-    arch.out(ports.cmd, @as(u8, @bitCast(@as(Command, .{}))));
+    arch.out(ports.cmd, @as(Command, .{}));
 
     const low: u16 = arch.in(u8, ports.ch0 + channel);
     const high: u16 = arch.in(u8, ports.ch0 + channel);
@@ -39,13 +39,13 @@ pub fn read_count(channel: u2) u16 {
 }
 
 pub fn write_count(channel: u2, count: u16) void {
-    arch.out(ports.ch0 + channel, @as(u8, @truncate(count)));
-    arch.out(ports.ch0 + channel, @as(u8, @truncate(count >> 8)));
+    arch.outb(ports.ch0 + channel, @truncate(count));
+    arch.outb(ports.ch0 + channel, @truncate(count >> 8));
 }
 
 pub fn init() void {
-    arch.out(ports.cmd, @as(u8, 0b0011_0100));
+    arch.outb(ports.cmd, 0b0011_0100);
 
-    arch.out(ports.ch0, @as(u8, @truncate(divisor)));
-    arch.out(ports.ch0, @as(u8, @truncate(divisor >> 8)));
+    arch.outb(ports.ch0, @truncate(divisor));
+    arch.outb(ports.ch0, @truncate(divisor >> 8));
 }

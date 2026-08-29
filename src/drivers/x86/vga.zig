@@ -58,25 +58,25 @@ pub fn setColorFromLogLevel(logLevel: std.log.Level) void {
 
 pub fn setCursorType(t: CursorType) void {
     if (t == .none) {
-        arch.out(0x3d4, @as(u8, 0x0a));
-        arch.out(0x3d5, @as(u8, 0x20));
+        arch.outb(0x3d4, 0x0a);
+        arch.outb(0x3d5, 0x20);
         return;
     }
 
     const startScanline: u8 = if (t == .block) 0 else 14;
 
-    arch.out(0x3d4, @as(u8, 0x0a));
-    arch.out(0x3d5, (arch.in(u8, 0x3d5) & 0xc0) | startScanline);
+    arch.outb(0x3d4, 0x0a);
+    arch.outb(0x3d5, (arch.in(u8, 0x3d5) & 0xc0) | startScanline);
 
-    arch.out(0x3d4, @as(u8, 0x0b));
-    arch.out(0x3d5, (arch.in(u8, 0x3d5) & 0xe0) | 15);
+    arch.outb(0x3d4, 0x0b);
+    arch.outb(0x3d5, (arch.in(u8, 0x3d5) & 0xe0) | 15);
 }
 
 pub fn setCursorPos(x: u8, y: u8) void {
     const pos: u16 = @as(u16, @intCast(size.x)) * y + x;
 
-    arch.out(0x3d4, @as(u8, 0x0f));
-    arch.out(0x3d5, @as(u8, @truncate(pos)));
-    arch.out(0x3d4, @as(u8, 0x0e));
-    arch.out(0x3d5, @as(u8, @truncate(pos >> 8)));
+    arch.outb(0x3d4, 0x0f);
+    arch.outb(0x3d5, @truncate(pos));
+    arch.outb(0x3d4, 0x0e);
+    arch.outb(0x3d5, @truncate(pos >> 8));
 }

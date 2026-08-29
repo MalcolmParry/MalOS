@@ -153,44 +153,54 @@ pub fn syscall() void {
 }
 
 pub fn out(port: u16, data: anytype) void {
-    switch (@TypeOf(data)) {
-        u8 => asm volatile ("outb %[data], %[port]"
+    switch (@bitSizeOf(@TypeOf(data))) {
+        8 => asm volatile ("outb %[data], %[port]"
             :
             : [port] "{dx}" (port),
               [data] "{al}" (data),
         ),
-        u16 => asm volatile ("outw %[data], %[port]"
+        16 => asm volatile ("outw %[data], %[port]"
             :
             : [port] "{dx}" (port),
               [data] "{ax}" (data),
         ),
-        u32 => asm volatile ("outl %[data], %[port]"
+        32 => asm volatile ("outl %[data], %[port]"
             :
             : [port] "{dx}" (port),
               [data] "{eax}" (data),
         ),
-        else => @compileError("Invalid data type. Expected u8, u16, or u32, found " ++ @typeName(@TypeOf(data))),
+        else => @compileError("bit size of type must be 8, 16, or 32. found " ++ @typeName(@TypeOf(data))),
     }
 }
 
-pub fn in(comptime T: type, port: u16) T {
-    const Int = @Int(.unsigned, @bitSizeOf(T));
+pub fn outb(port: u16, data: u8) void {
+    out(port, data);
+}
 
-    return @bitCast(switch (@bitSizeOf(T)) {
+pub fn outw(port: u16, data: u8) void {
+    out(port, data);
+}
+
+pub fn outl(port: u16, data: u8) void {
+    out(port, data);
+}
+
+pub fn in(comptime T: type, port: u16) T {
+    return switch (@bitSizeOf(T)) {
         8 => asm volatile ("inb %[port], %[result]"
-            : [result] "={al}" (-> Int),
+            : [result] "={al}" (-> T),
             : [port] "N{dx}" (port),
         ),
         16 => asm volatile ("inw %[port], %[result]"
-            : [result] "={ax}" (-> Int),
+            : [result] "={ax}" (-> T),
             : [port] "N{dx}" (port),
         ),
         32 => asm volatile ("inl %[port], %[result]"
-            : [result] "={eax}" (-> Int),
+            : [result] "={eax}" (-> T),
             : [port] "N{dx}" (port),
         ),
         else => @compileError("bit size of type must be 8, 16, or 32. found " ++ @typeName(T)),
-    });
+    };
 }
 
 pub fn ioWait() void {

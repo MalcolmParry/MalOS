@@ -15,6 +15,9 @@ pub const spinWait = cpu.spinWait;
 
 pub const in = cpu.in;
 pub const out = cpu.out;
+pub const outb = cpu.outb;
+pub const outw = cpu.outw;
+pub const outl = cpu.outl;
 pub const ioWait = cpu.ioWait;
 
 pub fn kernelEntry() callconv(.{ .x86_64_sysv = .{ .incoming_stack_alignment = 16 } }) noreturn {

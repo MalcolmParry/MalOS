@@ -14,31 +14,31 @@ pub fn init() void {
     const offset1 = 32;
     const offset2 = offset1 + 8;
 
-    arch.out(pic1_cmd, @as(u8, icw1_init | icw1_icw4));
+    arch.outb(pic1_cmd, icw1_init | icw1_icw4);
     arch.ioWait();
-    arch.out(pic2_cmd, @as(u8, icw1_init | icw1_icw4));
-    arch.ioWait();
-
-    arch.out(pic1_data, @as(u8, offset1));
-    arch.ioWait();
-    arch.out(pic2_data, @as(u8, offset2));
+    arch.outb(pic2_cmd, icw1_init | icw1_icw4);
     arch.ioWait();
 
-    arch.out(pic1_data, @as(u8, 1 << 2));
+    arch.outb(pic1_data, offset1);
     arch.ioWait();
-    arch.out(pic2_data, @as(u8, 2));
+    arch.outb(pic2_data, offset2);
     arch.ioWait();
 
-    arch.out(pic1_data, @as(u8, icw4_8086));
+    arch.outb(pic1_data, 1 << 2);
     arch.ioWait();
-    arch.out(pic2_data, @as(u8, icw4_8086));
+    arch.outb(pic2_data, 2);
+    arch.ioWait();
+
+    arch.outb(pic1_data, icw4_8086);
+    arch.ioWait();
+    arch.outb(pic2_data, icw4_8086);
     arch.ioWait();
 
     // unmask timer
-    arch.out(pic1_data, @as(u8, 0b1111_1110));
-    arch.out(pic2_data, @as(u8, 0b1111_1111));
+    arch.outb(pic1_data, 0b1111_1110);
+    arch.outb(pic2_data, 0b1111_1111);
 }
 
 pub fn eoi() void {
-    arch.out(pic1_cmd, @as(u8, 0x20));
+    arch.outb(pic1_cmd, 0x20);
 }
