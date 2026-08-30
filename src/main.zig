@@ -6,9 +6,11 @@ const PageAllocator = @import("heap/PageAllocator.zig");
 const std = @import("std");
 const builtin = @import("builtin");
 const scheduler = @import("scheduler.zig");
+const log = @import("log.zig");
+
 const vfs = @import("fs/vfs.zig");
 const Ramfs = @import("fs/Ramfs.zig");
-const log = @import("log.zig");
+const Ext2 = @import("fs/Ext2.zig");
 
 const ata_pio = @import("drivers/x86/ata_pio.zig");
 const pit = @import("drivers/x86/pit.zig");
@@ -101,21 +103,16 @@ pub fn kernelMain() noreturn {
     };
 
     var drive = ata_pio.getDrive(0x1f0, false) orelse @panic("cant find drive");
-    var sector: [512]u8 = undefined;
-    drive.bd.read(&drive.bd, 2, 1, &sector) catch @panic("failed to read from drive");
     std.log.info("drive block size: {}", .{drive.bd.blockSize()});
     std.log.info("drive block count: {}", .{drive.bd.block_count});
     std.log.info("drive byte size: {Bi}", .{drive.bd.block_count * drive.bd.blockSize()});
 
-    for (&sector, 0..) |byte, i| {
-        if (i % 32 == 0 and i != 0) log.writer.print("\n", .{}) catch @panic("failed to print");
-        log.writer.print("{x:0>2} ", .{byte}) catch @panic("failed to print");
-    }
-    log.writer.print("\n", .{}) catch @panic("failed to print");
+    Ext2.stuff(&drive.bd) catch @panic("failed to init ext2 drive");
 
-    scheduler.init();
-    pit.init();
-    scheduler.schedule();
+    arch.spinWait();
+    // scheduler.init();
+    // pit.init();
+    // scheduler.schedule();
 }
 
 fn fsTest() !void {
@@ -142,8 +139,4 @@ fn fsTest() !void {
     var buffer: [test_str.len]u8 = undefined;
     std.debug.assert(try open.read(&buffer) == test_str.len);
     std.debug.assert(std.mem.eql(u8, buffer[0..], test_str));
-}
-
-test {
-    _ = @import("fs/Ramfs.zig");
 }
