@@ -7,7 +7,12 @@ const sector_size = 512;
 pub const Drive = struct {
     bd: BlockDevice,
     io_base: u16,
-    slave: bool,
+    kind: Kind,
+
+    pub const Kind = enum {
+        master,
+        slave,
+    };
 };
 
 const Status = packed struct(u8) {
@@ -21,8 +26,12 @@ const Status = packed struct(u8) {
     bsy: bool,
 };
 
-pub fn getDrive(io_base: u16, slave: bool) ?Drive {
-    arch.outb(io_base + 6, if (slave) 0xb0 else 0xa0);
+pub fn getDrive(io_base: u16, kind: Drive.Kind) ?Drive {
+    arch.outb(io_base + 6, switch (kind) {
+        .master => 0xa0,
+        .slave => 0xb0,
+    });
+
     arch.outw(io_base + 2, 0);
     arch.outw(io_base + 3, 0);
     arch.outw(io_base + 4, 0);
@@ -76,7 +85,7 @@ pub fn getDrive(io_base: u16, slave: bool) ?Drive {
             .write = &write,
         },
         .io_base = io_base,
-        .slave = slave,
+        .kind = kind,
     };
 }
 
@@ -105,7 +114,10 @@ fn read(bd: *BlockDevice, block_offset: u64, block_count: u64, buffer_ptr: [*]u8
     const buffer = buffer_ptr[0 .. block_count * sector_size];
 
     const io_base = drive.io_base;
-    arch.outb(io_base + 6, if (drive.slave) 0x50 else 0x40);
+    arch.outb(io_base + 6, switch (drive.kind) {
+        .master => 0x40,
+        .slave => 0x50,
+    });
 
     arch.outb(io_base + 2, @truncate(block_count >> 8));
     arch.outb(io_base + 3, @truncate(block_offset >> 24));

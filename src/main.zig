@@ -102,12 +102,18 @@ pub fn kernelMain() noreturn {
         std.debug.panic("fs test failed: {}", .{err});
     };
 
-    var drive = ata_pio.getDrive(0x1f0, false) orelse @panic("cant find drive");
+    var drive = ata_pio.getDrive(0x1f0, .master) orelse @panic("cant find drive");
     std.log.info("drive block size: {}", .{drive.bd.blockSize()});
     std.log.info("drive block count: {}", .{drive.bd.block_count});
     std.log.info("drive byte size: {Bi}", .{drive.bd.block_count * drive.bd.blockSize()});
 
-    Ext2.stuff(&drive.bd) catch @panic("failed to init ext2 drive");
+    {
+        const used_pages = pmm.used_pages.load(.monotonic);
+        defer if (used_pages != pmm.used_pages.load(.monotonic)) std.log.warn("memory leak", .{});
+
+        var fs = Ext2.init(&drive.bd) catch @panic("failed to init ext2 drive");
+        fs.deinit();
+    }
 
     arch.spinWait();
     // scheduler.init();
