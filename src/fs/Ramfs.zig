@@ -76,18 +76,6 @@ fn free(node: *vfs.Node) void {
     std.debug.assert(node.ref_count.load(.monotonic) == 0);
     const fs: *Ramfs = @fieldParentPtr("sb", node.sb);
 
-    switch (node.kind) {
-        .file => {
-            // TODO: delete cache
-        },
-        .dir => {
-            var maybe_entry = node.data.dir.first_child;
-            while (maybe_entry) |entry| : (maybe_entry = entry.next_sibling) {
-                entry.decRef();
-            }
-        },
-    }
-
     const lock = fs.lock.lock();
     defer lock.unlock();
 

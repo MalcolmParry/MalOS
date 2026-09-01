@@ -17,6 +17,8 @@ pub const Error = error{
     NotADir,
     NameTooLong,
     NotSupported,
+    Io,
+    Corrupt,
 };
 
 pub const CreateOptions = struct {
@@ -97,6 +99,18 @@ pub const Node = struct {
 
         std.debug.assert(prev_count != 0);
         if (prev_count == 1) {
+            switch (node.kind) {
+                .file => {
+                    // TODO: delete cache
+                },
+                .dir => {
+                    var maybe_entry = node.data.dir.first_child;
+                    while (maybe_entry) |entry| : (maybe_entry = entry.next_sibling) {
+                        entry.decRef();
+                    }
+                },
+            }
+
             node.vtable.node_free(node);
         }
     }

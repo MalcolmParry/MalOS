@@ -111,8 +111,12 @@ pub fn kernelMain() noreturn {
         const used_pages = pmm.used_pages.load(.monotonic);
         defer if (used_pages != pmm.used_pages.load(.monotonic)) std.log.warn("memory leak", .{});
 
-        var fs = Ext2.init(&drive.bd) catch @panic("failed to init ext2 drive");
-        fs.deinit();
+        var fs: Ext2 = undefined;
+        const root = fs.init(page_alloc, &drive.bd) catch @panic("failed to init ext2 drive");
+        defer fs.deinit();
+
+        const hello_txt = root.lookup("hello.txt") catch @panic("failed to find hello.txt");
+        defer hello_txt.decRef();
     }
 
     arch.spinWait();
