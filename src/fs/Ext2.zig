@@ -1,5 +1,6 @@
 const std = @import("std");
 const mem = @import("../memory.zig");
+const pmm = @import("../pmm.zig");
 const builtin = @import("builtin");
 const vfs = @import("vfs.zig");
 const BlockDevice = @import("../BlockDevice.zig");
@@ -14,6 +15,7 @@ scratch_block: []u8,
 sb: vfs.SuperBlock,
 node_pool: std.heap.MemoryPool(FsNode),
 dentry_pool: std.heap.MemoryPool(FsDirEntry),
+file_pool: std.heap.MemoryPool(vfs.File),
 
 pub fn init(fs: *Ext2, alloc: std.mem.Allocator, bd: *BlockDevice) !*vfs.DirEntry {
     const bd_block_size = bd.blockSize();
@@ -29,7 +31,11 @@ pub fn init(fs: *Ext2, alloc: std.mem.Allocator, bd: *BlockDevice) !*vfs.DirEntr
         .sb = undefined,
         .node_pool = .empty,
         .dentry_pool = .empty,
+        .file_pool = .empty,
     };
+    errdefer fs.node_pool.deinit(alloc);
+    errdefer fs.dentry_pool.deinit(alloc);
+    errdefer fs.file_pool.deinit(alloc);
 
     const sb_offset = 1024 & block_size_mask;
     const sb_block_index: u64 = @as(u64, 1024) >> bd.log2_block_size;
@@ -53,6 +59,8 @@ pub fn init(fs: *Ext2, alloc: std.mem.Allocator, bd: *BlockDevice) !*vfs.DirEntr
     const sb_extra_info = fs.sbExtraInfo();
     if (sb_extra_info.incompat_features != 2) return error.UnsupportedFeature;
     if (sb_extra_info.inode_size < @sizeOf(Inode)) return error.UnsupportedFeature;
+
+    std.log.info("{any}", .{sb_extra_info});
 
     fs.scratch_block = try alloc.alloc(u8, fs_block_size);
     errdefer alloc.free(fs.scratch_block);
@@ -137,8 +145,9 @@ pub fn deinit(fs: *Ext2) void {
     alloc.free(fs.scratch_block);
     alloc.free(fs.sb_blocks);
 
-    fs.dentry_pool.deinit(alloc);
     fs.node_pool.deinit(alloc);
+    fs.dentry_pool.deinit(alloc);
+    fs.file_pool.deinit(alloc);
 }
 
 fn getInode(fs: *Ext2, inode: u32) !Inode {
@@ -219,6 +228,51 @@ fn dirEntryFree(vfs_dentry: *vfs.DirEntry) void {
     fs.dentry_pool.destroy(dentry);
 }
 
+fn fileOpen(vfs_node: *vfs.Node) vfs.Error!*vfs.File {
+    const fs: *Ext2 = @fieldParentPtr("sb", vfs_node.sb);
+
+    if (vfs_node.kind != .file) return error.NotAFile;
+
+    const file = try fs.file_pool.create(fs.alloc);
+    errdefer fs.file_pool.destroy(file);
+
+    file.* = .{
+        .node = vfs_node,
+        .head = 0,
+    };
+
+    vfs_node.incRef();
+    return file;
+}
+
+fn fileClose(file: *vfs.File) void {
+    const vfs_node = file.node;
+    const fs: *Ext2 = @fieldParentPtr("sb", vfs_node.sb);
+
+    fs.file_pool.destroy(file);
+    vfs_node.decRef();
+}
+
+fn nodeReadPage(vfs_node: *vfs.Node, page_offset: u32, phys_page: pmm.Index) vfs.Error!void {
+    const node: *FsNode = @fieldParentPtr("vfs", vfs_node);
+    const fs: *Ext2 = @fieldParentPtr("sb", vfs_node.sb);
+    const block_size = fs.sbInfo().blockSize();
+    const blocks_in_file = (vfs_node.data.file.size + block_size - 1) / block_size;
+    const blocks_per_page = mem.page_size / block_size;
+    const block_offset = page_offset * blocks_per_page;
+    const page = phys_page.toDirectMap();
+
+    std.debug.assert(vfs_node.kind == .file);
+    std.debug.assert(block_offset < blocks_in_file);
+
+    const inode = fs.getInode(node.inode) catch return error.Io;
+    const end_block = @min(block_offset + blocks_per_page, blocks_in_file);
+    const block_count = end_block - block_offset;
+
+    fs.readInodeBlocks(&inode, block_offset, page.bytes[0 .. block_count * block_size]) catch return error.Io;
+    @memset(page.bytes[block_count * block_size ..], 0);
+}
+
 fn nodeLookup(vfs_dentry: *vfs.DirEntry, name: []const u8) vfs.Error!*vfs.DirEntry {
     const fs: *Ext2 = @fieldParentPtr("sb", vfs_dentry.node.sb);
     const node: *FsNode = @fieldParentPtr("vfs", vfs_dentry.node);
@@ -227,7 +281,9 @@ fn nodeLookup(vfs_dentry: *vfs.DirEntry, name: []const u8) vfs.Error!*vfs.DirEnt
     const inode = fs.getInode(node.inode) catch return error.Io;
     const block_count = (inode.size() + fs_block_size - 1) / fs_block_size;
 
-    const block = fs.scratch_block;
+    const block = try fs.alloc.alloc(u8, fs_block_size);
+    defer fs.alloc.free(block);
+
     for (0..block_count) |block_i_usize| {
         const block_i: u32 = @intCast(block_i_usize);
         fs.readInodeBlocks(&inode, block_i, block) catch return error.Io;
@@ -307,6 +363,9 @@ const node_vtable: vfs.Node.VTable = .{
     .node_free = &nodeFree,
     .dir_entry_free = &dirEntryFree,
     .node_lookup = &nodeLookup,
+    .file_open = &fileOpen,
+    .file_close = &fileClose,
+    .node_read_page = &nodeReadPage,
 };
 
 const FsNode = struct {

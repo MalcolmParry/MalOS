@@ -162,6 +162,7 @@ fn handler(state: *align(1) arch.cpu.State) callconv(.{ .x86_64_sysv = .{ .incom
             scheduler.schedule();
         },
         else => {
+            std.log.info("{any}", .{state});
             std.log.info("interrupt 0x{x}", .{state.int_code});
             arch.spinWait();
         },

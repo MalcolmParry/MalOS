@@ -98,21 +98,35 @@ pub const Node = struct {
         const prev_count = node.ref_count.fetchSub(1, .release);
 
         std.debug.assert(prev_count != 0);
-        if (prev_count == 1) {
-            switch (node.kind) {
-                .file => {
-                    // TODO: delete cache
-                },
-                .dir => {
-                    var maybe_entry = node.data.dir.first_child;
-                    while (maybe_entry) |entry| : (maybe_entry = entry.next_sibling) {
-                        entry.decRef();
-                    }
-                },
-            }
+        if (prev_count == 1) node.destroy();
+    }
 
-            node.vtable.node_free(node);
+    fn destroy(node: *Node) void {
+        std.debug.assert(node.ref_count.load(.monotonic) == 0);
+
+        switch (node.kind) {
+            .file => {
+                const data = &node.data.file;
+
+                var iter = data.cache.iterator();
+                while (iter.next()) |kv| {
+                    pmm.freePage(kv.value_ptr.toPtr());
+                }
+
+                data.cache.deinit(alloc.*);
+            },
+            .dir => {
+                var maybe_entry = node.data.dir.first_child;
+                while (maybe_entry) |entry| {
+                    const next = entry.next_sibling;
+                    defer maybe_entry = next;
+
+                    entry.decRef();
+                }
+            },
         }
+
+        node.vtable.node_free(node);
     }
 
     /// caller needs to unlock page
@@ -142,7 +156,7 @@ pub const Node = struct {
     }
 
     pub fn resizeLocked(node: *Node, new_size: usize) Error!void {
-        if (node.vtable.node_resize) |func| return func(node, new_size);
+        if (node.vtable.node_resize) |func| try func(node, new_size);
 
         const file_data = &node.data.file;
         const old_page_size = (file_data.size + mem.page_size - 1) / mem.page_size;
@@ -180,7 +194,9 @@ pub const DirEntry = struct {
 
         std.debug.assert(prev_count != 0);
         if (prev_count == 1) {
+            const node = entry.node;
             entry.node.vtable.dir_entry_free(entry);
+            node.decRef();
         }
     }
 

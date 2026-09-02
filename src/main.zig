@@ -11,6 +11,7 @@ const log = @import("log.zig");
 const vfs = @import("fs/vfs.zig");
 const Ramfs = @import("fs/Ramfs.zig");
 const Ext2 = @import("fs/Ext2.zig");
+const BlockDevice = @import("BlockDevice.zig");
 
 const ata_pio = @import("drivers/x86/ata_pio.zig");
 const pit = @import("drivers/x86/pit.zig");
@@ -78,14 +79,6 @@ pub fn kernelMain() noreturn {
 
     @import("panic.zig").loadSymbolTable(boot_info.modules());
 
-    // var gpa_obj = std.heap.DebugAllocator(.{
-    //     .thread_safe = false,
-    // }){
-    //     .backing_allocator = page_alloc,
-    // };
-    // defer _ = gpa_obj.deinit();
-    // const gpa = gpa_obj.allocator();
-
     var page_count: usize = 0;
     while (page_count < 0x4000) {
         const result = page_alloc.alloc(u8, 1) catch break;
@@ -98,26 +91,18 @@ pub fn kernelMain() noreturn {
     std.log.info("Memory Allocated {Bi}", .{page_count * mem.page_size});
     std.log.info("{Bi} used out of {Bi}", .{ pmm.used_pages.load(.monotonic) * mem.page_size, pmm.total_pages * mem.page_size });
 
-    fsTest() catch |err| {
-        std.debug.panic("fs test failed: {}", .{err});
-    };
+    // fsTest() catch |err| {
+    //     std.debug.panic("fs test failed: {}", .{err});
+    // };
 
     var drive = ata_pio.getDrive(0x1f0, .master) orelse @panic("cant find drive");
     std.log.info("drive block size: {}", .{drive.bd.blockSize()});
     std.log.info("drive block count: {}", .{drive.bd.block_count});
     std.log.info("drive byte size: {Bi}", .{drive.bd.block_count * drive.bd.blockSize()});
 
-    {
-        const used_pages = pmm.used_pages.load(.monotonic);
-        defer if (used_pages != pmm.used_pages.load(.monotonic)) std.log.warn("memory leak", .{});
-
-        var fs: Ext2 = undefined;
-        const root = fs.init(page_alloc, &drive.bd) catch @panic("failed to init ext2 drive");
-        defer fs.deinit();
-
-        const hello_txt = root.lookup("hello.txt") catch @panic("failed to find hello.txt");
-        defer hello_txt.decRef();
-    }
+    ext2Test(&drive.bd) catch |err| {
+        std.debug.panic("ext2 test failed: {}", .{err});
+    };
 
     arch.spinWait();
     // scheduler.init();
@@ -149,4 +134,29 @@ fn fsTest() !void {
     var buffer: [test_str.len]u8 = undefined;
     std.debug.assert(try open.read(&buffer) == test_str.len);
     std.debug.assert(std.mem.eql(u8, buffer[0..], test_str));
+}
+
+fn ext2Test(bd: *BlockDevice) !void {
+    const alloc = PageAllocator.global.allocator();
+    const used_pages = pmm.used_pages.load(.monotonic);
+    defer if (used_pages != pmm.used_pages.load(.monotonic)) std.log.warn("memory leak", .{});
+
+    var fs: Ext2 = undefined;
+    const root = try fs.init(alloc, bd);
+    defer {
+        root.decRef();
+        fs.deinit();
+    }
+
+    const hello_txt = try root.lookup("hello.txt");
+    defer hello_txt.decRef();
+
+    const file = try hello_txt.node.vtable.file_open(hello_txt.node);
+    defer hello_txt.node.vtable.file_close(file);
+
+    var buffer: [1024]u8 = undefined;
+    const read = try file.read(&buffer);
+
+    std.log.info("{} bytes read", .{read});
+    std.log.info("{s}", .{buffer[0..read]});
 }
