@@ -249,8 +249,8 @@ fn fileClose(file: *vfs.File) void {
     const vfs_node = file.node;
     const fs: *Ext2 = @fieldParentPtr("sb", vfs_node.sb);
 
-    fs.file_pool.destroy(file);
     vfs_node.decRef();
+    fs.file_pool.destroy(file);
 }
 
 fn nodeReadPage(vfs_node: *vfs.Node, page_offset: u32, phys_page: pmm.Index) vfs.Error!void {

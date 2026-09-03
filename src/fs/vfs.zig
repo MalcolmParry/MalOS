@@ -95,7 +95,7 @@ pub const Node = struct {
     }
 
     pub fn decRef(node: *Node) void {
-        const prev_count = node.ref_count.fetchSub(1, .release);
+        const prev_count = node.ref_count.fetchSub(1, .acquire);
 
         std.debug.assert(prev_count != 0);
         if (prev_count == 1) node.destroy();
@@ -190,7 +190,7 @@ pub const DirEntry = struct {
     }
 
     pub fn decRef(entry: *DirEntry) void {
-        const prev_count = entry.ref_count.fetchSub(1, .release);
+        const prev_count = entry.ref_count.fetchSub(1, .acquire);
 
         std.debug.assert(prev_count != 0);
         if (prev_count == 1) {

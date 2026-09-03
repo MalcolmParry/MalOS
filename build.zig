@@ -75,6 +75,36 @@ fn addBuildIsoStep(b: *Build, optimize: std.builtin.OptimizeMode, target: Build.
 
     const symbol_table_build = GenSymTabStep.init(b, kernel);
 
+    {
+        const run_trunc = b.addSystemCommand(&.{
+            "truncate",
+            "-s",
+            "16M",
+        });
+        const img = run_trunc.addOutputFileArg("disk.img");
+
+        const run_mkfs_ext2 = b.addSystemCommand(&.{ "mkfs.ext2", "-F" });
+        run_mkfs_ext2.addFileArg(img);
+        run_mkfs_ext2.expectStdOutMatch("Writing superblocks and filesystem accounting information");
+        run_mkfs_ext2.expectStdErrMatch("mke2fs");
+        run_mkfs_ext2.step.dependOn(&run_trunc.step);
+
+        var disk_steps: std.ArrayList(*Build.Step) = .empty;
+        const disk_dir = "build/x86_64/disk/";
+        try debugfsWrite(b, &disk_steps, img, disk_dir ++ "hello.txt", "/hello.txt");
+
+        const img_install = b.addInstallFile(img, output_sub_dir ++ "disk.img");
+        img_install.step.dependOn(&run_mkfs_ext2.step);
+        b.getInstallStep().dependOn(&img_install.step);
+
+        var prev = &run_mkfs_ext2.step;
+        for (disk_steps.items) |step| {
+            defer prev = step;
+            step.dependOn(prev);
+            img_install.step.dependOn(step);
+        }
+    }
+
     const iso_build = b.addSystemCommand(&.{
         "grub-mkrescue",
         b.fmt("{s}/i386-pc", .{grub_dir}),
@@ -116,6 +146,30 @@ fn addBuildIsoStep(b: *Build, optimize: std.builtin.OptimizeMode, target: Build.
     return iso;
 }
 
+fn debugfsMkdir(b: *Build, step_list: *std.ArrayList(*Build.Step), img: Build.LazyPath, path: []const u8) !void {
+    const step = b.addSystemCommand(&.{
+        "debugfs",
+        "-w",
+        "-R",
+        b.fmt("mkdir {s}", .{path}),
+    });
+    step.addFileArg(img);
+    try step_list.append(b.allocator, &step.step);
+}
+
+fn debugfsWrite(b: *Build, step_list: *std.ArrayList(*Build.Step), img: Build.LazyPath, src: []const u8, dst: []const u8) !void {
+    const step = b.addSystemCommand(&.{
+        "debugfs",
+        "-w",
+        "-R",
+        b.fmt("write {s} {s}", .{ src, dst }),
+    });
+    step.addFileArg(img);
+    step.expectStdOutMatch("Allocated inode: ");
+    step.expectStdErrMatch("debugfs");
+    try step_list.append(b.allocator, &step.step);
+}
+
 fn linkAssembly(b: *Build, link: *Build.Step.Run) !void {
     var asm_source_dir = try std.Io.Dir.cwd().openDir(b.graph.io, asm_source_path, .{ .iterate = true });
     defer asm_source_dir.close(b.graph.io);
@@ -153,7 +207,7 @@ fn addRunIsoStep(b: *Build, iso: Build.LazyPath) !void {
         // "-vga", "std",
         "-m", "32M",
         "-smp", "4",
-        "-drive", "file=zig-out/disk.img,format=raw,if=ide,index=0",
+        "-drive", "file=zig-out/x86_64/disk.img,format=raw,if=ide,index=0",
         "-cdrom",
         // zig fmt: on
     });
