@@ -203,6 +203,17 @@ pub fn in(comptime T: type, port: u16) T {
     };
 }
 
+pub fn inWordSlice(port: u16, buffer: []align(1) u16) void {
+    asm volatile (
+        \\ cld
+        \\ rep insw
+        :
+        : [port] "{dx}" (port),
+          [buffer] "{rdi}" (buffer.ptr),
+          [count] "{rcx}" (buffer.len),
+        : .{ .rdi = true, .rcx = true, .memory = true, .dirflag = true });
+}
+
 pub fn ioWait() void {
     out(0x80, @as(u8, 0));
 }

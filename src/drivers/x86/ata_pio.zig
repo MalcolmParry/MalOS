@@ -60,9 +60,7 @@ pub fn getDrive(io_base: u16, kind: Drive.Kind) ?Drive {
     }
 
     var identity: [256]u16 = undefined;
-    for (&identity) |*word| {
-        word.* = arch.in(u16, io_base);
-    }
+    arch.cpu.inWordSlice(io_base, &identity);
 
     if (identity[83] & (1 << 10) == 0) {
         std.log.err("drive doesn't support lba48", .{});
@@ -81,8 +79,8 @@ pub fn getDrive(io_base: u16, kind: Drive.Kind) ?Drive {
         .bd = .{
             .block_count = sector_count,
             .log2_block_size = comptime std.math.log2(sector_size),
-            .read = &read,
-            .write = &write,
+            .read_ptr = &read,
+            .write_ptr = &write,
         },
         .io_base = io_base,
         .kind = kind,
@@ -95,20 +93,19 @@ fn poll(io_base: u16) !void {
 
         if (status.err or status.df) {
             @branchHint(.unlikely);
-            return error.Failed;
+            return error.Io;
         }
 
         if (status.bsy) continue;
         if (status.drq) return;
 
-        return error.Failed;
+        return error.Io;
     }
 }
 
-fn read(bd: *BlockDevice, block_offset: u64, block_count: u64, buffer_ptr: [*]u8) BlockDevice.Error!void {
-    if (block_count == 0) return;
-    if (block_offset > bd.block_count or block_count > bd.block_count - block_offset) return error.OutOfRange;
+fn read(bd: *BlockDevice, first_block: u64, block_count: u64, buffer_ptr: [*]u8) BlockDevice.Error!void {
     if (block_count > std.math.maxInt(u16)) return error.Unknown;
+    std.debug.assert(first_block <= std.math.maxInt(u48));
 
     const drive: *Drive = @fieldParentPtr("bd", bd);
     const buffer = buffer_ptr[0 .. block_count * sector_size];
@@ -120,33 +117,28 @@ fn read(bd: *BlockDevice, block_offset: u64, block_count: u64, buffer_ptr: [*]u8
     });
 
     arch.outb(io_base + 2, @truncate(block_count >> 8));
-    arch.outb(io_base + 3, @truncate(block_offset >> 24));
-    arch.outb(io_base + 4, @truncate(block_offset >> 32));
-    arch.outb(io_base + 5, @truncate(block_offset >> 40));
+    arch.outb(io_base + 3, @truncate(first_block >> 24));
+    arch.outb(io_base + 4, @truncate(first_block >> 32));
+    arch.outb(io_base + 5, @truncate(first_block >> 40));
 
     arch.outb(io_base + 2, @truncate(block_count));
-    arch.outb(io_base + 3, @truncate(block_offset));
-    arch.outb(io_base + 4, @truncate(block_offset >> 8));
-    arch.outb(io_base + 5, @truncate(block_offset >> 16));
+    arch.outb(io_base + 3, @truncate(first_block));
+    arch.outb(io_base + 4, @truncate(first_block >> 8));
+    arch.outb(io_base + 5, @truncate(first_block >> 16));
 
     arch.outb(io_base + 7, 0x24);
 
     for (0..block_count) |i| {
-        poll(io_base) catch return error.Unknown;
+        try poll(io_base);
 
-        asm volatile (
-            \\ rep insw
-            :
-            : [port] "{dx}" (io_base),
-              [buffer] "{rdi}" (buffer.ptr + i * sector_size),
-              [count] "{rcx}" (256),
-            : .{ .rdi = true, .rcx = true, .memory = true });
+        const word_ptr: [*]align(1) u16 = @ptrCast(buffer.ptr + i * sector_size);
+        arch.cpu.inWordSlice(io_base, word_ptr[0..256]);
     }
 }
 
-fn write(bd: *BlockDevice, block_offset: u64, block_count: u64, buffer: [*]const u8) BlockDevice.Error!void {
+fn write(bd: *BlockDevice, first_block: u64, block_count: u64, buffer: [*]const u8) BlockDevice.Error!void {
     _ = bd;
-    _ = block_offset;
+    _ = first_block;
     _ = block_count;
     _ = buffer;
     return error.NotSupported;

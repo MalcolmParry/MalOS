@@ -44,7 +44,7 @@ pub fn init(fs: *Ext2, alloc: std.mem.Allocator, bd: *BlockDevice) !*vfs.DirEntr
     fs.sb_blocks = try alloc.alloc(u8, sb_block_count << bd.log2_block_size);
     errdefer alloc.free(fs.sb_blocks);
 
-    try bd.read(bd, sb_block_index, sb_block_count, fs.sb_blocks.ptr);
+    try bd.read(sb_block_index, fs.sb_blocks);
 
     const sb_info = fs.sbInfo();
     if (sb_info.signature != 0xef53) return error.BadSuperBlock;
@@ -171,11 +171,9 @@ fn readBlocks(fs: *Ext2, start: u32, buffer: []u8) !void {
     const bd_block_size = fs.bd.blockSize();
     const fs_block_size = fs.sbInfo().blockSize();
     const bd_blocks_per_fs_block = fs_block_size / bd_block_size;
-
-    const count = buffer.len / fs_block_size;
     std.debug.assert(buffer.len % fs_block_size == 0);
 
-    try fs.bd.read(fs.bd, bd_blocks_per_fs_block * start, bd_blocks_per_fs_block * count, buffer.ptr);
+    try fs.bd.read(bd_blocks_per_fs_block * start, buffer);
 }
 
 fn readInodeBlocks(fs: *Ext2, inode: *align(1) const Inode, start: u32, buffer: []u8) !void {
