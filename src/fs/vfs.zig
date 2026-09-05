@@ -67,6 +67,8 @@ pub const Node = struct {
         file_close: *const fn (file: *File) void = &unimplementedClose,
         file_read: ?*const fn (file: *File, buffer: []u8) Error!usize = null,
         file_write: ?*const fn (file: *File, data: []const u8) Error!usize = null,
+        /// returns true if wrote to record
+        file_read_dir: *const fn (file: *File, record: *DirRecord) Error!bool = &unimplementedReadDir,
     };
 
     pub const Kind = enum {
@@ -173,6 +175,16 @@ pub const Node = struct {
     }
 };
 
+pub const DirRecord = struct {
+    name_len: u16,
+    name_buf: [max_embedded_name_len]u8,
+    kind: Node.Kind,
+
+    pub fn getName(record: *const DirRecord) []const u8 {
+        return record.name_buf[0..record.name_len];
+    }
+};
+
 pub const max_embedded_name_len = 32;
 pub const DirEntry = struct {
     node: *Node,
@@ -225,9 +237,10 @@ pub const DirEntry = struct {
 
 pub const File = struct {
     node: *Node,
-    head: usize = 0,
+    head: u64 = 0,
 
     pub fn read(file: *File, buffer: []u8) Error!usize {
+        if (file.node.kind != .file) return error.NotAFile;
         if (file.node.vtable.file_read) |func| return func(file, buffer);
 
         const lock = file.node.lock.lock();
@@ -261,6 +274,7 @@ pub const File = struct {
     }
 
     pub fn write(file: *File, data: []const u8) Error!usize {
+        if (file.node.kind != .file) return error.NotAFile;
         if (file.node.vtable.file_write) |func| return func(file, data);
 
         const lock = file.node.lock.lock();
@@ -294,6 +308,23 @@ pub const File = struct {
     }
 };
 
+pub fn isNameValid(name: []const u8) bool {
+    if (name.len == 0) return false;
+    if (name.len > max_embedded_name_len) return false;
+
+    if (std.mem.eql(u8, name, ".")) return false;
+    if (std.mem.eql(u8, name, "..")) return false;
+
+    for (name) |c| {
+        switch (c) {
+            0...31, 127, '/' => return false,
+            else => {},
+        }
+    }
+
+    return true;
+}
+
 fn defaultReadPage(_: *Node, _: u32, index: pmm.Index) Error!void {
     const direct = index.toDirectMap();
     @memset(direct.bytes[0..], 0);
@@ -323,4 +354,8 @@ pub fn unimplementedOpen(_: *Node) Error!*File {
 
 pub fn unimplementedClose(_: *File) void {
     @panic("not implemented");
+}
+
+pub fn unimplementedReadDir(_: *File, _: *DirRecord) Error!bool {
+    return error.NotSupported;
 }

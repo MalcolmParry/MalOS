@@ -229,8 +229,6 @@ fn dirEntryFree(vfs_dentry: *vfs.DirEntry) void {
 fn fileOpen(vfs_node: *vfs.Node) vfs.Error!*vfs.File {
     const fs: *Ext2 = @fieldParentPtr("sb", vfs_node.sb);
 
-    if (vfs_node.kind != .file) return error.NotAFile;
-
     const file = try fs.file_pool.create(fs.alloc);
     errdefer fs.file_pool.destroy(file);
 
@@ -249,6 +247,64 @@ fn fileClose(file: *vfs.File) void {
 
     vfs_node.decRef();
     fs.file_pool.destroy(file);
+}
+
+fn fileReadDir(file: *vfs.File, record: *vfs.DirRecord) vfs.Error!bool {
+    if (file.head == std.math.maxInt(u64)) return false;
+
+    const fs: *Ext2 = @fieldParentPtr("sb", file.node.sb);
+    const node: *FsNode = @fieldParentPtr("vfs", file.node);
+    const inode = fs.getInode(node.inode) catch return error.Io;
+    const block_size = fs.sbInfo().blockSize();
+
+    var head = file.head;
+    defer file.head = head;
+
+    var block_index: u32 = std.math.maxInt(u32);
+    const block = fs.scratch_block;
+
+    while (true) {
+        if (head + 8 > inode.size()) {
+            head = std.math.maxInt(u64);
+            return false;
+        }
+
+        const new_block_index: u32 = @intCast(head / block_size);
+        const head_offset = head % block_size;
+        if (head_offset + 8 > block_size) return error.Corrupt;
+
+        if (new_block_index != block_index) {
+            block_index = new_block_index;
+            fs.readInodeBlocks(&inode, block_index, block) catch return error.Io;
+        }
+
+        const dentry: *align(1) Dentry = @ptrCast(block.ptr + head_offset);
+        if (dentry.size < 8) return error.Corrupt;
+        if (head_offset + dentry.size > block_size) return error.Corrupt;
+        if (head + dentry.size > inode.size()) return error.Corrupt;
+        if (dentry.size < @as(u64, dentry.name_len) + 8) return error.Corrupt;
+
+        defer head += dentry.size;
+        if (dentry.inode == 0) continue;
+
+        const name = @as([*]u8, @ptrCast(&dentry.name))[0..dentry.name_len];
+        if (name.len > vfs.max_embedded_name_len) return error.NameTooLong;
+        if (std.mem.eql(u8, name, ".")) continue;
+        if (std.mem.eql(u8, name, "..")) continue;
+
+        record.* = .{
+            .name_len = @intCast(name.len),
+            .name_buf = @splat(0),
+            .kind = switch (dentry.t) {
+                .regular_file => .file,
+                .dir => .dir,
+                else => return error.NotSupported,
+            },
+        };
+
+        @memcpy(record.name_buf[0..name.len], name);
+        return true;
+    }
 }
 
 fn nodeReadPage(vfs_node: *vfs.Node, page_offset: u32, phys_page: pmm.Index) vfs.Error!void {
@@ -363,6 +419,7 @@ const node_vtable: vfs.Node.VTable = .{
     .node_lookup = &nodeLookup,
     .file_open = &fileOpen,
     .file_close = &fileClose,
+    .file_read_dir = &fileReadDir,
     .node_read_page = &nodeReadPage,
 };
 

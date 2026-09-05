@@ -148,6 +148,8 @@ fn ext2Test(bd: *BlockDevice) !void {
         fs.deinit();
     }
 
+    try printFileTree(root, log.term, 0);
+
     const hello_txt = try root.lookup("hello.txt");
     defer hello_txt.decRef();
 
@@ -159,4 +161,30 @@ fn ext2Test(bd: *BlockDevice) !void {
 
     std.log.info("{} bytes read", .{read});
     std.log.info("{s}", .{buffer[0..read]});
+}
+
+fn printFileTree(parent: *vfs.DirEntry, term: std.Io.Terminal, indent: usize) !void {
+    const open = try parent.node.vtable.file_open(parent.node);
+    defer open.node.vtable.file_close(open);
+
+    var record: vfs.DirRecord = undefined;
+    while (try open.node.vtable.file_read_dir(open, &record)) {
+        for (0..indent) |_| try term.writer.print("    ", .{});
+
+        term.setColor(switch (record.kind) {
+            .file => .white,
+            .dir => .blue,
+        }) catch {};
+
+        try term.writer.print("{s}", .{record.getName()});
+        term.setColor(.reset) catch {};
+        try term.writer.print("\n", .{});
+
+        if (record.kind == .dir) {
+            const child = try parent.lookup(record.getName());
+            defer child.decRef();
+
+            try printFileTree(child, term, indent + 1);
+        }
+    }
 }
