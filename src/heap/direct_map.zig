@@ -2,7 +2,7 @@ const std = @import("std");
 const mem = @import("../memory.zig");
 const pmm = @import("../pmm.zig");
 
-pub var page_alloc: std.mem.Allocator = .{
+pub const page_alloc: std.mem.Allocator = .{
     .ptr = undefined,
     .vtable = &.{
         .alloc = page_allocator.alloc,

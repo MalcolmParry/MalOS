@@ -1,6 +1,7 @@
 const std = @import("std");
 const arch = @import("../../arch/arch.zig").current;
 const BlockDevice = @import("../../BlockDevice.zig");
+const devfs = @import("../../fs/devfs.zig");
 
 const sector_size = 512;
 
@@ -12,6 +13,11 @@ pub const Drive = struct {
     pub const Kind = enum {
         master,
         slave,
+    };
+
+    pub const Desc = struct {
+        io_base: u16,
+        kind: Kind,
     };
 };
 
@@ -26,7 +32,32 @@ const Status = packed struct(u8) {
     bsy: bool,
 };
 
-pub fn getDrive(io_base: u16, kind: Drive.Kind) ?Drive {
+var detected_drives: [4]Drive = undefined;
+pub fn detectAndRegister() !void {
+    const descs: [4]Drive.Desc = .{
+        .{ .io_base = 0x1f0, .kind = .master },
+        .{ .io_base = 0x1f0, .kind = .slave },
+        .{ .io_base = 0x170, .kind = .master },
+        .{ .io_base = 0x170, .kind = .slave },
+    };
+
+    const names: [4][]const u8 = .{
+        "ata0",
+        "ata1",
+        "ata2",
+        "ata3",
+    };
+
+    for (&detected_drives, &descs, &names) |*drive, desc, name| {
+        drive.* = getDrive(desc) orelse continue;
+        try devfs.registerDisk(name, &drive.bd);
+    }
+}
+
+pub fn getDrive(desc: Drive.Desc) ?Drive {
+    const io_base = desc.io_base;
+    const kind = desc.kind;
+
     arch.outb(io_base + 6, switch (kind) {
         .master => 0xa0,
         .slave => 0xb0,

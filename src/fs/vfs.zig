@@ -3,6 +3,7 @@ const mem = @import("../memory.zig");
 const pmm = @import("../pmm.zig");
 const arch = @import("../arch/arch.zig");
 const Spinlock = @import("../Spinlock.zig");
+const BlockDevice = @import("../BlockDevice.zig");
 const alloc = &@import("../heap/direct_map.zig").page_alloc;
 
 pub var root: *Node = undefined;
@@ -74,11 +75,13 @@ pub const Node = struct {
     pub const Kind = enum {
         file,
         dir,
+        block_device,
     };
 
     pub const Data = union {
         dir: Dir,
         file: Data.File,
+        block_device: *BlockDevice,
 
         pub const Dir = struct {
             first_child: ?*DirEntry,
@@ -126,6 +129,7 @@ pub const Node = struct {
                     entry.decRef();
                 }
             },
+            .block_device => {},
         }
 
         node.vtable.node_free(node);
@@ -325,14 +329,22 @@ pub fn isNameValid(name: []const u8) bool {
     return true;
 }
 
-fn defaultReadPage(_: *Node, _: u32, index: pmm.Index) Error!void {
+pub fn defaultReadPage(_: *Node, _: u32, index: pmm.Index) Error!void {
     const direct = index.toDirectMap();
     @memset(direct.bytes[0..], 0);
 }
 
-fn defaultWritePage(_: *Node, _: u32, index: pmm.Index) Error!void {
+pub fn defaultWritePage(_: *Node, _: u32, index: pmm.Index) Error!void {
     const desc = pmm.getPageDesc(index);
     desc.data.vfs_cache.dirty = false;
+}
+
+pub fn unimplementedNodeFree(_: *Node) void {
+    @panic("not implemented");
+}
+
+pub fn unimplementedDentryFree(_: *DirEntry) void {
+    @panic("not implemented");
 }
 
 pub fn unimplementedLookup(parent: *DirEntry, _: []const u8) Error!*DirEntry {

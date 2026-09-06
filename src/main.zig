@@ -15,8 +15,11 @@ const BlockDevice = @import("BlockDevice.zig");
 
 const ata_pio = @import("drivers/x86/ata_pio.zig");
 const pit = @import("drivers/x86/pit.zig");
+const devfs = @import("fs/devfs.zig");
 
 pub const panic = @import("panic.zig").panic;
+pub const std_options_debug_threaded_io = null;
+pub const std_options_debug_io = std.Io.failing;
 pub const std_options: std.Options = .{
     .logFn = log.log,
     .page_size_min = mem.page_size,
@@ -95,13 +98,20 @@ pub fn kernelMain() noreturn {
     //     std.debug.panic("fs test failed: {}", .{err});
     // };
 
-    var drive = ata_pio.getDrive(0x1f0, .master) orelse @panic("cant find drive");
-    std.log.info("drive block size: {}", .{drive.bd.blockSize()});
-    std.log.info("drive block count: {}", .{drive.bd.block_count});
-    std.log.info("drive byte size: {Bi}", .{drive.bd.block_count * drive.bd.blockSize()});
+    ata_pio.detectAndRegister() catch @panic("failed to detect and register ata devices");
 
-    ext2Test(&drive.bd) catch |err| {
-        std.debug.panic("ext2 test failed: {}", .{err});
+    devfsTest() catch |err| {
+        if (@errorReturnTrace()) |trace| {
+            const len = @min(trace.instruction_addresses.len, trace.index);
+
+            for (trace.instruction_addresses[0..len]) |addr| {
+                @import("panic.zig").writeTraceAddr(addr);
+            }
+        }
+
+        std.log.err("ext2 test failed: {}", .{err});
+        arch.interrupt.disable();
+        arch.spinWait();
     };
 
     arch.spinWait();
@@ -163,6 +173,12 @@ fn ext2Test(bd: *BlockDevice) !void {
     std.log.info("{s}", .{buffer[0..read]});
 }
 
+fn devfsTest() !void {
+    const root = &devfs.root;
+
+    try printFileTree(root, log.term, 0);
+}
+
 fn printFileTree(parent: *vfs.DirEntry, term: std.Io.Terminal, indent: usize) !void {
     const open = try parent.node.vtable.file_open(parent.node);
     defer open.node.vtable.file_close(open);
@@ -174,6 +190,7 @@ fn printFileTree(parent: *vfs.DirEntry, term: std.Io.Terminal, indent: usize) !v
         term.setColor(switch (record.kind) {
             .file => .white,
             .dir => .blue,
+            .block_device => .yellow,
         }) catch {};
 
         try term.writer.print("{s}", .{record.getName()});
