@@ -54,13 +54,9 @@ pub fn init(fs: *Ext2, alloc: std.mem.Allocator, bd: *BlockDevice) !*vfs.DirEntr
     if (fs_block_size < bd_block_size) return error.UnsupportedBlockSize;
     if (fs_block_size > mem.page_size) return error.UnsupportedBlockSize;
 
-    std.log.info("{any}", .{sb_info});
-
     const sb_extra_info = fs.sbExtraInfo();
     if (sb_extra_info.incompat_features != 2) return error.UnsupportedFeature;
     if (sb_extra_info.inode_size < @sizeOf(Inode)) return error.UnsupportedFeature;
-
-    std.log.info("{any}", .{sb_extra_info});
 
     fs.scratch_block = try alloc.alloc(u8, fs_block_size);
     errdefer alloc.free(fs.scratch_block);
@@ -72,31 +68,6 @@ pub fn init(fs: *Ext2, alloc: std.mem.Allocator, bd: *BlockDevice) !*vfs.DirEntr
 
     try fs.readBlocks(sb_info.first_data_block + 1, gdt_blocks);
     fs.gdt_descs = @as([*]align(1) BlockGroupDesc, @ptrCast(gdt_blocks.ptr))[0..block_group_count];
-
-    for (fs.gdt_descs) |*desc| {
-        std.log.info("{any}", .{desc});
-    }
-
-    const root_inode = try fs.getInode(2);
-    std.log.info("{any}", .{root_inode});
-
-    const root_data = fs.scratch_block;
-    try fs.readBlocks(root_inode.direct_pointers[0], root_data);
-
-    var dentry: *align(1) Dentry = @ptrCast(root_data.ptr);
-    var remaining_len = fs_block_size;
-    while (true) {
-        if (dentry.size == 0 or dentry.size > remaining_len)
-            return error.Corrupt;
-
-        const name = @as([*]u8, @ptrCast(&dentry.name))[0..dentry.name_len];
-        std.log.info("'{s}'", .{name});
-        std.log.info("{any}", .{dentry});
-
-        remaining_len -= dentry.size;
-        if (remaining_len == 0) break;
-        dentry = @ptrFromInt(@intFromPtr(dentry) + dentry.size);
-    }
 
     const root = try fs.node_pool.create(alloc);
     root.* = .{

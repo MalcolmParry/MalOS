@@ -92,6 +92,7 @@ fn addBuildIsoStep(b: *Build, optimize: std.builtin.OptimizeMode, target: Build.
         var disk_steps: std.ArrayList(*Build.Step) = .empty;
         const disk_dir = "build/x86_64/disk/";
         try debugfsWrite(b, &disk_steps, img, disk_dir ++ "hello.txt", "/hello.txt");
+        try debugfsMkdir(b, &disk_steps, img, "/dev");
 
         const img_install = b.addInstallFile(img, output_sub_dir ++ "disk.img");
         img_install.step.dependOn(&run_mkfs_ext2.step);
@@ -154,6 +155,8 @@ fn debugfsMkdir(b: *Build, step_list: *std.ArrayList(*Build.Step), img: Build.La
         b.fmt("mkdir {s}", .{path}),
     });
     step.addFileArg(img);
+    step.expectStdOutEqual("");
+    step.expectStdErrMatch("debugfs");
     try step_list.append(b.allocator, &step.step);
 }
 

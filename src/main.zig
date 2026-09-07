@@ -148,10 +148,8 @@ fn fsTest() !void {
 
 fn ext2Test() !void {
     const alloc = PageAllocator.global.allocator();
-    const used_pages = pmm.used_pages.load(.monotonic);
-    defer if (used_pages != pmm.used_pages.load(.monotonic)) std.log.warn("memory leak", .{});
 
-    const drive_dentry = try devfs.root.lookup("disk/ata0");
+    const drive_dentry = try devfs.root.lookupLocal("disk/ata0");
     defer drive_dentry.release();
     const bd = drive_dentry.node.data.block_device;
 
@@ -162,9 +160,7 @@ fn ext2Test() !void {
         fs.deinit();
     }
 
-    try printFileTree(root, log.term, 0);
-
-    const hello_txt = try root.lookup("hello.txt");
+    const hello_txt = try root.lookupLocal("hello.txt");
     defer hello_txt.release();
 
     const file = try hello_txt.node.open();
@@ -175,16 +171,42 @@ fn ext2Test() !void {
 
     std.log.info("{} bytes read", .{read});
     std.log.info("{s}", .{buffer[0..read]});
+
+    var devfs_mount: vfs.Mount = undefined;
+
+    vfs.root = .{
+        .target = null,
+        .src = root,
+
+        .parent = null,
+        .first_child = &devfs_mount,
+        .next_sibling = null,
+    };
+
+    const dev_target = try root.lookupNameLocal("dev");
+    defer dev_target.release();
+
+    devfs_mount = .{
+        .target = dev_target,
+        .src = &devfs.root,
+
+        .parent = &vfs.root,
+        .first_child = null,
+        .next_sibling = null,
+    };
+
+    const root_path = vfs.root.acquireRootPath();
+    defer root_path.release();
+
+    log.term.setColor(.blue) catch {};
+    try log.term.writer.print("/", .{});
+    log.term.setColor(.reset) catch {};
+    try log.term.writer.print("\n", .{});
+    try printFileTree(root_path, log.term, 1);
 }
 
-fn devfsTest() !void {
-    const root = &devfs.root;
-
-    try printFileTree(root, log.term, 0);
-}
-
-fn printFileTree(parent: *vfs.DirEntry, term: std.Io.Terminal, indent: usize) !void {
-    const file = try parent.node.open();
+fn printFileTree(parent: vfs.Path, term: std.Io.Terminal, indent: usize) !void {
+    const file = try parent.dentry.node.open();
     defer file.close();
 
     var record: vfs.DirRecord = undefined;

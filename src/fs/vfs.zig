@@ -6,7 +6,7 @@ const Spinlock = @import("../Spinlock.zig");
 const BlockDevice = @import("../BlockDevice.zig");
 const alloc = &@import("../heap/direct_map.zig").page_alloc;
 
-pub var root: *DirEntry = undefined;
+pub var root: Mount = undefined;
 
 pub const Error = error{
     OutOfMemory,
@@ -19,6 +19,7 @@ pub const Error = error{
     NameTooLong,
     ReadOnly,
     NoParent,
+    InvalidName,
     NotSupported,
     Io,
     Corrupt,
@@ -225,7 +226,7 @@ pub const DirEntry = struct {
         return entry.name_buf[0..entry.name_len];
     }
 
-    pub fn lookupName(parent: *DirEntry, name: []const u8) Error!*DirEntry {
+    pub fn lookupNameLocal(parent: *DirEntry, name: []const u8) Error!*DirEntry {
         if (parent.node.kind != .dir) return error.NotADir;
         if (name.len == 0) return error.NoEntry;
 
@@ -255,23 +256,19 @@ pub const DirEntry = struct {
         return parent.node.vtable.dentry_lookup(parent, name);
     }
 
-    pub fn lookup(parent: *DirEntry, path: []const u8) Error!*DirEntry {
+    pub fn lookupLocal(parent: *DirEntry, path: []const u8) Error!*DirEntry {
+        if (path.len == 0) return error.NoEntry;
+        if (path[0] == '/') return error.NoParent;
+
         var current = parent;
         var should_release: bool = false;
         errdefer if (should_release) current.release();
-
-        if (path.len == 0) return error.NoEntry;
-        if (path[0] == '/') {
-            current = root;
-            root.acquire();
-            should_release = true;
-        }
 
         var iter = std.mem.splitScalar(u8, path, '/');
         while (iter.next()) |name| {
             if (name.len == 0) continue;
 
-            const next = try current.lookupName(name);
+            const next = try current.lookupNameLocal(name);
             if (should_release) current.release();
             should_release = true;
             current = next;
@@ -282,6 +279,7 @@ pub const DirEntry = struct {
 
     pub fn create(parent: *DirEntry, name: []const u8, opts: CreateOptions) Error!*DirEntry {
         if (parent.node.kind != .dir) return error.NotADir;
+        if (!isNameValid(name)) return error.InvalidName;
         return parent.node.vtable.dentry_create(parent, name, opts);
     }
 
@@ -370,6 +368,109 @@ pub const File = struct {
     pub fn readDir(file: *File, record: *DirRecord) Error!bool {
         if (file.node.kind != .dir) return error.NotADir;
         return file.node.vtable.file_read_dir(file, record);
+    }
+};
+
+pub const Mount = struct {
+    target: ?*DirEntry,
+    src: *DirEntry,
+
+    parent: ?*Mount,
+    first_child: ?*Mount,
+    next_sibling: ?*Mount,
+
+    pub fn acquireRootPath(mount: *Mount) Path {
+        mount.src.acquire();
+        return .{
+            .mount = mount,
+            .dentry = mount.src,
+        };
+    }
+};
+
+pub const Path = struct {
+    mount: *Mount,
+    dentry: *DirEntry,
+
+    pub fn acquire(path: Path) void {
+        path.dentry.acquire();
+    }
+
+    pub fn release(path: Path) void {
+        path.dentry.release();
+    }
+
+    pub fn lookupName(parent: Path, name: []const u8) Error!Path {
+        if (std.mem.eql(u8, name, "..")) {
+            if (parent.mount.src == parent.dentry) {
+                const mount = parent.mount.parent orelse return error.NoParent;
+                const target = parent.mount.target orelse return error.NoParent;
+                const dentry = target.parent orelse return error.NoParent;
+                dentry.acquire();
+
+                return .{
+                    .mount = mount,
+                    .dentry = dentry,
+                };
+            }
+
+            const dentry = parent.dentry.parent orelse return error.NoParent;
+            dentry.acquire();
+
+            return .{
+                .mount = parent.mount,
+                .dentry = dentry,
+            };
+        }
+
+        if (std.mem.eql(u8, name, ".")) {
+            parent.acquire();
+            return parent;
+        }
+
+        const direct = try parent.dentry.lookupNameLocal(name);
+
+        var maybe_child = parent.mount.first_child;
+        while (maybe_child) |child| : (maybe_child = child.next_sibling) {
+            if (child.target != direct) continue;
+            child.src.acquire();
+            direct.release();
+
+            return .{
+                .mount = child,
+                .dentry = child.src,
+            };
+        }
+
+        return .{
+            .mount = parent.mount,
+            .dentry = direct,
+        };
+    }
+
+    pub fn lookup(parent: Path, path: []const u8) Error!Path {
+        if (path.len == 0) return error.NoEntry;
+
+        var current = parent;
+        var should_release: bool = false;
+        errdefer if (should_release) current.release();
+
+        if (path[0] == '/') {
+            current = root.acquireRootPath();
+            should_release = true;
+        }
+
+        var iter = std.mem.splitScalar(u8, path, '/');
+        while (iter.next()) |name| {
+            if (name.len == 0) continue;
+
+            const next = try current.lookupName(name);
+            if (should_release) current.release();
+            should_release = true;
+            current = next;
+        }
+
+        return current;
     }
 };
 
