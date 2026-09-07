@@ -415,8 +415,8 @@ fn nodeLookup(vfs_dentry: *vfs.DirEntry, name: []const u8) vfs.Error!*vfs.DirEnt
 
 const node_vtable: vfs.Node.VTable = .{
     .node_free = &nodeFree,
-    .dir_entry_free = &dirEntryFree,
-    .node_lookup = &nodeLookup,
+    .dentry_free = &dirEntryFree,
+    .dentry_lookup = &nodeLookup,
     .file_open = &fileOpen,
     .file_close = &fileClose,
     .file_read_dir = &fileReadDir,

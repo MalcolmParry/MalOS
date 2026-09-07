@@ -6,7 +6,7 @@ const Spinlock = @import("../Spinlock.zig");
 const BlockDevice = @import("../BlockDevice.zig");
 const alloc = &@import("../heap/direct_map.zig").page_alloc;
 
-pub var root: *Node = undefined;
+pub var root: *DirEntry = undefined;
 
 pub const Error = error{
     OutOfMemory,
@@ -225,7 +225,7 @@ pub const DirEntry = struct {
         return entry.name_buf[0..entry.name_len];
     }
 
-    pub fn lookup(parent: *DirEntry, name: []const u8) Error!*DirEntry {
+    pub fn lookupName(parent: *DirEntry, name: []const u8) Error!*DirEntry {
         if (parent.node.kind != .dir) return error.NotADir;
         if (name.len == 0) return error.NoEntry;
 
@@ -253,6 +253,31 @@ pub const DirEntry = struct {
         }
 
         return parent.node.vtable.dentry_lookup(parent, name);
+    }
+
+    pub fn lookup(parent: *DirEntry, path: []const u8) Error!*DirEntry {
+        var current = parent;
+        var should_release: bool = false;
+        errdefer if (should_release) current.release();
+
+        if (path.len == 0) return error.NoEntry;
+        if (path[0] == '/') {
+            current = root;
+            root.acquire();
+            should_release = true;
+        }
+
+        var iter = std.mem.splitScalar(u8, path, '/');
+        while (iter.next()) |name| {
+            if (name.len == 0) continue;
+
+            const next = try current.lookupName(name);
+            if (should_release) current.release();
+            should_release = true;
+            current = next;
+        }
+
+        return current;
     }
 
     pub fn create(parent: *DirEntry, name: []const u8, opts: CreateOptions) Error!*DirEntry {

@@ -100,7 +100,7 @@ pub fn kernelMain() noreturn {
 
     ata_pio.detectAndRegister() catch @panic("failed to detect and register ata devices");
 
-    devfsTest() catch |err| {
+    ext2Test() catch |err| {
         if (@errorReturnTrace()) |trace| {
             const len = @min(trace.instruction_addresses.len, trace.index);
 
@@ -146,10 +146,14 @@ fn fsTest() !void {
     std.debug.assert(std.mem.eql(u8, buffer[0..], test_str));
 }
 
-fn ext2Test(bd: *BlockDevice) !void {
+fn ext2Test() !void {
     const alloc = PageAllocator.global.allocator();
     const used_pages = pmm.used_pages.load(.monotonic);
     defer if (used_pages != pmm.used_pages.load(.monotonic)) std.log.warn("memory leak", .{});
+
+    const drive_dentry = try devfs.root.lookup("disk/ata0");
+    defer drive_dentry.release();
+    const bd = drive_dentry.node.data.block_device;
 
     var fs: Ext2 = undefined;
     const root = try fs.init(alloc, bd);
