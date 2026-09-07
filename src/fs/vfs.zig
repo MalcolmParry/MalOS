@@ -17,6 +17,8 @@ pub const Error = error{
     NotAFile,
     NotADir,
     NameTooLong,
+    ReadOnly,
+    NoParent,
     NotSupported,
     Io,
     Corrupt,
@@ -49,27 +51,26 @@ pub const Node = struct {
     data: Data,
 
     pub const VTable = struct {
+        dentry_free: *const fn (entry: *DirEntry) void,
+        dentry_lookup: *const fn (parent: *DirEntry, name: []const u8) Error!*DirEntry = &dentryLookupNoEntry,
+        dentry_create: *const fn (parent: *DirEntry, name: []const u8, opts: CreateOptions) Error!*DirEntry = &dentryCreateReadOnly,
+        dentry_unlink: *const fn (parent: *DirEntry, child: *DirEntry) Error!void = &dentryUnlinkReadOnly,
+
         node_free: *const fn (node: *Node) void,
-        dir_entry_free: *const fn (entry: *DirEntry) void,
-
-        node_lookup: *const fn (parent: *DirEntry, name: []const u8) Error!*DirEntry = &unimplementedLookup,
-        node_create: *const fn (parent: *DirEntry, name: []const u8, opts: CreateOptions) Error!*DirEntry = &unimplementedCreate,
-        node_unlink: *const fn (parent: *DirEntry, child: *DirEntry) Error!void = &unimplementedUnlink,
-
         /// assumes caller already locked the page
-        node_read_page: *const fn (node: *Node, page_offset: u32, page: pmm.Index) Error!void = &defaultReadPage,
+        node_read_page: *const fn (node: *Node, page_offset: u32, page: pmm.Index) Error!void = &nodeReadPageZero,
         /// assumes caller already locked the page
-        node_write_page: *const fn (node: *Node, page_offset: u32, page: pmm.Index) Error!void = &defaultWritePage,
+        node_write_page: *const fn (node: *Node, page_offset: u32, page: pmm.Index) Error!void = &nodeWritePageNoop,
         /// assumes caller has the node lock
         /// shouldn't touch the page cache, the vfs handles that
         node_resize: ?*const fn (node: *Node, new_size: usize) Error!void = null,
 
-        file_open: *const fn (node: *Node) Error!*File = &unimplementedOpen,
-        file_close: *const fn (file: *File) void = &unimplementedClose,
+        file_open: *const fn (node: *Node) Error!*File = &fileOpenNotSupported,
+        file_close: *const fn (file: *File) void = &fileClosePanic,
         file_read: ?*const fn (file: *File, buffer: []u8) Error!usize = null,
         file_write: ?*const fn (file: *File, data: []const u8) Error!usize = null,
         /// returns true if wrote to record
-        file_read_dir: *const fn (file: *File, record: *DirRecord) Error!bool = &unimplementedReadDir,
+        file_read_dir: *const fn (file: *File, record: *DirRecord) Error!bool = &fileReadDirNotSupported,
     };
 
     pub const Kind = enum {
@@ -94,16 +95,20 @@ pub const Node = struct {
         };
     };
 
-    pub fn incRef(node: *Node) void {
+    pub fn acquire(node: *Node) void {
         const prev_count = node.ref_count.fetchAdd(1, .acquire);
         std.debug.assert(prev_count != 0);
     }
 
-    pub fn decRef(node: *Node) void {
+    pub fn release(node: *Node) void {
         const prev_count = node.ref_count.fetchSub(1, .acquire);
 
         std.debug.assert(prev_count != 0);
         if (prev_count == 1) node.destroy();
+    }
+
+    pub fn open(node: *Node) Error!*File {
+        return node.vtable.file_open(node);
     }
 
     fn destroy(node: *Node) void {
@@ -126,7 +131,7 @@ pub const Node = struct {
                     const next = entry.next_sibling;
                     defer maybe_entry = next;
 
-                    entry.decRef();
+                    entry.release();
                 }
             },
             .block_device => {},
@@ -200,19 +205,19 @@ pub const DirEntry = struct {
 
     ref_count: std.atomic.Value(u32),
 
-    pub fn incRef(entry: *DirEntry) void {
+    pub fn acquire(entry: *DirEntry) void {
         const prev_count = entry.ref_count.fetchAdd(1, .acquire);
         std.debug.assert(prev_count != 0);
     }
 
-    pub fn decRef(entry: *DirEntry) void {
+    pub fn release(entry: *DirEntry) void {
         const prev_count = entry.ref_count.fetchSub(1, .acquire);
 
         std.debug.assert(prev_count != 0);
         if (prev_count == 1) {
             const node = entry.node;
-            entry.node.vtable.dir_entry_free(entry);
-            node.decRef();
+            entry.node.vtable.dentry_free(entry);
+            node.release();
         }
     }
 
@@ -222,6 +227,18 @@ pub const DirEntry = struct {
 
     pub fn lookup(parent: *DirEntry, name: []const u8) Error!*DirEntry {
         if (parent.node.kind != .dir) return error.NotADir;
+        if (name.len == 0) return error.NoEntry;
+
+        if (name[0] == '.') {
+            if (name.len == 1) {
+                parent.acquire();
+                return parent;
+            } else if (name.len == 2 and name[1] == '.') {
+                const parent_parent = parent.parent orelse return error.NoParent;
+                parent_parent.acquire();
+                return parent_parent;
+            }
+        }
 
         {
             const lock = parent.node.lock.lock();
@@ -230,18 +247,32 @@ pub const DirEntry = struct {
             var maybe_entry = parent.node.data.dir.first_child;
             while (maybe_entry) |entry| : (maybe_entry = entry.next_sibling) {
                 if (!std.mem.eql(u8, entry.getName(), name)) continue;
-                entry.incRef();
+                entry.acquire();
                 return entry;
             }
         }
 
-        return parent.node.vtable.node_lookup(parent, name);
+        return parent.node.vtable.dentry_lookup(parent, name);
+    }
+
+    pub fn create(parent: *DirEntry, name: []const u8, opts: CreateOptions) Error!*DirEntry {
+        if (parent.node.kind != .dir) return error.NotADir;
+        return parent.node.vtable.dentry_create(parent, name, opts);
+    }
+
+    pub fn unlink(parent: *DirEntry, child: *DirEntry) Error!void {
+        if (parent.node.kind != .dir) return error.NotADir;
+        try parent.node.vtable.dentry_unlink(parent, child);
     }
 };
 
 pub const File = struct {
     node: *Node,
     head: u64 = 0,
+
+    pub fn close(file: *File) void {
+        return file.node.vtable.file_close(file);
+    }
 
     pub fn read(file: *File, buffer: []u8) Error!usize {
         if (file.node.kind != .file) return error.NotAFile;
@@ -310,6 +341,11 @@ pub const File = struct {
         file.head = head;
         return written;
     }
+
+    pub fn readDir(file: *File, record: *DirRecord) Error!bool {
+        if (file.node.kind != .dir) return error.NotADir;
+        return file.node.vtable.file_read_dir(file, record);
+    }
 };
 
 pub fn isNameValid(name: []const u8) bool {
@@ -329,45 +365,47 @@ pub fn isNameValid(name: []const u8) bool {
     return true;
 }
 
-pub fn defaultReadPage(_: *Node, _: u32, index: pmm.Index) Error!void {
+pub fn nodeFreePanic(_: *Node) void {
+    @panic("not implemented");
+}
+
+pub fn dentryFreePanic(_: *DirEntry) void {
+    @panic("not implemented");
+}
+
+pub fn nodeReadPageZero(_: *Node, _: u32, index: pmm.Index) Error!void {
     const direct = index.toDirectMap();
     @memset(direct.bytes[0..], 0);
 }
 
-pub fn defaultWritePage(_: *Node, _: u32, index: pmm.Index) Error!void {
+pub fn nodeWritePageNoop(_: *Node, _: u32, index: pmm.Index) Error!void {
     const desc = pmm.getPageDesc(index);
     desc.data.vfs_cache.dirty = false;
 }
 
-pub fn unimplementedNodeFree(_: *Node) void {
-    @panic("not implemented");
-}
-
-pub fn unimplementedDentryFree(_: *DirEntry) void {
-    @panic("not implemented");
-}
-
-pub fn unimplementedLookup(parent: *DirEntry, _: []const u8) Error!*DirEntry {
-    if (parent.node.kind != .dir) return error.NotADir;
+pub fn dentryLookupNoEntry(parent: *DirEntry, _: []const u8) Error!*DirEntry {
+    std.debug.assert(parent.node.kind == .dir);
     return error.NoEntry;
 }
 
-pub fn unimplementedCreate(_: *DirEntry, _: []const u8, _: CreateOptions) Error!*DirEntry {
+pub fn dentryCreateReadOnly(parent: *DirEntry, _: []const u8, _: CreateOptions) Error!*DirEntry {
+    std.debug.assert(parent.node.kind == .dir);
+    return error.ReadOnly;
+}
+
+pub fn dentryUnlinkReadOnly(parent: *DirEntry, _: *DirEntry) Error!void {
+    std.debug.assert(parent.node.kind == .dir);
+    return error.ReadOnly;
+}
+
+pub fn fileOpenNotSupported(_: *Node) Error!*File {
     return error.NotSupported;
 }
 
-pub fn unimplementedUnlink(_: *DirEntry, _: *DirEntry) Error!void {
-    return error.NotSupported;
-}
-
-pub fn unimplementedOpen(_: *Node) Error!*File {
-    return error.NotSupported;
-}
-
-pub fn unimplementedClose(_: *File) void {
+pub fn fileClosePanic(_: *File) void {
     @panic("not implemented");
 }
 
-pub fn unimplementedReadDir(_: *File, _: *DirRecord) Error!bool {
+pub fn fileReadDirNotSupported(_: *File, _: *DirRecord) Error!bool {
     return error.NotSupported;
 }

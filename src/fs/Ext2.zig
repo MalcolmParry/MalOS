@@ -237,7 +237,7 @@ fn fileOpen(vfs_node: *vfs.Node) vfs.Error!*vfs.File {
         .head = 0,
     };
 
-    vfs_node.incRef();
+    vfs_node.acquire();
     return file;
 }
 
@@ -245,7 +245,7 @@ fn fileClose(file: *vfs.File) void {
     const vfs_node = file.node;
     const fs: *Ext2 = @fieldParentPtr("sb", vfs_node.sb);
 
-    vfs_node.decRef();
+    vfs_node.release();
     fs.file_pool.destroy(file);
 }
 

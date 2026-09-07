@@ -27,8 +27,8 @@ pub var root_node: vfs.Node = .{
     .ref_count = .init(1),
     .sb = &superblock,
     .vtable = &.{
-        .node_free = &vfs.unimplementedNodeFree,
-        .dir_entry_free = &vfs.unimplementedDentryFree,
+        .node_free = &vfs.nodeFreePanic,
+        .dentry_free = &vfs.dentryFreePanic,
         .file_open = &fileOpen,
         .file_close = &fileClose,
         .file_read_dir = &rootReadDir,
@@ -59,12 +59,12 @@ fn fileOpen(node: *vfs.Node) vfs.Error!*vfs.File {
         .head = 0,
     };
 
-    node.incRef();
+    node.acquire();
     return file;
 }
 
 fn fileClose(file: *vfs.File) void {
-    file.node.decRef();
+    file.node.release();
     file_pool.destroy(file);
 }
 
@@ -106,8 +106,8 @@ var category_nodes = blk: {
             } },
             .kind = .dir,
             .vtable = &.{
-                .node_free = &vfs.unimplementedNodeFree,
-                .dir_entry_free = &vfs.unimplementedDentryFree,
+                .node_free = &vfs.nodeFreePanic,
+                .dentry_free = &vfs.dentryFreePanic,
                 .file_open = &fileOpen,
                 .file_close = &fileClose,
                 .file_read_dir = switch (category) {
@@ -174,8 +174,8 @@ pub fn registerDisk(name: []const u8, bd: *BlockDevice) !void {
             .data = .{ .block_device = bd },
             .sb = &superblock,
             .vtable = &.{
-                .node_free = &vfs.unimplementedNodeFree,
-                .dir_entry_free = &vfs.unimplementedDentryFree,
+                .node_free = &vfs.nodeFreePanic,
+                .dentry_free = &vfs.dentryFreePanic,
             },
         },
     };

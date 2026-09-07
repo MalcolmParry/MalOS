@@ -154,17 +154,17 @@ fn ext2Test(bd: *BlockDevice) !void {
     var fs: Ext2 = undefined;
     const root = try fs.init(alloc, bd);
     defer {
-        root.decRef();
+        root.release();
         fs.deinit();
     }
 
     try printFileTree(root, log.term, 0);
 
     const hello_txt = try root.lookup("hello.txt");
-    defer hello_txt.decRef();
+    defer hello_txt.release();
 
-    const file = try hello_txt.node.vtable.file_open(hello_txt.node);
-    defer hello_txt.node.vtable.file_close(file);
+    const file = try hello_txt.node.open();
+    defer file.close();
 
     var buffer: [1024]u8 = undefined;
     const read = try file.read(&buffer);
@@ -180,11 +180,11 @@ fn devfsTest() !void {
 }
 
 fn printFileTree(parent: *vfs.DirEntry, term: std.Io.Terminal, indent: usize) !void {
-    const open = try parent.node.vtable.file_open(parent.node);
-    defer open.node.vtable.file_close(open);
+    const file = try parent.node.open();
+    defer file.close();
 
     var record: vfs.DirRecord = undefined;
-    while (try open.node.vtable.file_read_dir(open, &record)) {
+    while (try file.readDir(&record)) {
         for (0..indent) |_| try term.writer.print("    ", .{});
 
         term.setColor(switch (record.kind) {
@@ -199,7 +199,7 @@ fn printFileTree(parent: *vfs.DirEntry, term: std.Io.Terminal, indent: usize) !v
 
         if (record.kind == .dir) {
             const child = try parent.lookup(record.getName());
-            defer child.decRef();
+            defer child.release();
 
             try printFileTree(child, term, indent + 1);
         }
