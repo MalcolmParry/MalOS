@@ -7,6 +7,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const scheduler = @import("scheduler.zig");
 const log = @import("log.zig");
+const gpa = @import("heap/gpa.zig");
 
 const vfs = @import("fs/vfs.zig");
 const Ramfs = @import("fs/Ramfs.zig");
@@ -147,7 +148,7 @@ fn fsTest() !void {
 }
 
 fn ext2Test() !void {
-    const alloc = PageAllocator.global.allocator();
+    const alloc = gpa.allocator;
 
     const drive_dentry = try devfs.root.lookupLocal("disk/ata0");
     defer drive_dentry.release();

@@ -67,7 +67,7 @@ pub fn allocatePage() !*mem.PhysPage {
     defer lock.unlock();
 
     if (maybe_first_free.unwrap()) |first_free| {
-        const desc = getPageDesc(first_free);
+        const desc = first_free.getDesc();
         maybe_first_free = desc.data.next_free;
 
         if (debug) {
@@ -93,7 +93,7 @@ pub fn freePage(page: *mem.PhysPage) void {
 
     std.debug.assert(page_descs.len != 0);
     const desc_index: Index = .fromPtr(page);
-    const desc = getPageDesc(desc_index);
+    const desc = desc_index.getDesc();
 
     if (debug and desc.magic == PageDesc.magic_num) {
         std.debug.assert(desc.state == .used);
@@ -107,10 +107,6 @@ pub fn freePage(page: *mem.PhysPage) void {
     _ = used_pages.fetchSub(1, .monotonic);
 }
 
-pub fn getPageDesc(page: Index) *PageDesc {
-    return &page_descs[@intFromEnum(page)];
-}
-
 pub const Index = enum(u32) {
     _,
 
@@ -119,11 +115,15 @@ pub const Index = enum(u32) {
     }
 
     pub fn toPtr(index: Index) *mem.PhysPage {
-        return @ptrFromInt(@intFromEnum(index) * mem.page_size);
+        return @ptrFromInt(@as(usize, @intFromEnum(index)) * mem.page_size);
     }
 
     pub fn toDirectMap(index: Index) *mem.Page {
         return &mem.direct_map[@intFromEnum(index)];
+    }
+
+    pub fn getDesc(page: Index) *PageDesc {
+        return &page_descs[@intFromEnum(page)];
     }
 };
 
@@ -161,10 +161,19 @@ const PageDesc = struct {
         none: void,
         next_free: OptIndex,
         vfs_cache: VfsCache,
+        gpa: GpaPage,
 
         const VfsCache = struct {
             lock: Spinlock,
             dirty: bool,
+        };
+
+        const GpaPage = struct {
+            first_free: u16,
+            free_count: u16,
+            prev: OptIndex,
+            next: OptIndex,
+            bump: u16,
         };
     };
 };

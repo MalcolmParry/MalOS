@@ -146,16 +146,16 @@ pub const Node = struct {
     fn getOrCreatePage(node: *Node, page_offset: u32) !struct { pmm.Index, Spinlock.Lock } {
         std.debug.assert(node.kind == .file);
         const file = &node.data.file;
-        if (file.cache.get(page_offset)) |page| {
-            const lock = pmm.getPageDesc(page).data.vfs_cache.lock.lock();
-            return .{ page, lock };
+        if (file.cache.get(page_offset)) |index| {
+            const lock = index.getDesc().data.vfs_cache.lock.lock();
+            return .{ index, lock };
         }
 
         const page = try pmm.allocatePage();
         errdefer pmm.freePage(page);
 
         const index: pmm.Index = .fromPtr(page);
-        const desc = pmm.getPageDesc(index);
+        const desc = index.getDesc();
         desc.data = .{ .vfs_cache = .{
             .lock = .init,
             .dirty = false,
@@ -505,8 +505,7 @@ pub fn nodeReadPageZero(_: *Node, _: u32, index: pmm.Index) Error!void {
 }
 
 pub fn nodeWritePageNoop(_: *Node, _: u32, index: pmm.Index) Error!void {
-    const desc = pmm.getPageDesc(index);
-    desc.data.vfs_cache.dirty = false;
+    index.getDesc().data.vfs_cache.dirty = false;
 }
 
 pub fn dentryLookupNoEntry(parent: *DirEntry, _: []const u8) Error!*DirEntry {

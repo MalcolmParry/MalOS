@@ -3,6 +3,7 @@ const std = @import("std");
 const mem = @This();
 
 pub const page_size = arch.page_size;
+pub const log2_page_size = std.math.log2(page_size);
 pub const kernel_virt_base: usize = arch.kernel_virt_base;
 pub const direct_map: []mem.Page = arch.paging.direct_map;
 
