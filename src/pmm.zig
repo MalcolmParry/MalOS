@@ -1,7 +1,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const mem = @import("memory.zig");
-const Spinlock = @import("Spinlock.zig");
+const Spinlock = @import("sync/Spinlock.zig");
 const BootInfo = @import("BootInfo.zig");
 const debug = switch (builtin.mode) {
     .Debug, .ReleaseSafe => true,

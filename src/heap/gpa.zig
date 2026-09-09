@@ -2,7 +2,7 @@ const std = @import("std");
 const mem = @import("../memory.zig");
 const pmm = @import("../pmm.zig");
 const PageAllocator = @import("PageAllocator.zig");
-const Spinlock = @import("../Spinlock.zig");
+const Spinlock = @import("../sync/Spinlock.zig");
 
 const min_size_bucket = std.math.log2(@sizeOf(u16));
 const max_size_bucket = std.math.log2(mem.page_size / 2);

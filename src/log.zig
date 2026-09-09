@@ -1,5 +1,5 @@
 const std = @import("std");
-const Spinlock = @import("Spinlock.zig");
+const Spinlock = @import("sync/Spinlock.zig");
 const serial = @import("drivers/x86/serial.zig");
 
 pub var spinlock: Spinlock = .init;

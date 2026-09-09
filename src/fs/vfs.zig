@@ -2,7 +2,7 @@ const std = @import("std");
 const mem = @import("../memory.zig");
 const pmm = @import("../pmm.zig");
 const arch = @import("../arch/arch.zig");
-const Spinlock = @import("../Spinlock.zig");
+const Spinlock = @import("../sync/Spinlock.zig");
 const BlockDevice = @import("../BlockDevice.zig");
 const alloc = &@import("../heap/direct_map.zig").page_alloc;
 

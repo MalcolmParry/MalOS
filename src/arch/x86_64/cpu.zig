@@ -58,7 +58,7 @@ pub const State = packed struct {
     rsp: u64,
     ss: u64 = 0x10,
 
-    pub fn restore(state: *align(1) const State) noreturn {
+    fn nakedRestore() callconv(.naked) noreturn {
         asm volatile (
             \\ pop %rax
             \\ mov %cr3, %rbx
@@ -85,11 +85,76 @@ pub const State = packed struct {
             \\
             \\ addq $0x10, %rsp
             \\ iretq
+        );
+    }
+
+    pub fn restore(state: *align(1) const State) noreturn {
+        asm volatile (
+            \\ jmp %[nakedRestore:P]
             :
             : [state] "{rsp}" (state),
+              [nakedRestore] "X" (&nakedRestore),
         );
 
         unreachable;
+    }
+
+    pub fn saveAndRestore(new: *align(1) const State, old: *align(1) State) void {
+        const old_top = @as([*]u8, @ptrCast(old)) + @sizeOf(State) - 8;
+
+        asm volatile (
+            \\ pushfq
+            \\ pop %rdx
+            \\ cli
+            \\ mov %rsp, %rcx
+            \\ mov %rax, %rsp
+            \\
+            \\ push $0x10
+            \\ push %rcx
+            \\ push %rdx
+            \\ push $0x8
+            \\ lea 2f, %rdx
+            \\ push %rdx
+            \\ push $0
+            \\ push $0
+            \\ subq $112, %rsp
+            \\ push %rbp
+            \\ mov %cr3, %rdx
+            \\ push %rdx
+            \\
+            \\ mov %rbx, %rsp
+            \\ jmp %[nakedRestore:P]
+            \\ 2:
+            :
+            : [old_top] "{rax}" (old_top),
+              [new_base] "{rbx}" (new),
+              [nakedRestore] "X" (&nakedRestore),
+            : .{
+              // zig fmt: off
+                .rax = true, .rcx = true, .rdx = true, .rbx = true, .rsi = true, .rdi = true,
+                .r8  = true, .r9  = true, .r10 = true, .r11 = true, .r12 = true, .r13 = true,
+                .r14 = true, .r15 = true,
+
+                .mm0 = true, .mm1 = true, .mm2 = true, .mm3 = true,
+                .mm4 = true, .mm5 = true, .mm6 = true, .mm7 = true,
+
+                .zmm0  = true, .zmm1  = true, .zmm2  = true, .zmm3  = true,
+                .zmm4  = true, .zmm5  = true, .zmm6  = true, .zmm7  = true,
+                .zmm8  = true, .zmm9  = true, .zmm10 = true, .zmm11 = true,
+                .zmm12 = true, .zmm13 = true, .zmm14 = true, .zmm15 = true,
+                .zmm16 = true, .zmm17 = true, .zmm18 = true, .zmm19 = true,
+                .zmm20 = true, .zmm21 = true, .zmm22 = true, .zmm23 = true,
+                .zmm24 = true, .zmm25 = true, .zmm26 = true, .zmm27 = true,
+                .zmm28 = true, .zmm29 = true, .zmm30 = true, .zmm31 = true,
+
+                .fpsr = true,
+                .fpcr = true,
+                .mxcsr = true,
+                .rflags = true,
+                .dirflag = true,
+                .memory = true,
+                // zig fmt: on
+            });
     }
 
     pub fn fromKernelThreadSpawnInfo(info: scheduler.KernelThreadSpawnInfo) State {

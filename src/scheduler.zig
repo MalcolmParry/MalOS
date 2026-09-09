@@ -1,15 +1,22 @@
 const std = @import("std");
 const arch = @import("arch/arch.zig").current;
 const mem = @import("memory.zig");
-const Spinlock = @import("Spinlock.zig");
+const Spinlock = @import("sync/Spinlock.zig");
+const Mutex = @import("sync/Mutex.zig");
 const PageAllocator = @import("heap/PageAllocator.zig");
 const serial = @import("drivers/x86/serial.zig");
 
-const Thread = struct {
+pub const Thread = struct {
+    state: State,
     cpu_state: arch.cpu.State,
     ext_cpu_state: arch.cpu.ExtendedState,
 
-    pub const Slot = u32;
+    pub const Id = u32;
+    pub const State = enum {
+        asleep,
+        running,
+        blocked,
+    };
 };
 
 pub const ThreadEntry = fn (arg: u64) callconv(.{ .x86_64_sysv = .{ .incoming_stack_alignment = 8 } }) noreturn;
@@ -21,7 +28,7 @@ pub const KernelThreadSpawnInfo = struct {
 };
 
 var thread_buffer: [32]Thread = undefined;
-var threads: std.ArrayList(Thread) = .initBuffer(&thread_buffer);
+pub var threads: std.ArrayList(Thread) = .initBuffer(&thread_buffer);
 
 pub fn spawnKernelThread(entry: *const ThreadEntry, arg: u64) void {
     const stack_size = 16 * 1024;
@@ -34,6 +41,7 @@ pub fn spawnKernelThread(entry: *const ThreadEntry, arg: u64) void {
     }) catch @panic("can't allocate stack for kernel thread");
 
     threads.appendBounded(.{
+        .state = .asleep,
         .ext_cpu_state = .zero,
         .cpu_state = .fromKernelThreadSpawnInfo(.{
             .entry = entry,
@@ -47,9 +55,12 @@ pub fn spawnKernelThread(entry: *const ThreadEntry, arg: u64) void {
 var in_buffer: [8]u8 = undefined;
 var in_head: std.atomic.Value(u64) = .init(0);
 var in_tail: std.atomic.Value(u64) = .init(0);
+var mutex: Mutex = .init;
 
 fn thread1(_: u64) callconv(.{ .x86_64_sysv = .{ .incoming_stack_alignment = 8 } }) noreturn {
     std.log.info("thread 1", .{});
+
+    mutex.lock();
 
     while (true) {
         const byte = serial.read();
@@ -64,6 +75,8 @@ fn thread1(_: u64) callconv(.{ .x86_64_sysv = .{ .incoming_stack_alignment = 8 }
 
 fn thread2(_: u64) callconv(.{ .x86_64_sysv = .{ .incoming_stack_alignment = 8 } }) noreturn {
     std.log.info("thread 2", .{});
+
+    mutex.lock();
 
     while (true) {
         while (in_head.load(.monotonic) == in_tail.load(.monotonic)) {
@@ -84,7 +97,7 @@ pub fn init() void {
 }
 
 var initialized: bool = false;
-var current_tid: usize = 0;
+pub var current_tid: Thread.Id = 0;
 pub fn saveThreadState(state: *align(1) const arch.cpu.State) void {
     if (!initialized) return;
     const thread = &threads.items[current_tid];
@@ -92,11 +105,36 @@ pub fn saveThreadState(state: *align(1) const arch.cpu.State) void {
     thread.cpu_state = state.*;
 }
 
-pub fn schedule() noreturn {
+fn chooseThread() Thread.Id {
     std.debug.assert(initialized);
-    current_tid = (current_tid + 1) % threads.items.len;
+    var tid = current_tid;
+
+    while (true) {
+        for (0..threads.items.len) |_| {
+            tid = (tid + 1) % @as(u32, @intCast(threads.items.len));
+            const thread = &threads.items[tid];
+            if (thread.state == .asleep) return tid;
+        }
+
+        arch.halt();
+    }
+}
+
+pub fn schedule() noreturn {
+    current_tid = chooseThread();
     const thread = &threads.items[current_tid];
 
+    thread.state = .running;
     thread.ext_cpu_state.load();
     thread.cpu_state.restore();
+}
+
+pub fn yield() void {
+    const old = &threads.items[current_tid];
+    current_tid = chooseThread();
+    const new = &threads.items[current_tid];
+
+    new.state = .running;
+    new.ext_cpu_state.load();
+    new.cpu_state.saveAndRestore(&old.cpu_state);
 }

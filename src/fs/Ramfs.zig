@@ -1,7 +1,7 @@
 const std = @import("std");
 const vfs = @import("vfs.zig");
 const pmm = @import("../pmm.zig");
-const Spinlock = @import("../Spinlock.zig");
+const Spinlock = @import("../sync/Spinlock.zig");
 const Ramfs = @This();
 
 lock: Spinlock,

@@ -3,7 +3,7 @@ const arch = @import("../arch/arch.zig").current;
 const mem = @import("../memory.zig");
 const Vmm = @import("../Vmm.zig");
 const pmm = @import("../pmm.zig");
-const Spinlock = @import("../Spinlock.zig");
+const Spinlock = @import("../sync/Spinlock.zig");
 const PageAllocator = @This();
 
 table: *arch.paging.Table,
