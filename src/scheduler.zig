@@ -55,12 +55,9 @@ pub fn spawnKernelThread(entry: *const ThreadEntry, arg: u64) void {
 var in_buffer: [8]u8 = undefined;
 var in_head: std.atomic.Value(u64) = .init(0);
 var in_tail: std.atomic.Value(u64) = .init(0);
-var mutex: Mutex = .init;
 
 fn thread1(_: u64) callconv(.{ .x86_64_sysv = .{ .incoming_stack_alignment = 8 } }) noreturn {
     std.log.info("thread 1", .{});
-
-    mutex.lock();
 
     while (true) {
         const byte = serial.read();
@@ -75,8 +72,6 @@ fn thread1(_: u64) callconv(.{ .x86_64_sysv = .{ .incoming_stack_alignment = 8 }
 
 fn thread2(_: u64) callconv(.{ .x86_64_sysv = .{ .incoming_stack_alignment = 8 } }) noreturn {
     std.log.info("thread 2", .{});
-
-    mutex.lock();
 
     while (true) {
         while (in_head.load(.monotonic) == in_tail.load(.monotonic)) {

@@ -55,6 +55,23 @@ const Tag = extern struct {
         addr: u32,
     };
 
+    const Framebuffer = extern struct {
+        tag: Tag,
+        addr: u64,
+        pitch: u32,
+        width: u32,
+        height: u32,
+        bpp: u8,
+        t: Framebuffer.Type,
+        reserved: u16,
+
+        const Type = enum(u8) {
+            indexed,
+            rgb,
+            ega_text,
+        };
+    };
+
     const Type = enum(u32) {
         end,
         cmd_line,
@@ -118,6 +135,7 @@ pub fn initBootInfo() BootInfo {
         .kernel_region_count = 0,
         .module_buffer = undefined,
         .module_count = 0,
+        .vga_text_info = null,
     };
 
     var available_ranges: std.ArrayList([]mem.PhysPage) = .initBuffer(&boot_info.available_phys_range_buffer);
@@ -222,6 +240,28 @@ pub fn initBootInfo() BootInfo {
                 const load_base_addr: *Tag.LoadBaseAddr = @ptrCast(tag);
                 if (load_base_addr.addr != @intFromPtr(boot_info.kernel_phys_range.ptr))
                     @panic("wrong kernel load address");
+            },
+            .framebuffer => {
+                const fb: *Tag.Framebuffer = @ptrCast(tag);
+                std.log.info("framebuffer at 0x{x} {s} {}x{} pitch {} bpp {}", .{
+                    fb.addr,
+                    @tagName(fb.t),
+                    fb.width,
+                    fb.height,
+                    fb.pitch,
+                    fb.bpp,
+                });
+
+                if (fb.t == .ega_text) {
+                    std.debug.assert(fb.bpp == 16);
+
+                    boot_info.vga_text_info = .{
+                        .phys_addr = fb.addr,
+                        .width = @intCast(fb.width),
+                        .height = @intCast(fb.height),
+                        .pitch = fb.pitch,
+                    };
+                }
             },
             else => std.log.info("multiboot tag: {s}", .{@tagName(tag.t)}),
         }

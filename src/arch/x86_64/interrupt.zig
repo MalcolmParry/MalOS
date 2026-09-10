@@ -121,6 +121,7 @@ fn handler(state: *align(1) arch.cpu.State) callconv(.{ .x86_64_sysv = .{ .incom
     switch (state.int_code) {
         0x20 => {
             pic.eoi();
+            scheduler.threads.items[scheduler.current_tid].state = .asleep;
             scheduler.schedule();
         },
         0xe => {

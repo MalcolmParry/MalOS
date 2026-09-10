@@ -11,10 +11,18 @@ kernel_region_buffer: [16]KernelRegion,
 kernel_region_count: u16,
 module_buffer: [8]mem.Module,
 module_count: u16,
+vga_text_info: ?VgaTextInfo,
 
 pub const KernelRegion = struct {
     pages: []mem.Page,
     flags: Vmm.PageFlags,
+};
+
+pub const VgaTextInfo = struct {
+    phys_addr: u64,
+    width: u16,
+    height: u16,
+    pitch: u32,
 };
 
 pub fn availablePhysRanges(info: *const BootInfo) []const []mem.PhysPage {

@@ -34,7 +34,6 @@ pub const os = struct {
 };
 
 pub fn kernelMain() noreturn {
-    log.init();
     arch.interrupt.init();
 
     var boot_info = arch.initBootInfo();
@@ -65,6 +64,7 @@ pub fn kernelMain() noreturn {
     const page_alloc = PageAllocator.global.allocator();
 
     pmm.init(&boot_info, page_alloc);
+    log.init(boot_info);
 
     for (boot_info.module_buffer[0..boot_info.module_count]) |*module| {
         const phys_pages = mem.physPageAlignOutwards(module.phys_range);
@@ -115,10 +115,10 @@ pub fn kernelMain() noreturn {
         arch.spinWait();
     };
 
-    arch.spinWait();
-    // scheduler.init();
-    // pit.init();
-    // scheduler.schedule();
+    // arch.spinWait();
+    scheduler.init();
+    pit.init();
+    scheduler.schedule();
 }
 
 fn fsTest() !void {

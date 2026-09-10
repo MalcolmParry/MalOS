@@ -13,7 +13,7 @@ pub fn build(b: *Build) !void {
         .abi = .none,
         .cpu_arch = .x86_64,
         .ofmt = .elf,
-        .cpu_model = .baseline,
+        .cpu_model = .{ .explicit = &std.Target.x86.cpu.penryn },
     });
 
     const iso = try addBuildIsoStep(b, optimize, target);
@@ -199,15 +199,27 @@ fn linkAssembly(b: *Build, link: *Build.Step.Run) !void {
     }
 }
 
+const OutputMode = enum {
+    serial,
+    vga_text,
+};
+
 fn addRunIsoStep(b: *Build, iso: Build.LazyPath) !void {
+    const output_mode = b.option(OutputMode, "output-mode", "") orelse .serial;
+
+    const display = switch (output_mode) {
+        .serial => "none",
+        .vga_text => "gtk",
+    };
+
     const run_step = b.step("run", "Run the iso in qemu");
     const run = b.addSystemCommand(&.{
         // zig fmt: off
         "qemu-system-x86_64",
-        "-display", "gtk",
+        "-enable-kvm",
+        "-cpu", "Penryn",
+        "-display", display,
         "-nodefaults",
-        "-serial", "vc",
-        // "-vga", "std",
         "-m", "32M",
         "-smp", "4",
         "-drive", "file=zig-out/x86_64/disk.img,format=raw,if=ide,index=0",
@@ -215,6 +227,12 @@ fn addRunIsoStep(b: *Build, iso: Build.LazyPath) !void {
         // zig fmt: on
     });
     run.addFileArg(iso);
+
+    switch (output_mode) {
+        .serial => run.addArgs(&.{ "-serial", "stdio" }),
+        .vga_text => run.addArgs(&.{ "-vga", "std" }),
+    }
+
     if (b.option(bool, "gdb", "Use gdb with qemu") orelse false)
         run.addArgs(&.{ "-s", "-S" });
 
