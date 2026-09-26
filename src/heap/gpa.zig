@@ -155,7 +155,6 @@ fn free(_: *anyopaque, memory: []u8, alignment: std.mem.Alignment, ret_addr: usi
             const other_info = &other.getDesc().data.gpa;
             std.debug.assert(other_info.prev == .none);
             other_info.prev = .wrap(page_index);
-            info.next = .wrap(other);
         }
 
         bucket.first_free_page = .wrap(page_index);

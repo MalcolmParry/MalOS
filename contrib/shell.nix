@@ -15,6 +15,7 @@ pkgs.mkShell {
     qemu
     gf
     e2fsprogs
+    parted
   ];
 
   shellHook = ''

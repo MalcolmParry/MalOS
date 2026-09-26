@@ -2,9 +2,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const Build = std.Build;
 
-const output_sub_dir = "x86_64/";
 const asm_source_path = "src/arch/x86_64/";
-const iso_dir_path = "build/x86_64/iso/";
 
 pub fn build(b: *Build) !void {
     const optimize = b.standardOptimizeOption(.{});
@@ -16,12 +14,13 @@ pub fn build(b: *Build) !void {
         .cpu_model = .{ .explicit = &std.Target.x86.cpu.penryn },
     });
 
-    const iso = try addBuildIsoStep(b, optimize, target);
-    try addRunIsoStep(b, iso);
+    try addBuildStep(b, optimize, target);
+    try addRunStep(b);
 }
 
-fn addBuildIsoStep(b: *Build, optimize: std.builtin.OptimizeMode, target: Build.ResolvedTarget) !Build.LazyPath {
+fn addBuildStep(b: *Build, optimize: std.builtin.OptimizeMode, target: Build.ResolvedTarget) !void {
     const grub_dir = b.graph.environ_map.get("GRUB_DIR") orelse "/usr/lib/grub/";
+    const grub_i386_pc = b.fmt("{s}/i386-pc/", .{grub_dir});
 
     const debug_info = switch (optimize) {
         .Debug, .ReleaseSafe => true,
@@ -43,7 +42,6 @@ fn addBuildIsoStep(b: *Build, optimize: std.builtin.OptimizeMode, target: Build.
     });
     kernel_compile.bundle_compiler_rt = true;
 
-    const iso_install_dir = b.addInstallDirectory(.{ .source_dir = b.path(iso_dir_path), .install_dir = .{ .custom = output_sub_dir ++ "iso" }, .install_subdir = "" });
     const link = b.addSystemCommand(&.{
         // zig fmt: off
         "ld",
@@ -60,117 +58,63 @@ fn addBuildIsoStep(b: *Build, optimize: std.builtin.OptimizeMode, target: Build.
 
     link.addArg("-o");
     const kernel = link.addOutputFileArg("kernel.elf");
-    link.addFileInput(kernel_compile.getEmittedBin());
     link.addFileArg(kernel_compile.getEmittedBin());
     try linkAssembly(b, link);
-    link.step.dependOn(&kernel_compile.step);
 
     const multiboot_check = b.addSystemCommand(&.{ "grub-file", "--is-x86-multiboot2" });
     multiboot_check.addFileInput(kernel);
     multiboot_check.addFileArg(kernel);
 
-    const kernel_install = b.addInstallFile(kernel, output_sub_dir ++ "iso/boot/kernel.elf");
-    kernel_install.step.dependOn(&iso_install_dir.step);
-    kernel_install.step.dependOn(&multiboot_check.step);
-
-    const symbol_table_build = GenSymTabStep.init(b, kernel);
-
-    {
-        const run_trunc = b.addSystemCommand(&.{
-            "truncate",
-            "-s",
-            "16M",
-        });
-        const img = run_trunc.addOutputFileArg("disk.img");
-
-        const run_mkfs_ext2 = b.addSystemCommand(&.{ "mkfs.ext2", "-F" });
-        run_mkfs_ext2.addFileArg(img);
-        run_mkfs_ext2.expectStdOutMatch("Writing superblocks and filesystem accounting information");
-        run_mkfs_ext2.expectStdErrMatch("mke2fs");
-        run_mkfs_ext2.step.dependOn(&run_trunc.step);
-
-        var disk_steps: std.ArrayList(*Build.Step) = .empty;
-        const disk_dir = "build/x86_64/disk/";
-        try debugfsWrite(b, &disk_steps, img, disk_dir ++ "hello.txt", "/hello.txt");
-        try debugfsMkdir(b, &disk_steps, img, "/dev");
-
-        const img_install = b.addInstallFile(img, output_sub_dir ++ "disk.img");
-        img_install.step.dependOn(&run_mkfs_ext2.step);
-        b.getInstallStep().dependOn(&img_install.step);
-
-        var prev = &run_mkfs_ext2.step;
-        for (disk_steps.items) |step| {
-            defer prev = step;
-            step.dependOn(prev);
-            img_install.step.dependOn(step);
-        }
-    }
-
-    const iso_build = b.addSystemCommand(&.{
-        "grub-mkrescue",
-        b.fmt("{s}/i386-pc", .{grub_dir}),
-    });
-    iso_build.addArg("-o");
-    const iso = iso_build.addOutputFileArg(output_sub_dir ++ "kernel.iso");
-    iso_build.addArg(b.fmt("{s}/{s}", .{ b.install_prefix, output_sub_dir ++ "iso" }));
-    iso_build.addFileInput(kernel);
-    iso_build.expectStdErrMatch(" completed successfully.");
-    iso_build.step.dependOn(&kernel_install.step);
-    iso_build.step.dependOn(&symbol_table_build.step);
-
-    var iso_dir = try std.Io.Dir.cwd().openDir(b.graph.io, iso_dir_path, .{ .iterate = true });
-    defer iso_dir.close(b.graph.io);
-    var iter = try iso_dir.walk(b.allocator);
-    defer iter.deinit();
-    while (try iter.next(b.graph.io)) |entry| {
-        if (entry.kind != .file) continue;
-        iso_build.addFileInput(b.path(b.fmt("{s}/{s}", .{ iso_dir_path, entry.path })));
-    }
-
-    const iso_install = b.addInstallFile(iso, output_sub_dir ++ "kernel.iso");
-    iso_install.step.dependOn(&iso_build.step);
-    b.getInstallStep().dependOn(&iso_install.step);
-
-    const test_step = b.step("test", "run unit tests");
-    const unit_tests = b.addTest(.{
+    const gensymtab = b.addExecutable(.{
+        .name = "gensymtab",
         .root_module = b.createModule(.{
-            .root_source_file = b.path("src/main.zig"),
-            .target = b.resolveTargetQuery(.{
-                .cpu_arch = .x86_64,
-            }),
+            .root_source_file = b.path("build/gensymtab.zig"),
+            .target = b.graph.host,
+            .optimize = .Debug,
         }),
     });
 
-    const run_unit_tests = b.addRunArtifact(unit_tests);
-    test_step.dependOn(&run_unit_tests.step);
+    const run_gensymtab = b.addRunArtifact(gensymtab);
+    run_gensymtab.addFileArg(kernel);
+    const symbol_table = run_gensymtab.addOutputFileArg("symbol_table.mod");
+    const symbol_names = run_gensymtab.addOutputFileArg("symbol_names.mod");
 
-    return iso;
-}
-
-fn debugfsMkdir(b: *Build, step_list: *std.ArrayList(*Build.Step), img: Build.LazyPath, path: []const u8) !void {
-    const step = b.addSystemCommand(&.{
-        "debugfs",
-        "-w",
-        "-R",
-        b.fmt("mkdir {s}", .{path}),
+    const root = b.addWriteFiles();
+    _ = root.addCopyDirectory(b.path("build/x86_64/disk/"), "", .{});
+    _ = root.addCopyDirectory(.{ .cwd_relative = grub_i386_pc }, "boot/grub/i386-pc", .{
+        .include_extensions = &.{ ".lst", ".mod" },
     });
-    step.addFileArg(img);
-    step.expectStdOutEqual("");
-    step.expectStdErrMatch("debugfs");
-    try step_list.append(b.allocator, &step.step);
-}
+    _ = root.addCopyFile(kernel, "boot/kernel.elf");
+    _ = root.addCopyFile(symbol_table, "boot/symbol_table.mod");
+    _ = root.addCopyFile(symbol_names, "boot/symbol_names.mod");
+    root.step.dependOn(&multiboot_check.step);
 
-fn debugfsWrite(b: *Build, step_list: *std.ArrayList(*Build.Step), img: Build.LazyPath, src: []const u8, dst: []const u8) !void {
-    const step = b.addSystemCommand(&.{
-        "debugfs",
-        "-w",
-        "-R",
-        b.fmt("write {s} {s}", .{ src, dst }),
+    const mk_fs_img = b.addSystemCommand(&.{ "mkfs.ext2", "-q", "-d" });
+    mk_fs_img.addDirectoryArg(root.getDirectory());
+    const fs_img = mk_fs_img.addOutputFileArg("fs.img");
+    mk_fs_img.addArg("31M");
+
+    const mk_core_img = b.addSystemCommand(&.{
+        // zig fmt: off
+        "grub-mkimage",
+        "-O", "i386-pc",
+        "-d", grub_i386_pc,
+        "-p", "(hd0,msdos1)/boot/grub",
+        "biosdisk", "part_msdos", "ext2", "normal", "multiboot2", "boot",
+        "-o"
+        // zig fmt: on
     });
-    step.addFileArg(img);
-    step.expectStdOutMatch("Allocated inode: ");
-    step.expectStdErrMatch("debugfs");
-    try step_list.append(b.allocator, &step.step);
+    const core_img = mk_core_img.addOutputFileArg("core.img");
+
+    const mk_disk = b.addSystemCommand(&.{"sh"});
+    mk_disk.addFileArg(b.path("build/x86_64/mk-disk.sh"));
+    mk_disk.addFileArg(.{ .cwd_relative = b.fmt("{s}/boot.img", .{grub_i386_pc}) });
+    mk_disk.addFileArg(core_img);
+    mk_disk.addFileArg(fs_img);
+    const disk_img = mk_disk.addOutputFileArg("disk.img");
+
+    const disk_install = b.addInstallFile(disk_img, "disk.img");
+    b.getInstallStep().dependOn(&disk_install.step);
 }
 
 fn linkAssembly(b: *Build, link: *Build.Step.Run) !void {
@@ -204,7 +148,7 @@ const OutputMode = enum {
     vga_text,
 };
 
-fn addRunIsoStep(b: *Build, iso: Build.LazyPath) !void {
+fn addRunStep(b: *Build) !void {
     const output_mode = b.option(OutputMode, "output-mode", "") orelse .serial;
 
     const display = switch (output_mode) {
@@ -222,11 +166,9 @@ fn addRunIsoStep(b: *Build, iso: Build.LazyPath) !void {
         "-nodefaults",
         "-m", "32M",
         "-smp", "4",
-        "-drive", "file=zig-out/x86_64/disk.img,format=raw,if=ide,index=0",
-        "-cdrom",
+        "-drive", b.fmt("file={s}/disk.img,format=raw,if=ide,index=0", .{b.install_prefix}),
         // zig fmt: on
     });
-    run.addFileArg(iso);
 
     switch (output_mode) {
         .serial => run.addArgs(&.{ "-serial", "stdio" }),
@@ -239,120 +181,3 @@ fn addRunIsoStep(b: *Build, iso: Build.LazyPath) !void {
     run.step.dependOn(b.getInstallStep());
     run_step.dependOn(&run.step);
 }
-
-const GenSymTabStep = struct {
-    step: Build.Step,
-    kernel_elf: Build.LazyPath,
-
-    const Symbol = @import("src/panic.zig").Symbol;
-
-    fn init(b: *Build, kernel_elf: Build.LazyPath) *@This() {
-        const this = b.allocator.create(GenSymTabStep) catch @panic("oom");
-        this.* = .{
-            .step = .init(.{
-                .owner = b,
-                .id = .custom,
-                .name = "generate symbol table",
-                .makeFn = make,
-            }),
-            .kernel_elf = kernel_elf,
-        };
-
-        kernel_elf.addStepDependencies(&this.step);
-        return this;
-    }
-
-    fn make(step: *Build.Step, opts: Build.Step.MakeOptions) anyerror!void {
-        const this: *@This() = @fieldParentPtr("step", step);
-        const b = step.owner;
-        const io = b.graph.io;
-        const alloc = b.allocator;
-        const cwd = std.Io.Dir.cwd();
-        var man = b.graph.cache.obtain();
-        defer man.deinit();
-        _ = opts;
-
-        var buffer: [2048]u8 = undefined;
-        const kernel_path = this.kernel_elf.generated.file.path orelse return error.NoKernel;
-        const kernel = try cwd.openFile(io, kernel_path, .{});
-        _ = try man.addOpenedFile(this.kernel_elf.getPath3(b, step), kernel, null);
-        defer kernel.close(io);
-
-        if (try step.cacheHitAndWatch(&man)) {
-            if (b.verbose) std.log.info("symbol table cached", .{});
-            step.result_cached = true;
-            return;
-        }
-
-        if (b.verbose) std.log.info("generating symbol table", .{});
-
-        var reader = kernel.reader(io, &buffer);
-        const header = try std.elf.Header.read(&reader.interface);
-        if (!header.is_64) return error.Failed;
-        const sections = try b.allocator.alloc(std.elf.Elf64_Shdr, header.shnum);
-
-        var iter = header.iterateSectionHeaders(&reader);
-        while (try iter.next()) |shdr| {
-            sections[iter.index - 1] = shdr;
-        }
-
-        var own_syms = std.ArrayList(Symbol).empty;
-        defer own_syms.deinit(alloc);
-
-        var elf_syms: std.ArrayList(std.elf.Elf64.Sym) = .empty;
-        defer elf_syms.deinit(alloc);
-
-        var own_strs: std.ArrayList(u8) = .empty;
-        defer own_strs.deinit(alloc);
-
-        for (sections) |section| {
-            if (section.sh_type != std.elf.SHT_SYMTAB) continue;
-            const strtab_header = &sections[section.sh_link];
-            const strtab_offset = strtab_header.sh_offset;
-
-            if (section.sh_entsize != @sizeOf(std.elf.Elf64.Sym)) return error.Failed;
-            const symbol_count = section.sh_size / @sizeOf(std.elf.Elf64.Sym);
-
-            try elf_syms.resize(alloc, symbol_count);
-            try reader.seekTo(section.sh_offset);
-            try reader.interface.readSliceEndian(std.elf.Elf64.Sym, elf_syms.items, .little);
-
-            try own_syms.ensureUnusedCapacity(b.allocator, symbol_count);
-            for (elf_syms.items) |elf_sym| {
-                try reader.seekTo(strtab_offset + elf_sym.name);
-                const name = try reader.interface.takeDelimiter(0) orelse continue;
-
-                own_syms.appendAssumeCapacity(.{
-                    .addr = elf_sym.value,
-                    .name_offset = @intCast(own_strs.items.len),
-                    .name_len = @intCast(name.len),
-                });
-
-                try own_strs.appendSlice(alloc, name);
-            }
-        }
-
-        std.mem.sort(Symbol, own_syms.items, {}, struct {
-            fn lessThan(_: void, lhs: Symbol, rhs: Symbol) bool {
-                return lhs.addr < rhs.addr;
-            }
-        }.lessThan);
-
-        const module_dir = b.fmt("{s}/{s}", .{ b.install_prefix, output_sub_dir ++ "iso/boot/" });
-        try cwd.createDirPath(io, module_dir);
-
-        {
-            const sym_tab_file = try cwd.createFile(io, b.fmt("{s}/symbol_table.mod", .{module_dir}), .{ .truncate = true });
-            defer sym_tab_file.close(io);
-            try sym_tab_file.writePositionalAll(io, std.mem.sliceAsBytes(own_syms.items), 0);
-        }
-
-        {
-            const sym_name_file = try cwd.createFile(io, b.fmt("{s}/symbol_names.mod", .{module_dir}), .{ .truncate = true });
-            defer sym_name_file.close(io);
-            try sym_name_file.writePositionalAll(io, own_strs.items, 0);
-        }
-
-        try step.writeManifestAndWatch(&man);
-    }
-};

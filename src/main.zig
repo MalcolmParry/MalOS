@@ -115,10 +115,10 @@ pub fn kernelMain() noreturn {
         arch.spinWait();
     };
 
-    // arch.spinWait();
-    scheduler.init();
-    pit.init();
-    scheduler.schedule();
+    arch.spinWait();
+    // scheduler.init();
+    // pit.init();
+    // scheduler.schedule();
 }
 
 fn fsTest() !void {

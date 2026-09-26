@@ -63,15 +63,20 @@ pub fn getDrive(desc: Drive.Desc) ?Drive {
         .slave => 0xb0,
     });
 
-    arch.outw(io_base + 2, 0);
-    arch.outw(io_base + 3, 0);
-    arch.outw(io_base + 4, 0);
-    arch.outw(io_base + 5, 0);
+    arch.outb(io_base + 2, 0);
+    arch.outb(io_base + 3, 0);
+    arch.outb(io_base + 4, 0);
+    arch.outb(io_base + 5, 0);
 
     arch.outb(io_base + 7, 0xec);
     if (arch.in(u8, io_base + 7) == 0) return null;
 
-    while (arch.in(Status, io_base + 7).bsy) {}
+    var timeout: u32 = 100_000;
+    while (arch.in(Status, io_base + 7).bsy) {
+        timeout -= 1;
+        if (timeout == 0) return null;
+    }
+
     if (arch.in(u8, io_base + 4) != 0 or arch.in(u8, io_base + 5) != 0) return null;
 
     while (true) {

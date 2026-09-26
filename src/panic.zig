@@ -5,7 +5,7 @@ const mem = @import("memory.zig");
 const log = @import("log.zig");
 
 /// Symbol as it appears in symbol_table module
-/// Definition also used by build file
+/// Must remain in sync with build/gensymtab.zig
 /// Symbols in the module will be sorted by address
 pub const Symbol = extern struct {
     addr: u64,

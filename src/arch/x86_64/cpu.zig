@@ -242,11 +242,11 @@ pub fn outb(port: u16, data: u8) void {
     out(port, data);
 }
 
-pub fn outw(port: u16, data: u8) void {
+pub fn outw(port: u16, data: u16) void {
     out(port, data);
 }
 
-pub fn outl(port: u16, data: u8) void {
+pub fn outl(port: u16, data: u32) void {
     out(port, data);
 }
 
