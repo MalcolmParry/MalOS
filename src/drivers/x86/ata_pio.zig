@@ -48,10 +48,15 @@ pub fn detectAndRegister() !void {
         "ata3",
     };
 
+    var found_drive = false;
     for (&detected_drives, &descs, &names) |*drive, desc, name| {
         drive.* = getDrive(desc) orelse continue;
+        std.log.info("found drive {s}", .{name});
+        found_drive = true;
         try devfs.registerDisk(name, &drive.bd);
     }
+
+    if (!found_drive) std.log.warn("no ata pio drive found", .{});
 }
 
 pub fn getDrive(desc: Drive.Desc) ?Drive {
@@ -177,5 +182,5 @@ fn write(bd: *BlockDevice, first_block: u64, block_count: u64, buffer: [*]const 
     _ = first_block;
     _ = block_count;
     _ = buffer;
-    return error.NotSupported;
+    return error.ReadOnly;
 }

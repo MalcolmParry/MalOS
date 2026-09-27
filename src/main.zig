@@ -17,6 +17,7 @@ const BlockDevice = @import("BlockDevice.zig");
 const ata_pio = @import("drivers/x86/ata_pio.zig");
 const pit = @import("drivers/x86/pit.zig");
 const devfs = @import("fs/devfs.zig");
+const pci = @import("drivers/pci.zig");
 
 pub const panic = @import("panic.zig").panic;
 pub const std_options_debug_threaded_io = null;
@@ -94,6 +95,8 @@ pub fn kernelMain() noreturn {
     std.log.info("Pages Allocated 0x{x}", .{page_count});
     std.log.info("Memory Allocated {Bi}", .{page_count * mem.page_size});
     std.log.info("{Bi} used out of {Bi}", .{ pmm.used_pages.load(.monotonic) * mem.page_size, pmm.total_pages * mem.page_size });
+
+    pci.check();
 
     // fsTest() catch |err| {
     //     std.debug.panic("fs test failed: {}", .{err});

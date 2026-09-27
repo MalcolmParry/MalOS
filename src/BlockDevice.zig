@@ -4,6 +4,7 @@ const BlockDevice = @This();
 pub const Error = error{
     OutOfRange,
     NotSupported,
+    ReadOnly,
     Io,
     Unknown,
 };
