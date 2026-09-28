@@ -166,6 +166,7 @@ fn addRunStep(b: *Build) !void {
         "-nodefaults",
         "-m", "32M",
         "-smp", "4",
+        // "-drive", b.fmt("file={s}/disk.img,format=raw,if=ide,id=disk0", .{b.install_prefix}),
         "-drive", b.fmt("file={s}/disk.img,format=raw,if=none,id=disk0", .{b.install_prefix}),
         "-device", "pci-bridge,id=bridge1,chassis_nr=1",
         "-device", "ahci,id=ahci0,bus=bridge1",
@@ -174,7 +175,7 @@ fn addRunStep(b: *Build) !void {
     });
 
     switch (output_mode) {
-        .serial => run.addArgs(&.{ "-serial", "stdio" }),
+        .serial => run.addArgs(&.{ "-serial", "mon:stdio" }),
         .vga_text => run.addArgs(&.{ "-vga", "std" }),
     }
 

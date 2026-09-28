@@ -16,6 +16,7 @@ TAG_RELOCATABLE equ 10
 
 INFO_MODULES equ 3
 INFO_MMAP equ 6
+INFO_ELF_SECTIONS equ 9
 
 section .boot_header
 multiboot:
@@ -31,8 +32,10 @@ info_tag:
 	dd (.end - .start) ; length
 	dd INFO_MODULES
 	dd INFO_MMAP
+	dd INFO_ELF_SECTIONS
 .end:
 
+align 8
 align_tag:
 .start:
 	dw TAG_MODULE_ALIGN ; tag
