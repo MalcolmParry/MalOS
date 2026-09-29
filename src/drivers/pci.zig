@@ -117,7 +117,7 @@ fn checkFunc(addr: Addr) void {
     const class: u8 = @truncate(r2 >> 24);
     const header_type: u7 = @intCast((r3 >> 16) & 0x7f);
 
-    std.log.info("pci b:{x:0>2} d:{x:0>2} f:{x:0>2} h:{x:0>2} v:{x:0>4} c:{x:0>2} sc:{x:0>2} pif:{x:0>2}", .{
+    std.log.info("pci {x:0>2}:{x:0>2}.{x:0>1} h:{x:0>2} v:{x:0>4} c:{x:0>2} sc:{x:0>2} pif:{x:0>2}", .{
         addr.bus, addr.device, addr.func, header_type, vendor, class, subclass, prog_if,
     });
 

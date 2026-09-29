@@ -102,7 +102,7 @@ pub const Node = struct {
     }
 
     pub fn release(node: *Node) void {
-        const prev_count = node.ref_count.fetchSub(1, .acquire);
+        const prev_count = node.ref_count.fetchSub(1, .acq_rel);
 
         std.debug.assert(prev_count != 0);
         if (prev_count == 1) node.destroy();
@@ -212,7 +212,7 @@ pub const DirEntry = struct {
     }
 
     pub fn release(entry: *DirEntry) void {
-        const prev_count = entry.ref_count.fetchSub(1, .acquire);
+        const prev_count = entry.ref_count.fetchSub(1, .acq_rel);
 
         std.debug.assert(prev_count != 0);
         if (prev_count == 1) {

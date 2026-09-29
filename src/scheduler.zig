@@ -126,10 +126,30 @@ pub fn schedule() noreturn {
 
 pub fn yield() void {
     const old = &threads.items[current_tid];
+    std.debug.assert(old.state == .running);
+    old.state = .asleep;
+
     current_tid = chooseThread();
     const new = &threads.items[current_tid];
-
     new.state = .running;
     new.ext_cpu_state.load();
     new.cpu_state.saveAndRestore(&old.cpu_state);
+}
+
+pub fn block() void {
+    const old = &threads[current_tid];
+    std.debug.assert(old.state == .running);
+    old.state = .blocked;
+
+    current_tid = chooseThread();
+    const new = &threads[current_tid];
+    new.state = .running;
+    new.ext_cpu_state.load();
+    new.cpu_state.saveAndRestore(&old.cpu_state);
+}
+
+pub fn wake(tid: Thread.Id) void {
+    const thread = &threads.items[tid];
+    std.debug.assert(thread.state == .blocked);
+    thread.state = .asleep;
 }
