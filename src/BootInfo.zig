@@ -12,6 +12,7 @@ kernel_region_count: u16,
 module_buffer: [8]mem.Module,
 module_count: u16,
 vga_text_info: ?VgaTextInfo,
+elf_sections: ElfSection.Array,
 
 pub const KernelRegion = struct {
     pages: []mem.Page,
@@ -23,6 +24,35 @@ pub const VgaTextInfo = struct {
     width: u16,
     height: u16,
     pitch: u32,
+};
+
+pub const ElfSection = struct {
+    phys_range: []mem.Phys(u8),
+    data: []u8 = &.{},
+    header: std.elf.Elf64.Shdr,
+
+    pub const Id = enum {
+        // dwarf
+        debug_info,
+        debug_abbrev,
+        debug_str,
+        debug_str_offsets,
+        debug_line,
+        debug_line_str,
+        debug_ranges,
+        debug_loclists,
+        debug_rnglists,
+        debug_addr,
+        debug_names,
+
+        symtab,
+        strtab,
+        // gnu_debuglink,
+        // eh_frame,
+        // debug_frame,
+    };
+
+    pub const Array = std.EnumArray(Id, ?ElfSection);
 };
 
 pub fn availablePhysRanges(info: *const BootInfo) []const []mem.PhysPage {

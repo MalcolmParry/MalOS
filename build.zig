@@ -42,6 +42,11 @@ fn addBuildStep(b: *Build, optimize: std.builtin.OptimizeMode, target: Build.Res
     });
     kernel_compile.bundle_compiler_rt = true;
 
+    const options = b.addOptions();
+    options.addOption([]const u8, "build_root", b.build_root.path.?);
+    options.addOption(bool, "single_core", true);
+    kernel_compile.root_module.addOptions("options", options);
+
     const link = b.addSystemCommand(&.{
         // zig fmt: off
         "ld",
@@ -61,23 +66,17 @@ fn addBuildStep(b: *Build, optimize: std.builtin.OptimizeMode, target: Build.Res
     link.addFileArg(kernel_compile.getEmittedBin());
     try linkAssembly(b, link);
 
+    const kernel_install = b.addInstallFile(kernel, "kernel.elf");
+    b.getInstallStep().dependOn(&kernel_install.step);
+
     const multiboot_check = b.addSystemCommand(&.{ "grub-file", "--is-x86-multiboot2" });
     multiboot_check.addFileInput(kernel);
     multiboot_check.addFileArg(kernel);
 
-    const gensymtab = b.addExecutable(.{
-        .name = "gensymtab",
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("build/gensymtab.zig"),
-            .target = b.graph.host,
-            .optimize = .Debug,
-        }),
-    });
-
-    const run_gensymtab = b.addRunArtifact(gensymtab);
-    run_gensymtab.addFileArg(kernel);
-    const symbol_table = run_gensymtab.addOutputFileArg("symbol_table.mod");
-    const symbol_names = run_gensymtab.addOutputFileArg("symbol_names.mod");
+    const tar = b.addSystemCommand(&.{ "tar", "--format=ustar", "-cf" });
+    const src_tar = tar.addOutputFileArg("kernel_src.tar");
+    tar.addArgs(&.{ "-C", b.build_root.path.?, "src" });
+    tar.has_side_effects = true;
 
     const root = b.addWriteFiles();
     _ = root.addCopyDirectory(b.path("build/x86_64/disk/"), "", .{});
@@ -85,8 +84,7 @@ fn addBuildStep(b: *Build, optimize: std.builtin.OptimizeMode, target: Build.Res
         .include_extensions = &.{ ".lst", ".mod" },
     });
     _ = root.addCopyFile(kernel, "boot/kernel.elf");
-    _ = root.addCopyFile(symbol_table, "boot/symbol_table.mod");
-    _ = root.addCopyFile(symbol_names, "boot/symbol_names.mod");
+    _ = root.addCopyFile(src_tar, "boot/kernel_src.tar");
     root.step.dependOn(&multiboot_check.step);
 
     const mk_fs_img = b.addSystemCommand(&.{ "mkfs.ext2", "-q", "-d" });

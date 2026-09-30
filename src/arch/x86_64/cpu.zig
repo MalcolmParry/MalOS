@@ -1,3 +1,4 @@
+const std = @import("std");
 const arch = @import("x86_64.zig");
 const scheduler = @import("../../scheduler.zig");
 const mem = @import("../../memory.zig");
@@ -30,6 +31,31 @@ pub const ExtendedState = struct {
     }
 };
 
+pub const exception_names = [_][]const u8{
+    "divide error",
+    "debug",
+    "nmi",
+    "breakpoint",
+    "overflow",
+    "bound range",
+    "invalid opcode",
+    "device not available",
+    "double fault",
+    "coprocessor overrun",
+    "invalid tss",
+    "segment not present",
+    "stack fault",
+    "general protection fault",
+    "page fault",
+    "reserved",
+    "x87 fp error",
+    "alignment check",
+    "machine check",
+    "simd fp error",
+    "virtualization",
+    "control protection",
+};
+
 pub const State = packed struct {
     cr3: u64,
     rbp: u64,
@@ -57,6 +83,39 @@ pub const State = packed struct {
     flags: Flags,
     rsp: u64,
     ss: u64 = 0x10,
+
+    pub fn dump(s: *align(1) const State, w: *std.Io.Writer) !void {
+        const name = if (s.int_code < exception_names.len) exception_names[s.int_code] else "interrupt";
+        try w.print(
+            \\{s} (#{d}) err=0x{x}
+            \\rip {x:0>16}  rsp {x:0>16}  rbp {x:0>16}
+            \\rax {x:0>16}  rbx {x:0>16}  rcx {x:0>16}
+            \\rdx {x:0>16}  rsi {x:0>16}  rdi {x:0>16}
+            \\r8  {x:0>16}  r9  {x:0>16}  r10 {x:0>16}
+            \\r11 {x:0>16}  r12 {x:0>16}  r13 {x:0>16}
+            \\r14 {x:0>16}  r15 {x:0>16}  cr3 {x:0>16}
+            \\cs {x:0>2} ss {x:0>2} rflags {x:0>8} [
+        , .{
+            // zig fmt: off
+            name, s.int_code, s.error_code,
+            s.rip, s.rsp, s.rbp,
+            s.rax, s.rbx, s.rcx,
+            s.rdx, s.rsi, s.rdi,
+            s.r8,  s.r9,  s.r10,
+            s.r11, s.r12, s.r13,
+            s.r14, s.r15, s.cr3,
+            s.cs,  s.ss,  @as(u64, @bitCast(s.flags)),
+            // zig fmt: on
+        });
+
+        inline for (std.meta.fields(Flags)) |f| {
+            if (f.type == bool and f.name[0] != '_' and @field(s.flags, f.name)) {
+                try w.writeAll(" " ++ f.name);
+            }
+        }
+
+        try w.writeAll(" ]\n");
+    }
 
     fn nakedRestore() callconv(.naked) noreturn {
         asm volatile (

@@ -1,4 +1,5 @@
 const std = @import("std");
+const options = @import("options");
 const arch = @import("../arch/arch.zig").current;
 const builtin = @import("builtin");
 const Spinlock = @This();
@@ -37,6 +38,8 @@ pub fn lock(sl: *Spinlock) Lock {
                 .int_enable = int,
             };
         }
+
+        if (options.single_core) @panic("deadlock");
 
         arch.interrupt.set(int);
         while (sl.status.load(.monotonic) == .locked) {

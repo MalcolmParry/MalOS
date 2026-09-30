@@ -47,7 +47,7 @@ const Tag = extern struct {
         tag: Tag,
         num: u32,
         entry_size: u32,
-        str_table_index: u32,
+        shstrtab_index: u32,
     };
 
     const LoadBaseAddr = extern struct {
@@ -101,6 +101,26 @@ const Tag = extern struct {
     size: u32,
 };
 
+const elf_section_name_map: std.StaticStringMap(BootInfo.ElfSection.Id) = .initComptime(.{
+    .{ ".debug_info", .debug_info },
+    .{ ".debug_abbrev", .debug_abbrev },
+    .{ ".debug_str", .debug_str },
+    .{ ".debug_str_offsets", .debug_str_offsets },
+    .{ ".debug_line", .debug_line },
+    .{ ".debug_line_str", .debug_line_str },
+    .{ ".debug_ranges", .debug_ranges },
+    .{ ".debug_loclists", .debug_loclists },
+    .{ ".debug_rnglists", .debug_rnglists },
+    .{ ".debug_addr", .debug_addr },
+    .{ ".debug_names", .debug_names },
+
+    .{ ".symtab", .symtab },
+    .{ ".strtab", .strtab },
+    // .{ ".gnu_debuglink", .gnu_debuglink },
+    // .{ ".eh_frame", .eh_frame },
+    // .{ ".debug_frame", .debug_frame },
+});
+
 const BootInfoIterater = struct {
     tag_addr: u64,
 
@@ -136,6 +156,7 @@ pub fn initBootInfo() BootInfo {
         .module_buffer = undefined,
         .module_count = 0,
         .vga_text_info = null,
+        .elf_sections = .initFill(null),
     };
 
     var available_ranges: std.ArrayList([]mem.PhysPage) = .initBuffer(&boot_info.available_phys_range_buffer);
@@ -203,21 +224,39 @@ pub fn initBootInfo() BootInfo {
             .elf_sections => {
                 const elf_sections: *Tag.ElfSections = @ptrCast(tag);
                 if (@sizeOf(std.elf.Elf64_Shdr) != elf_sections.entry_size) @panic("wrong elf section header size");
-                const sections_many_ptr: [*]align(1) std.elf.Elf64_Shdr = @ptrFromInt(@intFromPtr(elf_sections) + @sizeOf(Tag.ElfSections));
+                const sections_many_ptr: [*]align(1) std.elf.Elf64.Shdr = @ptrFromInt(@intFromPtr(elf_sections) + @sizeOf(Tag.ElfSections));
                 const sections = sections_many_ptr[0..elf_sections.num];
 
+                if (elf_sections.shstrtab_index == 0) @panic("no shstrtab");
+                const shstrtab_header = sections[elf_sections.shstrtab_index];
+                const shstrtab = @as([*]u8, @ptrFromInt(shstrtab_header.addr))[0..shstrtab_header.size];
+
                 for (sections) |section| {
-                    if (section.sh_flags & std.elf.SHF_ALLOC == 0) continue;
+                    if (!section.flags.shf.ALLOC) {
+                        const name = std.mem.sliceTo(shstrtab[section.name..], 0);
+                        const id = elf_section_name_map.get(name) orelse continue;
+                        const section_info = boot_info.elf_sections.getPtr(id);
+                        if (section_info.* != null) {
+                            std.log.warn("elf section {s} appeared twice", .{name});
+                            continue;
+                        }
+
+                        section_info.* = .{
+                            .phys_range = @as([*]Phys(u8), @ptrFromInt(section.addr))[0..section.size],
+                            .header = section,
+                        };
+                        continue;
+                    }
 
                     std.log.info("R{c}{c} 0x{x} - 0x{x}", .{
-                        @as(u8, if (section.sh_flags & std.elf.SHF_WRITE != 0) 'W' else '-'),
-                        @as(u8, if (section.sh_flags & std.elf.SHF_EXECINSTR != 0) 'X' else '-'),
-                        section.sh_addr,
-                        section.sh_addr + section.sh_size,
+                        @as(u8, if (section.flags.shf.WRITE) 'W' else '-'),
+                        @as(u8, if (section.flags.shf.EXECINSTR) 'X' else '-'),
+                        section.addr,
+                        section.addr + section.size,
                     });
 
-                    const start = std.mem.alignBackward(u64, section.sh_addr, mem.page_size);
-                    const end = std.mem.alignForward(u64, section.sh_addr + section.sh_size, mem.page_size);
+                    const start = std.mem.alignBackward(u64, section.addr, mem.page_size);
+                    const end = std.mem.alignForward(u64, section.addr + section.size, mem.page_size);
 
                     if (start < mem.kernel_virt_base) continue;
 
@@ -228,8 +267,8 @@ pub fn initBootInfo() BootInfo {
                         .pages = start_ptr[0..page_count],
                         .flags = .{
                             .cache_mode = .full,
-                            .writable = section.sh_flags & std.elf.SHF_WRITE > 0,
-                            .executable = section.sh_flags & std.elf.SHF_EXECINSTR > 0,
+                            .writable = section.flags.shf.WRITE,
+                            .executable = section.flags.shf.EXECINSTR,
                             .user = false,
                             .global = true,
                         },

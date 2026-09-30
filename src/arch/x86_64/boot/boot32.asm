@@ -147,7 +147,7 @@ section .bss
 align 16
 stack:
 .bottom:
-	resb 1024 * 16
+	resb 1024 * 64
 .top:
 
 section .data

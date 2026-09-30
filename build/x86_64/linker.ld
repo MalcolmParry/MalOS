@@ -36,7 +36,7 @@ SECTIONS {
 
 	.bss ALIGN(4K) : AT(ADDR(.bss) - __KERNEL_VIRT_BASE__) {
 		*(COMMON)
-		*(.bss)
+		*(.bss .bss.*)
 		*(.stack)
 	} :data
 

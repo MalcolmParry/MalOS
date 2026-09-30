@@ -28,6 +28,11 @@ pub fn tempInit(boot_info: *const BootInfo) void {
         reserveAvailableRegion(module.phys_range);
     }
 
+    for (&boot_info.elf_sections.values) |maybe_section| {
+        const section = maybe_section orelse continue;
+        reserveAvailableRegion(section.phys_range);
+    }
+
     for (boot_info.availablePhysRanges()) |range| {
         total_pages += range.len;
     }

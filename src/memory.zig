@@ -52,14 +52,14 @@ pub fn alignOutwards(T: type, x: T, alignment: u16) T {
     const start = std.mem.alignBackward(usize, @intFromPtr(x.ptr), alignment);
     const end = std.mem.alignForward(usize, @intFromPtr(x.ptr + x.len), alignment);
     const ptr: [*]Child = @ptrFromInt(start);
-    const len = (end - start) / @sizeOf(Child);
+    const len = @divExact(end - start, @sizeOf(Child));
     return ptr[0..len];
 }
 
 pub fn physPageAlignOutwards(x: []Phys(u8)) []PhysPage {
     const aligned = alignOutwards([]Phys(u8), x, page_size);
     const start: [*]PhysPage = @ptrCast(@alignCast(aligned.ptr));
-    return start[0 .. aligned.len / page_size];
+    return start[0..@divExact(aligned.len, page_size)];
 }
 
 pub fn fromStartAndEnd(T: type, start: anytype, end: anytype) T {

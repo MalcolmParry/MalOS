@@ -1,5 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
+const debug = @import("../debug.zig");
 const arch = @import("../arch/arch.zig").current;
 const Ahci = @import("Ahci.zig");
 
@@ -127,8 +128,6 @@ fn checkFunc(addr: Addr) void {
     }
 
     if (class == 1 and subclass == 6) {
-        Ahci.initController(addr) catch |err| {
-            std.log.err("failed to init ahci controller at pci {f}: {}", .{ addr, err });
-        };
+        Ahci.initController(addr) catch |err| debug.dumpError(err);
     }
 }

@@ -4,7 +4,7 @@ const mem = @import("../../memory.zig");
 const arch = @import("x86_64.zig");
 const pic = @import("pic.zig");
 const scheduler = @import("../../scheduler.zig");
-const panic = @import("../../panic.zig");
+const log = @import("../../log.zig");
 
 const IDT = packed struct {
     // part of the ISR ptr
@@ -113,7 +113,17 @@ fn handler(state: *align(1) arch.cpu.State) callconv(.{ .x86_64_sysv = .{ .incom
 
     switch (state.int_code) {
         0...31 => {
-            panic.printStackTrace(state.rbp);
+            var ctx: std.debug.cpu_context.Native = undefined;
+            ctx.gprs.set(.rip, state.rip);
+            ctx.gprs.set(.rbp, state.rbp);
+            ctx.gprs.set(.rsp, state.rsp);
+
+            std.debug.writeCurrentStackTrace(.{
+                .context = &ctx,
+                .allow_unsafe_unwind = true,
+            }, log.term) catch {};
+
+            state.dump(log.term.writer) catch {};
         },
         else => {},
     }
@@ -131,8 +141,7 @@ fn handler(state: *align(1) arch.cpu.State) callconv(.{ .x86_64_sysv = .{ .incom
                 : [out] "=r" (-> usize),
             );
 
-            std.log.err("page fault\n{}", .{flags});
-            panic.writeTraceAddr(cr2);
+            std.log.err("page fault at 0x{x}\n{}", .{ cr2, flags });
 
             const indices = arch.paging.getIndicesFromVirtAddr(cr2);
             std.log.err("page table indices: {any}", .{indices});
@@ -163,8 +172,6 @@ fn handler(state: *align(1) arch.cpu.State) callconv(.{ .x86_64_sysv = .{ .incom
             scheduler.schedule();
         },
         else => {
-            std.log.info("{any}", .{state});
-            std.log.info("interrupt 0x{x}", .{state.int_code});
             arch.spinWait();
         },
     }

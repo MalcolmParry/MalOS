@@ -1,4 +1,5 @@
 const arch = @import("arch/arch.zig").current;
+const BootInfo = @import("BootInfo.zig");
 const mem = @import("memory.zig");
 const pmm = @import("pmm.zig");
 const Vmm = @import("Vmm.zig");
@@ -19,7 +20,8 @@ const pit = @import("drivers/x86/pit.zig");
 const devfs = @import("fs/devfs.zig");
 const pci = @import("drivers/pci.zig");
 
-pub const panic = @import("panic.zig").panic;
+pub const debug = @import("debug.zig");
+pub const panic = std.debug.FullPanic(debug.panic);
 pub const std_options_debug_threaded_io = null;
 pub const std_options_debug_io = std.Io.failing;
 pub const std_options: std.Options = .{
@@ -82,7 +84,27 @@ pub fn kernelMain() noreturn {
         std.log.info("Module '{s}' at {f} and mapped at 0x{x}", .{ module.name(), mem.fmtRange(module.phys_range), @intFromPtr(module.data.?.ptr) });
     }
 
-    @import("panic.zig").loadSymbolTable(boot_info.modules());
+    for (&boot_info.elf_sections.values, 0..) |*maybe_section, i| {
+        const section = if (maybe_section.*) |*x| x else continue;
+        const id: BootInfo.ElfSection.Id = @enumFromInt(i);
+
+        const page_offset = @intFromPtr(section.phys_range.ptr) % mem.page_size;
+        const phys_pages = mem.physPageAlignOutwards(section.phys_range);
+        const pages = PageAllocator.global.map(phys_pages, .{
+            .writable = false,
+            .executable = false,
+            .global = true,
+            .user = false,
+            .cache_mode = .full,
+        }) catch @panic("can't map debug elf sections");
+
+        const bytes = std.mem.sliceAsBytes(pages);
+        section.data = (bytes.ptr + page_offset)[0..section.phys_range.len];
+
+        std.log.info("Elf Section {} at {f} mapped at 0x{x}", .{ id, mem.fmtRange(section.phys_range), @intFromPtr(section.data.ptr) });
+    }
+
+    debug.init(&boot_info);
 
     var page_count: usize = 0;
     while (page_count < 0x4000) {
@@ -104,19 +126,7 @@ pub fn kernelMain() noreturn {
 
     ata_pio.detectAndRegister() catch @panic("failed to detect and register ata devices");
 
-    ext2Test() catch |err| {
-        if (@errorReturnTrace()) |trace| {
-            const len = @min(trace.instruction_addresses.len, trace.index);
-
-            for (trace.instruction_addresses[0..len]) |addr| {
-                @import("panic.zig").writeTraceAddr(addr);
-            }
-        }
-
-        std.log.err("ext2 test failed: {}", .{err});
-        arch.interrupt.disable();
-        arch.spinWait();
-    };
+    ext2Test() catch |err| debug.dumpErrorAndPanic(err);
 
     arch.spinWait();
     // scheduler.init();
