@@ -1,5 +1,7 @@
 global _start32
 global phys_multiboot_info
+global stack_bottom
+global stack_top
 extern _start64
 extern page_table_l4_virt
 extern page_table_l3_virt
@@ -13,7 +15,7 @@ page_table_l2 equ page_table_l2_virt - KERNEL_VIRT_BASE
 section .boot
 bits 32
 _start32:
-	mov ebp, stack.top - KERNEL_VIRT_BASE
+	mov ebp, stack_top - KERNEL_VIRT_BASE
 	mov esp, ebp
 
 	mov [phys_multiboot_info - KERNEL_VIRT_BASE], ebx
@@ -121,7 +123,7 @@ error: ; void error(char* str: eax)
 
 bits 64
 trampoline:
-	mov rbp, stack.top
+	mov rbp, stack_top
 	mov rsp, rbp
 
 	mov rax, _start64
@@ -144,11 +146,10 @@ gdt64:
 		dq gdt64
 
 section .bss
-align 16
-stack:
-.bottom:
+align 4096
+stack_bottom:
 	resb 1024 * 64
-.top:
+stack_top:
 
 section .data
 phys_multiboot_info:

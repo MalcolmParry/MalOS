@@ -3,6 +3,7 @@ const mem = @import("memory.zig");
 const Vmm = @import("Vmm.zig");
 const BootInfo = @This();
 
+stack: []align(mem.page_size) u8,
 max_phys_addr: *mem.PhysPage,
 kernel_phys_range: []mem.Phys(u8),
 available_phys_range_buffer: [16][]mem.PhysPage,

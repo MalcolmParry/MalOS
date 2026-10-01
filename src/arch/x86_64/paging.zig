@@ -313,10 +313,13 @@ pub fn init(boot_info: *const BootInfo) *Table {
         };
     }
 
+    const stack_guard_page: *mem.Page = @ptrCast(boot_info.stack.ptr);
+
     l2_kernel_table.clear();
     for (boot_info.kernelRegions()) |region| {
         for (region.pages) |*page| {
             if (@intFromPtr(page) < mem.kernel_virt_base) continue;
+            if (page == stack_guard_page) continue;
             const phys: *mem.PhysPage = @ptrFromInt(@intFromPtr(page) - mem.kernel_virt_base);
             std.debug.assert(@intFromPtr(phys) < 4096 * 512 * 512);
 

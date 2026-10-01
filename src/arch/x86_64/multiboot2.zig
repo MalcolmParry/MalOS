@@ -141,12 +141,20 @@ const BootInfoIterater = struct {
 
 extern var __KERNEL_START__: anyopaque;
 extern var __KERNEL_END__: anyopaque;
+extern var stack_bottom: u8 align(mem.page_size);
+extern var stack_top: u8 align(mem.page_size);
 
 pub fn initBootInfo() BootInfo {
     const kernel_start: [*]mem.Phys(u8) = @ptrCast(&__KERNEL_START__);
     const kernel_size = @intFromPtr(&__KERNEL_END__) - @intFromPtr(&__KERNEL_START__);
 
+    const stack_ptr: [*]align(mem.page_size) u8 = @ptrCast(&stack_bottom);
+    const stack_top_ptr: [*]align(mem.page_size) u8 = @ptrCast(&stack_top);
+    const stack_size = stack_top_ptr - stack_ptr;
+    const stack = stack_ptr[0..stack_size];
+
     var boot_info: BootInfo = .{
+        .stack = stack,
         .max_phys_addr = @ptrFromInt(4096),
         .kernel_phys_range = kernel_start[0..kernel_size],
         .available_phys_range_buffer = undefined,
