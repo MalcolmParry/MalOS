@@ -1,7 +1,8 @@
 const std = @import("std");
 const arch = @import("../../arch/arch.zig").current;
-const BlockDevice = @import("../../BlockDevice.zig");
+const BlockDevice = @import("../../block/BlockDevice.zig");
 const devfs = @import("../../fs/devfs.zig");
+const mbr = @import("../../block/mbr.zig");
 
 const sector_size = 512;
 
@@ -54,6 +55,7 @@ pub fn detectAndRegister() !void {
         std.log.info("found drive {s}", .{name});
         found_drive = true;
         try devfs.registerDisk(name, &drive.bd);
+        try mbr.partScan(&drive.bd, name);
     }
 
     if (!found_drive) std.log.warn("no ata pio drive found", .{});

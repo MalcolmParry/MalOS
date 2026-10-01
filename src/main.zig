@@ -13,7 +13,7 @@ const gpa = @import("heap/gpa.zig");
 const vfs = @import("fs/vfs.zig");
 const Ramfs = @import("fs/Ramfs.zig");
 const Ext2 = @import("fs/Ext2.zig");
-const BlockDevice = @import("BlockDevice.zig");
+const BlockDevice = @import("block/BlockDevice.zig");
 
 const ata_pio = @import("drivers/x86/ata_pio.zig");
 const pit = @import("drivers/x86/pit.zig");
@@ -38,6 +38,7 @@ pub const os = struct {
 
 pub fn kernelMain() noreturn {
     arch.interrupt.init();
+    log.writer.print("\x1b[H\x1b[2J\x1b[3J", .{}) catch {};
 
     var boot_info = arch.initBootInfo();
 
@@ -163,7 +164,18 @@ fn fsTest() !void {
 fn ext2Test() !void {
     const alloc = gpa.allocator;
 
-    const drive_dentry = try devfs.root.lookupLocal("disk/ata0");
+    var devfs_mount: vfs.Mount = .{
+        .target = null,
+        .src = &devfs.root,
+
+        .parent = &vfs.root,
+        .first_child = null,
+        .next_sibling = null,
+    };
+
+    try printFileTree(.{ .mount = &devfs_mount, .dentry = &devfs.root }, log.term, 0);
+
+    const drive_dentry = try devfs.root.lookupLocal("disk/ata0p0");
     defer drive_dentry.release();
     const bd = drive_dentry.node.data.block_device;
 
@@ -186,8 +198,6 @@ fn ext2Test() !void {
     std.log.info("{} bytes read", .{read});
     std.log.info("{s}", .{buffer[0..read]});
 
-    var devfs_mount: vfs.Mount = undefined;
-
     vfs.root = .{
         .target = null,
         .src = root,
@@ -200,14 +210,7 @@ fn ext2Test() !void {
     const dev_target = try root.lookupNameLocal("dev");
     defer dev_target.release();
 
-    devfs_mount = .{
-        .target = dev_target,
-        .src = &devfs.root,
-
-        .parent = &vfs.root,
-        .first_child = null,
-        .next_sibling = null,
-    };
+    devfs_mount.target = dev_target;
 
     const root_path = vfs.root.acquireRootPath();
     defer root_path.release();

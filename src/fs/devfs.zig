@@ -1,7 +1,7 @@
 const std = @import("std");
 const vfs = @import("vfs.zig");
 const direct_map = @import("../heap/direct_map.zig");
-const BlockDevice = @import("../BlockDevice.zig");
+const BlockDevice = @import("../block/BlockDevice.zig");
 
 var file_pool: std.heap.MemoryPool(vfs.File) = .empty;
 var disk_pool: std.heap.MemoryPool(Disk) = .empty;

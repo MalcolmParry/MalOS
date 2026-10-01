@@ -3,7 +3,7 @@ const mem = @import("../memory.zig");
 const pmm = @import("../pmm.zig");
 const arch = @import("../arch/arch.zig");
 const Spinlock = @import("../sync/Spinlock.zig");
-const BlockDevice = @import("../BlockDevice.zig");
+const BlockDevice = @import("../block/BlockDevice.zig");
 const alloc = &@import("../heap/direct_map.zig").page_alloc;
 
 pub var root: Mount = undefined;
@@ -43,8 +43,11 @@ pub const SuperBlock = struct {
 /// represents an object in the filesystem
 /// such as a file or directory
 pub const Node = struct {
+    /// immutable
     kind: Kind,
+    /// immutable
     vtable: *const VTable,
+    /// immutable
     sb: *SuperBlock,
 
     ref_count: std.atomic.Value(u32),
@@ -86,11 +89,14 @@ pub const Node = struct {
         block_device: *BlockDevice,
 
         pub const Dir = struct {
+            /// owned by lock
             first_child: ?*DirEntry,
         };
 
         pub const File = struct {
+            /// owned by lock
             size: usize,
+            /// owned by lock
             /// key is page offset into file
             cache: std.AutoHashMapUnmanaged(u32, pmm.Index),
         };
@@ -197,11 +203,16 @@ pub const DirRecord = struct {
 
 pub const max_embedded_name_len = 32;
 pub const DirEntry = struct {
+    /// immutable
     node: *Node,
+    /// immutable
     name_len: u16,
+    /// immutable
     name_buf: [max_embedded_name_len]u8,
 
+    /// immutable
     parent: ?*DirEntry,
+    /// owned by parent.node.lock
     next_sibling: ?*DirEntry,
 
     ref_count: std.atomic.Value(u32),
@@ -290,6 +301,7 @@ pub const DirEntry = struct {
 };
 
 pub const File = struct {
+    /// immutable
     node: *Node,
     head: u64 = 0,
 

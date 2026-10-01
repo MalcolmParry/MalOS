@@ -3,7 +3,7 @@ const mem = @import("../memory.zig");
 const pmm = @import("../pmm.zig");
 const builtin = @import("builtin");
 const vfs = @import("vfs.zig");
-const BlockDevice = @import("../BlockDevice.zig");
+const BlockDevice = @import("../block/BlockDevice.zig");
 const Ext2 = @This();
 
 alloc: std.mem.Allocator,
