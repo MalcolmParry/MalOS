@@ -69,6 +69,8 @@ pub fn kernelMain() noreturn {
 
     pmm.init(&boot_info, page_alloc);
     log.init(boot_info);
+    scheduler.init();
+    pit.init();
 
     for (boot_info.module_buffer[0..boot_info.module_count]) |*module| {
         const phys_pages = mem.physPageAlignOutwards(module.phys_range);
@@ -129,10 +131,9 @@ pub fn kernelMain() noreturn {
 
     ext2Test() catch |err| debug.dumpErrorAndPanic(err);
 
-    arch.spinWait();
-    // scheduler.init();
-    // pit.init();
-    // scheduler.schedule();
+    // arch.spinWait();
+    scheduler.testing.run() catch @panic("");
+    scheduler.exitThread();
 }
 
 fn fsTest() !void {

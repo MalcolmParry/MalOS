@@ -47,17 +47,22 @@ pub fn disable() void {
     asm volatile ("cli");
 }
 
-pub fn popDisable() bool {
+pub fn isEnabled() bool {
     if (builtin.is_test) return false;
 
     const rflags = asm volatile (
         \\ pushfq
-        \\ cli
         \\ popq %[flags]
         : [flags] "=r" (-> arch.cpu.Flags),
     );
 
     return rflags.IF;
+}
+
+pub fn popDisable() bool {
+    const enabled = isEnabled();
+    disable();
+    return enabled;
 }
 
 pub fn set(enabled: bool) void {
@@ -109,7 +114,8 @@ const PageFaultFlags = packed struct(u64) {
 };
 
 fn handler(state: *align(1) arch.cpu.State) callconv(.{ .x86_64_sysv = .{ .incoming_stack_alignment = 1 } }) noreturn {
-    scheduler.saveThreadState(state);
+    std.debug.assert(!arch.interrupt.isEnabled());
+    scheduler.saveState(state);
 
     switch (state.int_code) {
         0...31 => {
@@ -131,8 +137,7 @@ fn handler(state: *align(1) arch.cpu.State) callconv(.{ .x86_64_sysv = .{ .incom
     switch (state.int_code) {
         0x20 => {
             pic.eoi();
-            scheduler.threads.items[scheduler.current_tid].state = .asleep;
-            scheduler.schedule();
+            scheduler.preempt();
         },
         0xe => {
             const flags: PageFaultFlags = @bitCast(state.error_code);
@@ -169,7 +174,7 @@ fn handler(state: *align(1) arch.cpu.State) callconv(.{ .x86_64_sysv = .{ .incom
             std.log.info("syscall", .{});
 
             pic.eoi();
-            scheduler.schedule();
+            scheduler.preempt();
         },
         else => {
             arch.spinWait();
@@ -208,7 +213,7 @@ fn commonStub() callconv(.naked) void {
         \\ movq %rsp, %rdi // 1st arg in rdi
         \\ jmp %[handler:P]
         :
-        : [handler] "X" (&handler),
+        : [handler] "i" (&handler),
     );
 }
 
@@ -241,7 +246,7 @@ fn generateInterruptStub(comptime int_num: u8) Stub {
                 \\ jmp %[commonStub:P]
                 :
                 : [int_num] "n" (@as(u64, int_num)),
-                  [commonStub] "X" (&commonStub),
+                  [commonStub] "i" (&commonStub),
             );
         }
     }.func;

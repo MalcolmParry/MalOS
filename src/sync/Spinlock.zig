@@ -9,8 +9,8 @@ status: std.atomic.Value(Status),
 pub const init: Spinlock = .{ .status = .init(.unlocked) };
 
 const Status = enum(u8) {
-    unlocked,
-    locked,
+    unlocked = 0,
+    locked = 1,
 };
 
 pub fn tryLock(sl: *Spinlock) ?Lock {

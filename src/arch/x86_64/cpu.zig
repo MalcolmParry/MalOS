@@ -6,13 +6,19 @@ const mem = @import("../../memory.zig");
 pub const ExtendedState = struct {
     fxsave: [512]u8 align(16),
 
-    pub const zero: ExtendedState = .{ .fxsave = @splat(0) };
+    pub const zero = blk: {
+        var s: ExtendedState = .{ .fxsave = @splat(0) };
+        std.mem.writeInt(u16, s.fxsave[0..2], 0x037f, .little);
+        std.mem.writeInt(u32, s.fxsave[24..28], 0x1f80, .little);
+        break :blk s;
+    };
+
     pub inline fn save(state: *ExtendedState) void {
         asm volatile (
             \\fxsave (%[addr])
             :
             : [addr] "r" (&state.fxsave),
-        );
+            : .{ .memory = true });
     }
 
     pub inline fn load(state: *const ExtendedState) void {
@@ -26,6 +32,7 @@ pub const ExtendedState = struct {
               .xmm4  = true, .xmm5  = true, .xmm6  = true, .xmm7  = true,
               .xmm8  = true, .xmm9  = true, .xmm10 = true, .xmm11 = true,
               .xmm12 = true, .xmm13 = true, .xmm14 = true, .xmm15 = true,
+              .memory = true,
               // zig fmt: on
             });
     }
@@ -84,6 +91,7 @@ pub const State = packed struct {
     rsp: u64,
     ss: u64 = 0x10,
 
+    pub const zero = std.mem.zeroes(State);
     pub fn dump(s: *align(1) const State, w: *std.Io.Writer) !void {
         const name = if (s.int_code < exception_names.len) exception_names[s.int_code] else "interrupt";
         try w.print(
@@ -117,8 +125,16 @@ pub const State = packed struct {
         try w.writeAll(" ]\n");
     }
 
+    comptime {
+        const Status = @TypeOf(scheduler.spinlock.status.raw);
+        std.debug.assert(@sizeOf(Status) == 1);
+        std.debug.assert(@intFromEnum(Status.unlocked) == 0);
+    }
+
     fn nakedRestore() callconv(.naked) noreturn {
         asm volatile (
+            \\ movb $0, %[scheduler_lock:P](%rip)
+            \\
             \\ pop %rax
             \\ mov %cr3, %rbx
             \\ cmp %rax, %rbx
@@ -144,20 +160,24 @@ pub const State = packed struct {
             \\
             \\ addq $0x10, %rsp
             \\ iretq
+            :
+            : [scheduler_lock] "i" (&scheduler.spinlock.status.raw),
         );
     }
 
+    // assumes scheduler lock is held
     pub fn restore(state: *align(1) const State) noreturn {
         asm volatile (
             \\ jmp %[nakedRestore:P]
             :
             : [state] "{rsp}" (state),
-              [nakedRestore] "X" (&nakedRestore),
+              [nakedRestore] "i" (&nakedRestore),
         );
 
         unreachable;
     }
 
+    // assumes scheduler lock is held
     pub fn saveAndRestore(new: *align(1) const State, old: *align(1) State) void {
         const old_top = @as([*]u8, @ptrCast(old)) + @sizeOf(State) - 8;
 
@@ -187,7 +207,7 @@ pub const State = packed struct {
             :
             : [old_top] "{rax}" (old_top),
               [new_base] "{rbx}" (new),
-              [nakedRestore] "X" (&nakedRestore),
+              [nakedRestore] "i" (&nakedRestore),
             : .{
               // zig fmt: off
                 .rax = true, .rcx = true, .rdx = true, .rbx = true, .rsi = true, .rdi = true,
@@ -216,15 +236,20 @@ pub const State = packed struct {
             });
     }
 
-    pub fn fromKernelThreadSpawnInfo(info: scheduler.KernelThreadSpawnInfo) State {
-        const stack_top = @intFromPtr(info.stack.ptr + info.stack.len);
+    const InitInfo = struct {
+        entry: usize,
+        stack_ptr: usize,
+        phys_page_table: usize,
+        arg: usize,
+    };
 
+    pub fn init(info: InitInfo) State {
         return .{
-            .cr3 = @intFromPtr(info.phys_page_table),
-            .rbp = stack_top,
-            .rip = @intFromPtr(info.entry),
+            .cr3 = info.phys_page_table,
+            .rbp = info.stack_ptr,
+            .rip = info.entry,
             .flags = .{ .IF = true },
-            .rsp = stack_top,
+            .rsp = info.stack_ptr,
             .rdi = info.arg,
         };
     }
