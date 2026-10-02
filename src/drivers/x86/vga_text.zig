@@ -96,6 +96,8 @@ pub fn init(info: BootInfo.VgaTextInfo) !Writer {
     };
 
     clear(&state);
+    setCursorType(.underline);
+    setCursorPos(state, 0, 0);
     return .{ .state = state };
 }
 

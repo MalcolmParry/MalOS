@@ -19,12 +19,14 @@ INFO_MMAP equ 6
 INFO_ELF_SECTIONS equ 9
 
 section .boot_header
+align 8
 multiboot:
 	dd MAGIC
 	dd ARCH_i386
 	dd LENGTH
 	dd 0x1_0000_0000 - (MAGIC + ARCH_i386 + LENGTH)
 
+align 8
 info_tag:
 .start:
 	dw TAG_INFORMATION_REQUEST ; tag
@@ -36,6 +38,17 @@ info_tag:
 .end:
 
 align 8
+fb_tag:
+.start:
+	dw TAG_FRAMEBUFFER
+	dw 1
+	dd (.end - .start)
+	dd 0
+	dd 0
+	dd 32
+.end:
+
+align 8
 align_tag:
 .start:
 	dw TAG_MODULE_ALIGN ; tag
@@ -43,6 +56,7 @@ align_tag:
 	dd (.end - .start) ; length
 .end:
 
+align 8
 end_tag:
 .start:
 	dw TAG_END ; tag

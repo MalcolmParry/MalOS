@@ -2,8 +2,6 @@ const std = @import("std");
 const builtin = @import("builtin");
 const Build = std.Build;
 
-const asm_source_path = "src/arch/x86_64/";
-
 pub fn build(b: *Build) !void {
     const optimize = b.standardOptimizeOption(.{});
     const target = b.resolveTargetQuery(.{
@@ -19,6 +17,10 @@ pub fn build(b: *Build) !void {
 }
 
 fn addBuildStep(b: *Build, optimize: std.builtin.OptimizeMode, target: Build.ResolvedTarget) !void {
+    const io = b.graph.io;
+    const alloc = b.allocator;
+    const cwd = std.Io.Dir.cwd();
+
     const grub_dir = b.graph.environ_map.get("GRUB_DIR") orelse "/usr/lib/grub/";
     const grub_i386_pc = b.fmt("{s}/i386-pc/", .{grub_dir});
 
@@ -52,10 +54,11 @@ fn addBuildStep(b: *Build, optimize: std.builtin.OptimizeMode, target: Build.Res
         "ld",
         "-n",
         "--gc-sections",
-        "-T", "build/x86_64/linker.ld",
         "-z", "noexecstack",
+        "-T",
         // zig fmt: on
     });
+    link.addFileArg(b.path("build/x86_64/linker.ld"));
     switch (debug_info) {
         true => link.addArg("-g"),
         false => link.addArg("-s"),
@@ -70,19 +73,33 @@ fn addBuildStep(b: *Build, optimize: std.builtin.OptimizeMode, target: Build.Res
     b.getInstallStep().dependOn(&kernel_install.step);
 
     const multiboot_check = b.addSystemCommand(&.{ "grub-file", "--is-x86-multiboot2" });
-    multiboot_check.addFileInput(kernel);
     multiboot_check.addFileArg(kernel);
 
-    const tar = b.addSystemCommand(&.{ "tar", "--format=ustar", "-cf" });
+    const tar = b.addSystemCommand(&.{
+        "tar",
+        "--format=ustar",
+        "--sort=name",
+        "--mtime=@0",
+        "--owner=0",
+        "--group=0",
+        "--numeric-owner",
+        "-cf",
+    });
     const src_tar = tar.addOutputFileArg("kernel_src.tar");
     tar.addArgs(&.{ "-C", b.build_root.path.?, "src" });
-    tar.has_side_effects = true;
+
+    var src_dir = try cwd.openDir(io, b.pathJoin(&.{ b.build_root.path.?, "src" }), .{ .iterate = true });
+    defer src_dir.close(io);
+
+    var src_iter = try src_dir.walk(alloc);
+    defer src_iter.deinit();
+    while (try src_iter.next(io)) |entry| {
+        if (entry.kind != .file) continue;
+        tar.addFileInput(.{ .cwd_relative = b.pathJoin(&.{ b.build_root.path.?, "src", entry.path }) });
+    }
 
     const root = b.addWriteFiles();
     _ = root.addCopyDirectory(b.path("build/x86_64/disk/"), "", .{});
-    _ = root.addCopyDirectory(.{ .cwd_relative = grub_i386_pc }, "boot/grub/i386-pc", .{
-        .include_extensions = &.{ ".lst", ".mod" },
-    });
     _ = root.addCopyFile(kernel, "boot/kernel.elf");
     _ = root.addCopyFile(src_tar, "boot/kernel_src.tar");
     root.step.dependOn(&multiboot_check.step);
@@ -98,7 +115,7 @@ fn addBuildStep(b: *Build, optimize: std.builtin.OptimizeMode, target: Build.Res
         "-O", "i386-pc",
         "-d", grub_i386_pc,
         "-p", "(hd0,msdos1)/boot/grub",
-        "biosdisk", "part_msdos", "ext2", "normal", "multiboot2", "boot",
+        "biosdisk", "part_msdos", "ext2", "normal", "multiboot2", "boot", "serial",
         "-o"
         // zig fmt: on
     });
@@ -116,6 +133,7 @@ fn addBuildStep(b: *Build, optimize: std.builtin.OptimizeMode, target: Build.Res
 }
 
 fn linkAssembly(b: *Build, link: *Build.Step.Run) !void {
+    const asm_source_path = b.pathJoin(&.{ b.build_root.path.?, "src/arch/x86_64/" });
     var asm_source_dir = try std.Io.Dir.cwd().openDir(b.graph.io, asm_source_path, .{ .iterate = true });
     defer asm_source_dir.close(b.graph.io);
 
@@ -125,33 +143,37 @@ fn linkAssembly(b: *Build, link: *Build.Step.Run) !void {
         if (entry.kind != .file) continue;
         if (!std.mem.endsWith(u8, entry.basename, ".asm")) continue;
 
-        const source_file = b.path(b.fmt("{s}/{s}", .{ asm_source_path, entry.path }));
+        const source_file: Build.LazyPath = .{ .cwd_relative = b.pathJoin(&.{ asm_source_path, entry.path }) };
         const asm_compile = b.addSystemCommand(&.{
             "nasm",
             "-f",
             "elf64",
         });
 
-        asm_compile.addFileInput(source_file);
         asm_compile.addFileArg(source_file);
         const asm_object = asm_compile.addPrefixedOutputFileArg("-o", b.fmt("{s}.o", .{entry.basename}));
 
         link.addFileArg(asm_object);
-        link.step.dependOn(&asm_compile.step);
     }
 }
 
 const OutputMode = enum {
     serial,
-    vga_text,
+    vga,
+};
+
+const DiskMode = enum {
+    ide,
+    ahci,
 };
 
 fn addRunStep(b: *Build) !void {
-    const output_mode = b.option(OutputMode, "output-mode", "") orelse .serial;
+    const output_mode = b.option(OutputMode, "output", "") orelse .serial;
+    const disk_mode = b.option(DiskMode, "disk", "") orelse .ide;
 
     const display = switch (output_mode) {
         .serial => "none",
-        .vga_text => "gtk",
+        .vga => "gtk",
     };
 
     const run_step = b.step("run", "Run the iso in qemu");
@@ -164,17 +186,25 @@ fn addRunStep(b: *Build) !void {
         "-nodefaults",
         "-m", "32M",
         "-smp", "4",
-        "-drive", b.fmt("file={s}/disk.img,format=raw,if=ide,id=disk0", .{b.install_prefix}),
-        // "-drive", b.fmt("file={s}/disk.img,format=raw,if=none,id=disk0", .{b.install_prefix}),
-        // "-device", "pci-bridge,id=bridge1,chassis_nr=1",
-        // "-device", "ahci,id=ahci0,bus=bridge1",
-        // "-device", "ide-hd,drive=disk0,bus=ahci0.0",
         // zig fmt: on
     });
+    run.setCwd(.{ .cwd_relative = b.install_prefix });
 
     switch (output_mode) {
         .serial => run.addArgs(&.{ "-serial", "mon:stdio" }),
-        .vga_text => run.addArgs(&.{ "-vga", "std" }),
+        .vga => run.addArgs(&.{ "-vga", "std" }),
+    }
+
+    switch (disk_mode) {
+        .ide => run.addArgs(&.{
+            "-drive", "file=disk.img,format=raw,if=ide,id=disk0",
+        }),
+        .ahci => run.addArgs(&.{
+            "-drive",  "file=disk.img,format=raw,if=none,id=disk0",
+            "-device", "pci-bridge,id=bridge1,chassis_nr=1",
+            "-device", "ahci,id=ahci0,bus=bridge1",
+            "-device", "ide-hd,drive=disk0,bus=ahci0.0",
+        }),
     }
 
     if (b.option(bool, "gdb", "Use gdb with qemu") orelse false)
