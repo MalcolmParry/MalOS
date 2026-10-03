@@ -58,6 +58,17 @@ pub fn map(page_alloc: *PageAllocator, phys_range: []mem.PhysPage, flags: Vmm.Pa
     return virt;
 }
 
+pub fn unmap(page_alloc: *PageAllocator, pages: []mem.Page) void {
+    const lock = page_alloc.lock.lock();
+    defer lock.unlock();
+
+    for (pages) |*page| {
+        arch.paging.clearEntry(page_alloc.table, page);
+    }
+
+    page_alloc.vmm.unreserve(pages);
+}
+
 pub fn resize(page_alloc: *PageAllocator, pages: []mem.Page, new_page_count: usize, flags: Vmm.PageFlags) bool {
     if (pages.len == new_page_count) return true;
     _ = flags;

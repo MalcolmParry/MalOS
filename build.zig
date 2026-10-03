@@ -26,7 +26,7 @@ fn addBuildStep(b: *Build, optimize: std.builtin.OptimizeMode, target: Build.Res
 
     const debug_info = switch (optimize) {
         .Debug, .ReleaseSafe => true,
-        .ReleaseFast, .ReleaseSmall => true,
+        .ReleaseFast, .ReleaseSmall => false,
     };
 
     const kernel_compile = b.addObject(.{

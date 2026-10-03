@@ -69,6 +69,7 @@ const Tag = extern struct {
             indexed,
             rgb,
             ega_text,
+            _,
         };
     };
 
@@ -95,6 +96,7 @@ const Tag = extern struct {
         efi32_ih,
         efi64_ih,
         load_base_addr,
+        _,
     };
 
     t: Type,
@@ -163,8 +165,8 @@ pub fn initBootInfo() BootInfo {
         .kernel_region_count = 0,
         .module_buffer = undefined,
         .module_count = 0,
-        .vga_text_info = null,
         .elf_sections = .initFill(null),
+        .display = .none,
     };
 
     var available_ranges: std.ArrayList([]mem.PhysPage) = .initBuffer(&boot_info.available_phys_range_buffer);
@@ -288,7 +290,7 @@ pub fn initBootInfo() BootInfo {
                 if (load_base_addr.addr != @intFromPtr(boot_info.kernel_phys_range.ptr))
                     @panic("wrong kernel load address");
             },
-            .framebuffer => {
+            .framebuffer => blk: {
                 const fb: *Tag.Framebuffer = @ptrCast(tag);
                 std.log.info("framebuffer at 0x{x} {s} {}x{} pitch {} bpp {}", .{
                     fb.addr,
@@ -299,19 +301,42 @@ pub fn initBootInfo() BootInfo {
                     fb.bpp,
                 });
 
-                if (fb.t == .ega_text) {
-                    std.debug.assert(fb.bpp == 16);
+                if (boot_info.display != .none) @panic("multiple framebuffer tags");
 
-                    boot_info.vga_text_info = .{
-                        .phys_addr = fb.addr,
-                        .width = @intCast(fb.width),
-                        .height = @intCast(fb.height),
-                        .pitch = fb.pitch,
-                    };
+                switch (fb.t) {
+                    .ega_text => {
+                        if (fb.addr != 0xb8000) break :blk;
+                        if (fb.width != 80) break :blk;
+                        if (fb.height != 25) break :blk;
+                        if (fb.pitch != 160) break :blk;
+                        if (fb.bpp != 16) break :blk;
+
+                        boot_info.display = .vga_text;
+                    },
+                    else => {},
                 }
             },
-            else => std.log.info("multiboot tag: {s}", .{@tagName(tag.t)}),
+            else => std.log.info("multiboot tag: {}", .{tag.t}),
         }
+    }
+
+    switch (boot_info.display) {
+        .none => {},
+        .vga_text => {
+            const size = 80 * 25 * 2;
+            const page_count = (size + mem.page_size - 1) / mem.page_size;
+            const pages = @as([*]mem.Page, @ptrFromInt(0xb8000 + mem.kernel_virt_base))[0..page_count];
+            kernel_regions.appendBounded(.{
+                .pages = pages,
+                .flags = .{
+                    .global = true,
+                    .cache_mode = .disabled,
+                    .executable = false,
+                    .user = false,
+                    .writable = true,
+                },
+            }) catch @panic("too many kernel regions");
+        },
     }
 
     boot_info.module_count = @intCast(modules.items.len);

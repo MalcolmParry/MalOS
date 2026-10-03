@@ -1,8 +1,9 @@
 const std = @import("std");
 const Spinlock = @import("sync/Spinlock.zig");
 const serial = @import("drivers/x86/serial.zig");
-const vga_text = @import("drivers/x86/vga_text.zig");
 const BootInfo = @import("BootInfo.zig");
+const Terminal = @import("tty/Terminal.zig");
+const vga_text = @import("drivers/x86/vga_text.zig");
 
 pub var spinlock: Spinlock = .init;
 pub var writer = &temp_writer;
@@ -14,14 +15,15 @@ pub var term: std.Io.Terminal = .{
 var temp_writer_buffer: [4096]u8 = undefined;
 var temp_writer: std.Io.Writer = .fixed(&temp_writer_buffer);
 
-var vga_text_state: vga_text.Writer = undefined;
+var vga_text_term: Terminal = .{ .tg = &vga_text.tg };
+var vga_text_writer = vga_text_term.writer(&.{});
 
 pub fn init(boot_info: BootInfo) void {
     outer: {
-        if (boot_info.vga_text_info) |info| vga: {
-            vga_text_state = vga_text.init(info) catch break :vga;
-            writer = &vga_text_state.interface;
-            term.writer = &vga_text_state.interface;
+        if (boot_info.display == .vga_text) {
+            vga_text.init();
+            writer = &vga_text_writer.w;
+            term.writer = writer;
             break :outer;
         }
 

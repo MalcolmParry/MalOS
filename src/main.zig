@@ -41,6 +41,7 @@ pub fn kernelMain() noreturn {
     log.writer.print("\x1b[H\x1b[2J\x1b[3J", .{}) catch {};
 
     var boot_info = arch.initBootInfo();
+    log.init(boot_info);
 
     for (boot_info.availablePhysRanges()) |range| {
         std.log.info("Available: {f}\x1b[48G{Bi}", .{ mem.fmtRange(range), range.len * mem.page_size });
@@ -68,7 +69,6 @@ pub fn kernelMain() noreturn {
     const page_alloc = PageAllocator.global.allocator();
 
     pmm.init(&boot_info, page_alloc);
-    log.init(boot_info);
     scheduler.init();
     pit.init();
 
@@ -221,6 +221,7 @@ fn ext2Test() !void {
     log.term.setColor(.reset) catch {};
     try log.term.writer.print("\n", .{});
     try printFileTree(root_path, log.term, 1);
+    log.writer.flush() catch {};
 }
 
 fn printFileTree(parent: vfs.Path, term: std.Io.Terminal, indent: usize) !void {
@@ -232,9 +233,9 @@ fn printFileTree(parent: vfs.Path, term: std.Io.Terminal, indent: usize) !void {
         for (0..indent) |_| try term.writer.print("    ", .{});
 
         term.setColor(switch (record.kind) {
-            .file => .white,
+            .file => .bright_white,
             .dir => .blue,
-            .block_device => .yellow,
+            .block_device => .bright_yellow,
         }) catch {};
 
         try term.writer.print("{s}", .{record.getName()});
