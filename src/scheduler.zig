@@ -258,6 +258,16 @@ pub fn scheduleLockHeld(next_state: Thread.State) bool {
     return true;
 }
 
+pub fn wake(tid: Tid) void {
+    const lock = spinlock.lock();
+    defer lock.unlock();
+
+    const t = &threads[tid];
+    std.debug.assert(t.state == .blocked);
+    t.state = .ready;
+    linkReadyThread(tid);
+}
+
 /// assumes scheduler lock is held
 fn wakeSleeping() void {
     const ticks = pit.ticks.load(.monotonic);
@@ -460,9 +470,12 @@ fn idleThread() noreturn {
 
 pub const testing = struct {
     const serial = @import("drivers/x86/serial.zig");
+    const Mutex = @import("sync/Mutex.zig");
+
     var in_buffer: [8]u8 = undefined;
     var in_head: std.atomic.Value(u64) = .init(0);
     var in_tail: std.atomic.Value(u64) = .init(0);
+    var mutex: Mutex = .init;
 
     pub fn run() !void {
         _ = try spawnKernelThread(thread1, .{});
@@ -470,6 +483,9 @@ pub const testing = struct {
     }
 
     fn thread1() noreturn {
+        sleepNs(std.time.ns_per_ms * 500);
+        mutex.lock();
+        mutex.unlock();
         std.log.info("thread 1", .{});
 
         while (true) {
@@ -484,6 +500,10 @@ pub const testing = struct {
     }
 
     fn thread2() noreturn {
+        mutex.lock();
+        sleepNs(std.time.ns_per_s * 2);
+        mutex.unlock();
+
         std.log.info("thread 2", .{});
 
         while (true) {

@@ -139,17 +139,7 @@ fn handler(state: *align(1) arch.cpu.State) callconv(.{ .x86_64_sysv = .{ .incom
             pic.eoi();
 
             const pit = @import("../../drivers/x86/pit.zig");
-            const old_ticks = pit.ticks.fetchAdd(1, .monotonic);
-            const new_ticks = old_ticks + 1;
-
-            const old_ns = old_ticks * pit.period_ns;
-            const new_ns = new_ticks * pit.period_ns;
-
-            const period = std.time.ns_per_ms * 500;
-            if (old_ns / period != new_ns / period) {
-                std.log.info("uptime: {f}, {} ticks", .{ std.Io.Duration{ .nanoseconds = new_ns }, new_ticks });
-            }
-
+            _ = pit.ticks.fetchAdd(1, .monotonic);
             scheduler.preempt();
         },
         0xe => {

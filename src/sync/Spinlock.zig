@@ -49,6 +49,12 @@ pub fn lock(sl: *Spinlock) Lock {
     }
 }
 
+pub fn unlockNoPreserveInt(sl: *Spinlock) void {
+    std.debug.assert(!arch.interrupt.isEnabled());
+    std.debug.assert(sl.status.load(.monotonic) == .locked);
+    sl.status.store(.unlocked, .release);
+}
+
 pub const Lock = struct {
     sl: *Spinlock,
     int_enable: bool,
