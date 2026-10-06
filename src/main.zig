@@ -122,6 +122,7 @@ pub fn kernelMain() noreturn {
     std.log.info("{Bi:.2} used out of {Bi:.2}", .{ pmm.used_pages.load(.monotonic) * mem.page_size, pmm.total_pages * mem.page_size });
 
     pci.check();
+    scheduler.sleepNs(5 * std.time.ns_per_s);
 
     // fsTest() catch |err| {
     //     std.debug.panic("fs test failed: {}", .{err});

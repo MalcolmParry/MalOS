@@ -101,7 +101,8 @@ fn addBuildStep(b: *Build, optimize: std.builtin.OptimizeMode, target: Build.Res
     const root = b.addWriteFiles();
     _ = root.addCopyDirectory(b.path("build/x86_64/disk/"), "", .{});
     _ = root.addCopyFile(kernel, "boot/kernel.elf");
-    _ = root.addCopyFile(src_tar, "boot/kernel_src.tar");
+    if (debug_info)
+        _ = root.addCopyFile(src_tar, "boot/kernel_src.tar");
     root.step.dependOn(&multiboot_check.step);
 
     const mk_fs_img = b.addSystemCommand(&.{ "mkfs.ext2", "-q", "-d" });
@@ -184,6 +185,10 @@ fn addRunStep(b: *Build) !void {
         "-cpu", "Penryn",
         "-display", display,
         "-nodefaults",
+        // "-d", "int,cpu_reset",
+        // "-D", "qemu.log",
+        "--no-reboot",
+        "--no-shutdown",
         "-m", "32M",
         "-smp", "4",
         // zig fmt: on

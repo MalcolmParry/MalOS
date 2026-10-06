@@ -6,6 +6,7 @@ const PageAllocator = @import("heap/PageAllocator.zig");
 const gpa = @import("heap/gpa.zig");
 const debug = @import("debug.zig");
 const assert = std.debug.assert;
+const pit = @import("drivers/x86/pit.zig");
 
 pub const Tid = u32;
 pub const OptTid = enum(Tid) {
@@ -23,7 +24,7 @@ pub const OptTid = enum(Tid) {
 };
 
 pub const ThreadEntry = fn (arg: usize) callconv(.{ .x86_64_sysv = .{ .incoming_stack_alignment = 8 } }) noreturn;
-pub const Thread = struct {
+const Thread = struct {
     state: State,
     prev: OptTid,
     next: OptTid,
@@ -32,26 +33,30 @@ pub const Thread = struct {
     cpu_state: *align(1) arch.cpu.State,
     ext_cpu_state: arch.cpu.ExtendedState,
 
-    pub const State = enum {
+    const State = union(enum) {
         dead,
         zombie,
         ready,
         running,
         blocked,
+        sleeping: struct {
+            until_ticks: u64,
+        },
     };
 };
 
 pub var spinlock: Spinlock = .init;
 pub var current_tid: Tid = undefined;
+var idle_tid: Tid = undefined;
 
-pub var threads: [64]Thread = undefined;
+var threads: [64]Thread = undefined;
 var thread_bump: Tid = 0;
 var first_dead_thread: OptTid = .none;
 var first_zombie_thread: OptTid = .none;
+var first_sleeping_thread: OptTid = .none;
 
 var first_ready_thread: OptTid = .none;
 var last_ready_thread: OptTid = .none;
-var idle_tid: Tid = undefined;
 
 pub fn init() void {
     idle_tid = spawnKernelThread(idleThread, .{}) catch @panic("cant spawn idle thread");
@@ -153,9 +158,20 @@ pub fn spawnKernelThreadRaw(func: ?*const ThreadEntry, arg: usize, stack: []mem.
     return tid;
 }
 
+pub fn sleepTicks(ticks: u64) void {
+    schedule(.{ .sleeping = .{
+        .until_ticks = pit.ticks.load(.monotonic) + ticks + 1,
+    } });
+}
+
+pub fn sleepNs(ns: u64) void {
+    sleepTicks((ns + pit.period_ns - 1) / pit.period_ns);
+}
+
 pub fn exitThread() noreturn {
     _ = spinlock.lock();
     reapZombies();
+    wakeSleeping();
 
     const last_tid = current_tid;
     const last = &threads[last_tid];
@@ -178,6 +194,7 @@ pub fn exitThread() noreturn {
 pub fn preempt() noreturn {
     _ = spinlock.lock();
     reapZombies();
+    wakeSleeping();
 
     const last_tid = current_tid;
     const last = &threads[last_tid];
@@ -201,39 +218,65 @@ pub fn saveState(state: *align(1) arch.cpu.State) void {
     t.cpu_state = state;
 }
 
-// pub fn schedule(next_state: Thread.State) void {
-//     const lock = spinlock.lock();
-//     if (scheduleLockHeld(next_state)) {
-//         // arch.cpu.State.saveAndRestore already released the lock
-//         arch.interrupt.set(lock.int_enable);
-//     } else {
-//         lock.unlock();
-//     }
-// }
-//
-// /// returns true if the context switch happened
-// pub fn scheduleLockHeld(next_state: Thread.State) bool {
-//     const last_tid = current_tid;
-//     const last = &threads[last_tid];
-//     assert(last.state == .running);
-//
-//     last.state = next_state;
-//     switch (next_state) {
-//         .dead, .running => unreachable,
-//         .blocked => {},
-//         .ready => linkReadyThread(last_tid),
-//     }
-//
-//     const next_tid = chooseThread();
-//     const next = &threads[next_tid];
-//     next.state = .running;
-//     if (next_tid == last_tid) return false;
-//
-//     current_tid = next_tid;
-//     next.ext_cpu_state.load();
-//     next.cpu_state.saveAndRestore(&last.cpu_state);
-//     return true;
-// }
+pub fn schedule(next_state: Thread.State) void {
+    const lock = spinlock.lock();
+    if (scheduleLockHeld(next_state)) {
+        // arch.cpu.State.saveAndRestore already released the lock
+        arch.interrupt.set(lock.int_enable);
+    } else {
+        lock.unlock();
+    }
+}
+
+/// returns true if the context switch happened
+pub fn scheduleLockHeld(next_state: Thread.State) bool {
+    wakeSleeping();
+
+    const last_tid = current_tid;
+    const last = &threads[last_tid];
+    assert(last.state == .running);
+
+    var last_state: arch.cpu.State = undefined;
+    last.cpu_state = &last_state;
+
+    last.state = next_state;
+    switch (next_state) {
+        .dead, .zombie, .running => unreachable,
+        .blocked => {},
+        .sleeping => linkSleepingThread(last_tid),
+        .ready => linkReadyThread(last_tid),
+    }
+
+    const next_tid = chooseThread();
+    const next = &threads[next_tid];
+    next.state = .running;
+    if (next_tid == last_tid) return false;
+
+    current_tid = next_tid;
+    next.ext_cpu_state.load();
+    next.cpu_state.saveAndRestore(last.cpu_state);
+    return true;
+}
+
+/// assumes scheduler lock is held
+fn wakeSleeping() void {
+    const ticks = pit.ticks.load(.monotonic);
+    while (true) {
+        const tid = first_sleeping_thread.unwrap() orelse break;
+        const t = &threads[tid];
+        if (t.state.sleeping.until_ticks > ticks) break;
+
+        assert(t.prev == .none);
+        first_sleeping_thread = t.next;
+        if (t.next.unwrap()) |next_tid| {
+            threads[next_tid].prev = .none;
+        }
+        t.next = .none;
+
+        t.state = .ready;
+        linkReadyThread(tid);
+    }
+}
 
 /// assumes scheduler lock is held
 fn chooseThread() Tid {
@@ -293,16 +336,24 @@ fn allocThread() !Tid {
     }
     first_dead_thread = t.next;
 
-    t.* = undefined;
+    t.* = .{
+        .state = .dead,
+        .prev = .none,
+        .next = .none,
+        .cpu_state = undefined,
+        .ext_cpu_state = undefined,
+        .stack = undefined,
+    };
+
     return tid;
 }
 
 /// assumes scheduler lock is held
 fn freeThread(tid: Tid) void {
-    unlinkThread(tid);
-
     const t = &threads[tid];
     t.state = .dead;
+
+    unlinkThread(tid);
 
     if (first_dead_thread.unwrap()) |other_tid| {
         const other = &threads[other_tid];
@@ -319,6 +370,10 @@ fn freeThread(tid: Tid) void {
 /// assumes scheduler lock is held
 fn unlinkThread(tid: Tid) void {
     const t = &threads[tid];
+    switch (t.state) {
+        .ready, .dead => {},
+        else => unreachable,
+    }
 
     if (t.prev.unwrap()) |prev_tid| {
         const prev = &threads[prev_tid];
@@ -356,6 +411,47 @@ fn linkReadyThread(tid: Tid) void {
     }
 
     last_ready_thread = .wrap(tid);
+}
+
+fn linkSleepingThread(tid: Tid) void {
+    const t = &threads[tid];
+    const ticks = t.state.sleeping.until_ticks;
+    assert(t.next == .none);
+    assert(t.prev == .none);
+
+    var next_tid = first_sleeping_thread.unwrap() orelse {
+        t.next = .none;
+        t.prev = .none;
+        first_sleeping_thread = .wrap(tid);
+        return;
+    };
+
+    while (true) {
+        const next = &threads[next_tid];
+        if (next.state.sleeping.until_ticks <= ticks) {
+            if (next.next.unwrap()) |x| {
+                next_tid = x;
+                continue;
+            }
+
+            next.next = .wrap(tid);
+            t.prev = .wrap(next_tid);
+            t.next = .none;
+            return;
+        }
+
+        t.next = .wrap(next_tid);
+        t.prev = next.prev;
+
+        if (next.prev.unwrap()) |prev_tid| {
+            threads[prev_tid].next = .wrap(tid);
+        } else {
+            first_sleeping_thread = .wrap(tid);
+        }
+
+        next.prev = .wrap(tid);
+        return;
+    }
 }
 
 fn idleThread() noreturn {

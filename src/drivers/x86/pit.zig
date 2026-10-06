@@ -1,8 +1,11 @@
+const std = @import("std");
 const arch = @import("../../arch/arch.zig").current;
 
 pub const pit_hz = 1_193_182;
 pub const divisor = pit_hz / 100;
 pub const period_ns = 9_999_315;
+
+pub var ticks: std.atomic.Value(u64) = .init(0);
 
 const ports = struct {
     const ch0: u8 = 0x40;

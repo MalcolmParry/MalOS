@@ -54,6 +54,7 @@ pub const Lock = struct {
     int_enable: bool,
 
     pub fn unlock(l: Lock) void {
+        std.debug.assert(!arch.interrupt.isEnabled());
         std.debug.assert(l.sl.status.load(.monotonic) == .locked);
         l.sl.status.store(.unlocked, .release);
         arch.interrupt.set(l.int_enable);

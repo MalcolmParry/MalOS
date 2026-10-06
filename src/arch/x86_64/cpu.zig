@@ -63,7 +63,7 @@ pub const exception_names = [_][]const u8{
     "control protection",
 };
 
-pub const State = packed struct {
+pub const State = extern struct {
     cr3: u64,
     rbp: u64,
 
@@ -178,21 +178,19 @@ pub const State = packed struct {
     }
 
     // assumes scheduler lock is held
+    // assumes interrupts are disabled
     pub fn saveAndRestore(new: *align(1) const State, old: *align(1) State) void {
-        const old_top = @as([*]u8, @ptrCast(old)) + @sizeOf(State) - 8;
+        const old_top = @intFromPtr(old) + @sizeOf(State);
 
         asm volatile (
-            \\ pushfq
-            \\ pop %rdx
-            \\ cli
             \\ mov %rsp, %rcx
             \\ mov %rax, %rsp
             \\
             \\ push $0x10
             \\ push %rcx
-            \\ push %rdx
+            \\ pushfq
             \\ push $0x8
-            \\ lea 2f, %rdx
+            \\ lea 2f(%rip), %rdx
             \\ push %rdx
             \\ push $0
             \\ push $0
