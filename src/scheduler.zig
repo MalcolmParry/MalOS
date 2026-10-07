@@ -8,9 +8,10 @@ const debug = @import("debug.zig");
 const assert = std.debug.assert;
 const pit = @import("drivers/x86/pit.zig");
 
-pub const Tid = u32;
-pub const OptTid = enum(Tid) {
-    none = std.math.maxInt(Tid),
+// u29 bc mutex stores tid + 3 bits in u32
+pub const Tid = u29;
+pub const OptTid = enum(u32) {
+    none = std.math.maxInt(u32),
     _,
 
     pub fn wrap(x: ?Tid) OptTid {
@@ -19,7 +20,7 @@ pub const OptTid = enum(Tid) {
 
     pub fn unwrap(x: OptTid) ?Tid {
         if (x == .none) return null;
-        return @intFromEnum(x);
+        return @intCast(@intFromEnum(x));
     }
 };
 
