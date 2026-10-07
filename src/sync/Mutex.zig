@@ -52,7 +52,8 @@ pub fn lock(m: *Mutex) void {
         return;
     }
 
-    if (debug_info and s & ~flags_mask == me) {
+    const owner = if (debug_info) s & ~flags_mask else 0;
+    if (debug_info and owner == me) {
         @panic("mutex deadlocked");
     }
 
@@ -69,7 +70,7 @@ pub fn lock(m: *Mutex) void {
     m.last_waiter = &waiter;
 
     _ = scheduler.spinlock.lock();
-    m.state.store(locked | contended | (s & ~flags_mask), .release);
+    m.state.store(locked | contended | owner, .release);
     std.debug.assert(scheduler.scheduleLockHeld(.blocked));
     arch.interrupt.enable();
 }
@@ -92,16 +93,17 @@ pub fn unlock(m: *Mutex) void {
     arch.interrupt.disable();
     _ = acquireWorking(m);
     const w = m.first_waiter.?;
+    const wtid = w.tid;
 
     m.first_waiter = w.next;
     if (w.next == null)
         m.last_waiter = null;
 
     const c_bit = if (w.next != null) contended else 0;
-    const owner = if (debug_info) @as(u32, w.tid) << owner_shift else 0;
+    const owner = if (debug_info) @as(u32, wtid) << owner_shift else 0;
 
     m.state.store(locked | c_bit | owner, .release);
-    scheduler.wake(w.tid);
+    scheduler.wake(wtid);
     arch.interrupt.enable();
 }
 

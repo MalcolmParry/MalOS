@@ -24,7 +24,7 @@ pub const OptTid = enum(u32) {
     }
 };
 
-pub const ThreadEntry = fn (arg: usize) callconv(.{ .x86_64_sysv = .{ .incoming_stack_alignment = 8 } }) noreturn;
+pub const ThreadEntry = fn (arg: usize) callconv(arch.cpu.thread_callconv) noreturn;
 const Thread = struct {
     state: State,
     prev: OptTid,
@@ -85,13 +85,15 @@ fn WrapThreadFunc(func: anytype) ThreadEntry {
         const Ret = @typeInfo(Func).@"fn".return_type.?;
         const Args = std.meta.ArgsTuple(Func);
 
-        fn raw(arg: usize) callconv(.{ .x86_64_sysv = .{ .incoming_stack_alignment = 8 } }) noreturn {
+        fn wrapThreadEntry(arg: usize) callconv(arch.cpu.thread_callconv) noreturn {
             const args_ptr: *Args = @ptrFromInt(arg);
             const args = args_ptr.*;
             gpa.allocator.destroy(args_ptr);
 
             switch (@typeInfo(Ret)) {
-                .noreturn => @call(.auto, func, args),
+                .noreturn => {
+                    @call(.auto, func, args);
+                },
                 .void => {
                     @call(.auto, func, args);
                     exitThread();
@@ -106,7 +108,7 @@ fn WrapThreadFunc(func: anytype) ThreadEntry {
                 else => @compileError("bad return value for thread function"),
             }
         }
-    }.raw;
+    }.wrapThreadEntry;
 }
 
 pub fn spawnKernelThread(func: anytype, args: std.meta.ArgsTuple(@TypeOf(func))) !Tid {
@@ -136,12 +138,10 @@ pub fn spawnKernelThreadRaw(func: ?*const ThreadEntry, arg: usize, stack: []mem.
     errdefer freeThread(tid);
     const t = &threads[tid];
 
-    const top = @intFromPtr(stack.ptr + stack.len);
-    const state: *align(1) arch.cpu.State = @ptrFromInt(top - @sizeOf(arch.cpu.State));
-    state.* = .init(.{
+    const state = arch.cpu.pushInitThreadFrame(.{
         .entry = @intFromPtr(func),
         .arg = arg,
-        .stack_ptr = top,
+        .stack_top = @intFromPtr(stack.ptr + stack.len),
         .phys_page_table = @intFromPtr(&arch.paging.l4_table) - mem.kernel_virt_base,
     });
 

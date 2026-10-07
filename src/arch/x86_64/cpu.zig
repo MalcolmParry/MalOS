@@ -233,25 +233,33 @@ pub const State = extern struct {
                 // zig fmt: on
             });
     }
+};
 
-    const InitInfo = struct {
-        entry: usize,
-        stack_ptr: usize,
-        phys_page_table: usize,
-        arg: usize,
+pub const thread_callconv: std.builtin.CallingConvention = .{ .x86_64_sysv = .{} };
+const ThreadInitInfo = struct {
+    entry: usize,
+    stack_top: usize,
+    phys_page_table: usize,
+    arg: usize,
+};
+
+pub fn pushInitThreadFrame(info: ThreadInitInfo) *align(1) State {
+    const sp = (info.stack_top & ~@as(usize, 15)) - 8;
+    // return address
+    @as(*u64, @ptrFromInt(sp)).* = 0;
+
+    const state: *State = @ptrFromInt(sp - @sizeOf(State));
+    state.* = .{
+        .cr3 = info.phys_page_table,
+        .rbp = 0,
+        .rip = info.entry,
+        .flags = .{ .IF = true },
+        .rsp = sp,
+        .rdi = info.arg,
     };
 
-    pub fn init(info: InitInfo) State {
-        return .{
-            .cr3 = info.phys_page_table,
-            .rbp = info.stack_ptr,
-            .rip = info.entry,
-            .flags = .{ .IF = true },
-            .rsp = info.stack_ptr,
-            .rdi = info.arg,
-        };
-    }
-};
+    return state;
+}
 
 pub const Flags = packed struct(u64) {
     CF: bool = false,

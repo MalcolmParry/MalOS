@@ -37,7 +37,7 @@ pub fn panic(str: []const u8, ret_addr: ?usize) noreturn {
     log.spinlock.status.store(.unlocked, .monotonic);
 
     std.debug.writeCurrentStackTrace(.{
-        .first_address = ret_addr orelse @frameAddress(),
+        .first_address = ret_addr orelse @returnAddress(),
         .allow_unsafe_unwind = true,
     }, log.term) catch {};
 

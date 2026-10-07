@@ -20,7 +20,7 @@ pub const outw = cpu.outw;
 pub const outl = cpu.outl;
 pub const ioWait = cpu.ioWait;
 
-pub fn kernelEntry() callconv(.{ .x86_64_sysv = .{ .incoming_stack_alignment = 16 } }) noreturn {
+pub fn kernelEntry() callconv(.{ .x86_64_sysv = .{} }) noreturn {
     @import("../../main.zig").kernelMain();
 }
 
