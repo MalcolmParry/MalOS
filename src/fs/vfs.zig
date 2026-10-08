@@ -3,8 +3,9 @@ const mem = @import("../memory.zig");
 const pmm = @import("../pmm.zig");
 const arch = @import("../arch/arch.zig");
 const Spinlock = @import("../sync/Spinlock.zig");
+const Mutex = @import("../sync/Mutex.zig");
 const BlockDevice = @import("../block/BlockDevice.zig");
-const alloc = &@import("../heap/direct_map.zig").page_alloc;
+const alloc = @import("../heap/gpa.zig").allocator;
 
 pub var root: Mount = undefined;
 
@@ -29,12 +30,6 @@ pub const CreateOptions = struct {
     kind: Node.Kind,
 };
 
-pub const SeekBase = enum {
-    start,
-    end,
-    current,
-};
-
 /// represents a single mounted filesystem
 pub const SuperBlock = struct {
     root: *Node,
@@ -52,15 +47,15 @@ pub const Node = struct {
 
     ref_count: std.atomic.Value(u32),
     lock: Spinlock = .init,
+    mutex: Mutex = .init,
     data: Data,
 
     pub const VTable = struct {
-        dentry_free: *const fn (entry: *DirEntry) void,
-        dentry_lookup: *const fn (parent: *DirEntry, name: []const u8) Error!*DirEntry = &dentryLookupNoEntry,
-        dentry_create: *const fn (parent: *DirEntry, name: []const u8, opts: CreateOptions) Error!*DirEntry = &dentryCreateReadOnly,
-        dentry_unlink: *const fn (parent: *DirEntry, child: *DirEntry) Error!void = &dentryUnlinkReadOnly,
-
         node_free: *const fn (node: *Node) void,
+        node_lookup: *const fn (parent: *Node, name: []const u8) Error!*Node = &nodeLookupNoEntry,
+        node_create: *const fn (parent: *Node, name: []const u8, opts: CreateOptions) Error!*Node = &nodeCreateReadOnly,
+        node_unlink: *const fn (parent: *Node, name: []const u8) Error!void = &nodeUnlinkReadOnly,
+
         /// assumes caller already locked the page
         node_read_page: *const fn (node: *Node, page_offset: u32, page: pmm.Index) Error!void = &nodeReadPageZero,
         /// assumes caller already locked the page
@@ -69,8 +64,8 @@ pub const Node = struct {
         /// shouldn't touch the page cache, the vfs handles that
         node_resize: ?*const fn (node: *Node, new_size: usize) Error!void = null,
 
-        file_open: *const fn (node: *Node) Error!*File = &fileOpenNotSupported,
-        file_close: *const fn (file: *File) void = &fileClosePanic,
+        file_open: *const fn (node: *Node) Error!*File = &fileOpenDefault,
+        file_close: *const fn (file: *File) void = &fileCloseDefault,
         file_read: ?*const fn (file: *File, buffer: []u8) Error!usize = null,
         file_write: ?*const fn (file: *File, data: []const u8) Error!usize = null,
         /// returns true if wrote to record
@@ -89,8 +84,8 @@ pub const Node = struct {
         block_device: *BlockDevice,
 
         pub const Dir = struct {
-            /// owned by lock
-            first_child: ?*DirEntry,
+            /// owned by mutex
+            entries: std.StringHashMapUnmanaged(*DirEntry),
         };
 
         pub const File = struct {
@@ -130,16 +125,12 @@ pub const Node = struct {
                     pmm.freePage(kv.value_ptr.toPtr());
                 }
 
-                data.cache.deinit(alloc.*);
+                data.cache.deinit(alloc);
             },
             .dir => {
-                var maybe_entry = node.data.dir.first_child;
-                while (maybe_entry) |entry| {
-                    const next = entry.next_sibling;
-                    defer maybe_entry = next;
-
-                    entry.release();
-                }
+                const data = &node.data.dir;
+                std.debug.assert(data.entries.count() == 0);
+                data.entries.deinit(alloc);
             },
             .block_device => {},
         }
@@ -212,9 +203,6 @@ pub const DirEntry = struct {
 
     /// immutable
     parent: ?*DirEntry,
-    /// owned by parent.node.lock
-    next_sibling: ?*DirEntry,
-
     ref_count: std.atomic.Value(u32),
 
     pub fn acquire(entry: *DirEntry) void {
@@ -228,9 +216,14 @@ pub const DirEntry = struct {
         std.debug.assert(prev_count != 0);
         if (prev_count == 1) {
             const node = entry.node;
-            entry.node.vtable.dentry_free(entry);
+            entry.destroy();
             node.release();
         }
+    }
+
+    pub fn destroy(entry: *DirEntry) void {
+        _ = entry;
+        @panic("not implemented");
     }
 
     pub fn getName(entry: *const DirEntry) []const u8 {
@@ -238,8 +231,9 @@ pub const DirEntry = struct {
     }
 
     pub fn lookupNameLocal(parent: *DirEntry, name: []const u8) Error!*DirEntry {
-        if (parent.node.kind != .dir) return error.NotADir;
-        if (name.len == 0) return error.NoEntry;
+        const node = parent.node;
+        if (node.kind != .dir) return error.NotADir;
+        if (name.len == 0 or name.len > max_embedded_name_len) return error.NoEntry;
 
         if (name[0] == '.') {
             if (name.len == 1) {
@@ -252,19 +246,33 @@ pub const DirEntry = struct {
             }
         }
 
-        {
-            const lock = parent.node.lock.lock();
-            defer lock.unlock();
+        const data = &node.data.dir;
+        node.mutex.lock();
+        defer node.mutex.unlock();
 
-            var maybe_entry = parent.node.data.dir.first_child;
-            while (maybe_entry) |entry| : (maybe_entry = entry.next_sibling) {
-                if (!std.mem.eql(u8, entry.getName(), name)) continue;
-                entry.acquire();
-                return entry;
-            }
+        if (data.entries.get(name)) |entry| {
+            entry.acquire();
+            return entry;
         }
 
-        return parent.node.vtable.dentry_lookup(parent, name);
+        const child_node = try node.vtable.node_lookup(parent.node, name);
+        errdefer child_node.destroy();
+
+        const child_dentry = try alloc.create(DirEntry);
+        errdefer alloc.destroy(child_dentry);
+
+        child_dentry.* = .{
+            .node = child_node,
+            .name_len = @intCast(name.len),
+            .name_buf = @splat(0),
+
+            .parent = parent,
+            .ref_count = .init(1),
+        };
+        @memcpy(child_dentry.name_buf[0..name.len], name);
+
+        try data.entries.put(alloc, child_dentry.getName(), child_dentry);
+        return child_dentry;
     }
 
     pub fn lookupLocal(parent: *DirEntry, path: []const u8) Error!*DirEntry {
@@ -516,33 +524,65 @@ pub fn nodeReadPageZero(_: *Node, _: u32, index: pmm.Index) Error!void {
     @memset(direct.bytes[0..], 0);
 }
 
-pub fn nodeWritePageNoop(_: *Node, _: u32, index: pmm.Index) Error!void {
-    index.getDesc().data.vfs_cache.dirty = false;
-}
+pub fn nodeWritePageNoop(_: *Node, _: u32, _: pmm.Index) Error!void {}
 
-pub fn dentryLookupNoEntry(parent: *DirEntry, _: []const u8) Error!*DirEntry {
-    std.debug.assert(parent.node.kind == .dir);
+pub fn nodeLookupNoEntry(parent: *Node, _: []const u8) Error!*Node {
+    std.debug.assert(parent.kind == .dir);
     return error.NoEntry;
 }
 
-pub fn dentryCreateReadOnly(parent: *DirEntry, _: []const u8, _: CreateOptions) Error!*DirEntry {
-    std.debug.assert(parent.node.kind == .dir);
+pub fn nodeCreateReadOnly(parent: *Node, _: []const u8, _: CreateOptions) Error!*Node {
+    std.debug.assert(parent.kind == .dir);
     return error.ReadOnly;
 }
 
-pub fn dentryUnlinkReadOnly(parent: *DirEntry, _: *DirEntry) Error!void {
-    std.debug.assert(parent.node.kind == .dir);
+pub fn nodeUnlinkReadOnly(parent: *Node, _: []const u8) Error!void {
+    std.debug.assert(parent.kind == .dir);
     return error.ReadOnly;
 }
 
-pub fn fileOpenNotSupported(_: *Node) Error!*File {
-    return error.NotSupported;
+pub fn fileOpenDefault(node: *Node) Error!*File {
+    const file = try alloc.create(File);
+    file.* = .{
+        .node = node,
+        .head = 0,
+    };
+
+    node.acquire();
+    return file;
 }
 
-pub fn fileClosePanic(_: *File) void {
-    @panic("not implemented");
+pub fn fileCloseDefault(file: *File) void {
+    file.node.release();
+    alloc.destroy(file);
 }
 
-pub fn fileReadDirNotSupported(_: *File, _: *DirRecord) Error!bool {
+pub fn fileReadDirInCache(file: *File, record: *DirRecord) Error!bool {
+    file.node.mutex.lock();
+    defer file.node.mutex.unlock();
+
+    var lowest: ?*DirEntry = null;
+    var iter = file.node.data.dir.entries.iterator();
+    while (iter.next()) |kv| {
+        const entry = kv.value_ptr.*;
+        const addr = @intFromPtr(entry);
+        if (addr > file.head and (lowest == null or addr < @intFromPtr(lowest.?)))
+            lowest = entry;
+    }
+
+    const entry = lowest orelse return false;
+    record.* = .{
+        .kind = entry.node.kind,
+        .name_len = entry.name_len,
+        .name_buf = @splat(0),
+    };
+    @memcpy(record.name_buf[0..entry.name_len], entry.getName());
+
+    file.head = @intFromPtr(entry);
+    return true;
+}
+
+pub fn fileReadDirNotSupported(file: *File, _: *DirRecord) Error!bool {
+    std.debug.assert(file.node.kind == .dir);
     return error.NotSupported;
 }

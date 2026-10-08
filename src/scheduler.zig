@@ -46,6 +46,7 @@ const Thread = struct {
     };
 };
 
+pub var started: bool = false;
 pub var spinlock: Spinlock = .init;
 pub var current_tid: Tid = undefined;
 var idle_tid: Tid = undefined;

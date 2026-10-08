@@ -35,7 +35,7 @@ comptime {
 }
 
 pub fn lock(m: *Mutex) void {
-    std.debug.assert(arch.interrupt.isEnabled());
+    std.debug.assert(!scheduler.started or arch.interrupt.isEnabled());
     const me = if (debug_info) @as(u32, scheduler.current_tid) << owner_shift else 0;
 
     if (m.state.cmpxchgStrong(0, locked | me, .acquire, .monotonic) == null) {
@@ -76,7 +76,7 @@ pub fn lock(m: *Mutex) void {
 }
 
 pub fn unlock(m: *Mutex) void {
-    std.debug.assert(arch.interrupt.isEnabled());
+    std.debug.assert(!scheduler.started or arch.interrupt.isEnabled());
     const me = if (debug_info) @as(u32, scheduler.current_tid) << owner_shift else 0;
 
     if (debug_info) {
