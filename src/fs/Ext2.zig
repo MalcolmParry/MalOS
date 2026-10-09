@@ -66,8 +66,7 @@ pub fn init(fs: *Ext2, alloc: std.mem.Allocator, bd: *BlockDevice) !*vfs.DirEntr
     errdefer alloc.destroy(root_node);
 
     root.* = .{
-        .name_len = 1,
-        .name_buf = "/".* ++ @as([vfs.max_embedded_name_len - 1]u8, @splat(0)),
+        .name = .initEmbedded("/"),
         .parent = null,
         .ref_count = .init(1),
         .node = &root_node.vfs,
@@ -219,21 +218,22 @@ fn fileReadDir(file: *vfs.File, record: *vfs.DirRecord) vfs.Error!bool {
         if (dentry.inode == 0) continue;
 
         const name = @as([*]u8, @ptrCast(&dentry.name))[0..dentry.name_len];
-        if (name.len > vfs.max_embedded_name_len) return error.NameTooLong;
+        if (name.len > vfs.max_name_len) return error.NameTooLong;
         if (std.mem.eql(u8, name, ".")) continue;
         if (std.mem.eql(u8, name, "..")) continue;
 
         record.* = .{
-            .name_len = @intCast(name.len),
-            .name_buf = @splat(0),
             .kind = switch (dentry.t) {
                 .regular_file => .file,
                 .dir => .dir,
                 else => return error.NotSupported,
             },
+            .name_len = @intCast(name.len),
+            .name_buf = undefined,
         };
 
         @memcpy(record.name_buf[0..name.len], name);
+        @memset(record.name_buf[name.len..], 0);
         return true;
     }
 }
@@ -287,7 +287,7 @@ fn nodeLookup(vfs_parent: *vfs.Node, name: []const u8) vfs.Error!*vfs.Node {
 
             const found_name = @as([*]u8, @ptrCast(&dentry.name))[0..dentry.name_len];
             if (!std.mem.eql(u8, name, found_name)) continue;
-            if (found_name.len > vfs.max_embedded_name_len) return error.NameTooLong;
+            if (found_name.len > vfs.max_name_len) return error.NameTooLong;
 
             const child_inode = fs.getInode(dentry.inode) catch return error.Io;
             const child = try fs.alloc.create(FsNode);

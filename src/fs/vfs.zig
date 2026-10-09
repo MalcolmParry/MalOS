@@ -186,23 +186,75 @@ pub const Node = struct {
 };
 
 pub const DirRecord = struct {
-    name_len: u16,
-    name_buf: [max_embedded_name_len]u8,
     kind: Node.Kind,
+    name_len: u8,
+    name_buf: [max_name_len]u8,
 
     pub fn getName(record: *const DirRecord) []const u8 {
         return record.name_buf[0..record.name_len];
     }
 };
 
-pub const max_embedded_name_len = 32;
+pub const max_name_len = 255;
+pub const max_embedded_name_len = 31;
+
+pub const Name = struct {
+    data: [max_embedded_name_len + 1]u8 align(@alignOf([]u8)),
+
+    comptime {
+        std.debug.assert(@sizeOf(Name) == max_embedded_name_len + 1);
+        std.debug.assert(@sizeOf([]u8) <= max_embedded_name_len);
+    }
+
+    pub fn initEmbedded(str: []const u8) Name {
+        std.debug.assert(str.len != 0);
+        std.debug.assert(str.len <= max_embedded_name_len);
+
+        var name: Name = undefined;
+        const embedded = name.data[0..max_embedded_name_len];
+        name.data[max_embedded_name_len] = @intCast(str.len);
+
+        @memcpy(embedded[0..str.len], str);
+        @memset(embedded[str.len..], 0);
+        return name;
+    }
+
+    pub fn init(name: *Name, str: []const u8) !void {
+        if (str.len <= max_embedded_name_len) {
+            name.* = initEmbedded(str);
+            return;
+        }
+
+        const heap = try alloc.dupe(u8, str);
+        name.* = undefined;
+        name.data[max_embedded_name_len] = 0;
+        const heap_ptr: *[]u8 = @ptrCast(&name.data);
+        heap_ptr.* = heap;
+    }
+
+    pub fn deinit(name: *Name) void {
+        const len = name.data[max_embedded_name_len];
+        if (len != 0) return;
+        const heap_ptr: *[]u8 = @ptrCast(&name.data);
+        alloc.free(heap_ptr.*);
+    }
+
+    pub fn get(name: *const Name) []const u8 {
+        const len = name.data[max_embedded_name_len];
+        if (len == 0) {
+            const heap_ptr: *const []u8 = @ptrCast(&name.data);
+            return heap_ptr.*;
+        }
+
+        return name.data[0..len];
+    }
+};
+
 pub const DirEntry = struct {
     /// immutable
     node: *Node,
     /// immutable
-    name_len: u16,
-    /// immutable
-    name_buf: [max_embedded_name_len]u8,
+    name: Name,
 
     /// immutable
     parent: ?*DirEntry,
@@ -232,17 +284,14 @@ pub const DirEntry = struct {
     pub fn destroy(entry: *DirEntry) void {
         std.debug.assert(entry.ref_count.load(.monotonic) & ~unlinked_bit == 0);
         if (entry.parent) |p| p.release();
+        entry.name.deinit();
         alloc.destroy(entry);
-    }
-
-    pub fn getName(entry: *const DirEntry) []const u8 {
-        return entry.name_buf[0..entry.name_len];
     }
 
     pub fn lookupNameLocal(parent: *DirEntry, name: []const u8) Error!*DirEntry {
         const node = parent.node;
         if (node.kind != .dir) return error.NotADir;
-        if (name.len == 0 or name.len > max_embedded_name_len) return error.NoEntry;
+        if (name.len == 0 or name.len > max_name_len) return error.NoEntry;
 
         if (name[0] == '.') {
             if (name.len == 1) {
@@ -272,15 +321,14 @@ pub const DirEntry = struct {
 
         child_dentry.* = .{
             .node = child_node,
-            .name_len = @intCast(name.len),
-            .name_buf = @splat(0),
-
+            .name = undefined,
             .parent = parent,
             .ref_count = .init(1),
         };
-        @memcpy(child_dentry.name_buf[0..name.len], name);
+        try child_dentry.name.init(name);
+        errdefer child_dentry.name.deinit();
 
-        try data.entries.put(alloc, child_dentry.getName(), child_dentry);
+        try data.entries.put(alloc, child_dentry.name.get(), child_dentry);
 
         parent.acquire();
         return child_dentry;
@@ -508,7 +556,7 @@ pub const Path = struct {
 
 pub fn isNameValid(name: []const u8) bool {
     if (name.len == 0) return false;
-    if (name.len > max_embedded_name_len) return false;
+    if (name.len > max_name_len) return false;
 
     if (std.mem.eql(u8, name, ".")) return false;
     if (std.mem.eql(u8, name, "..")) return false;
@@ -583,12 +631,16 @@ pub fn fileReadDirInCache(file: *File, record: *DirRecord) Error!bool {
     }
 
     const entry = lowest orelse return false;
+    const name = entry.name.get();
+
     record.* = .{
         .kind = entry.node.kind,
-        .name_len = entry.name_len,
-        .name_buf = @splat(0),
+        .name_len = @intCast(name.len),
+        .name_buf = undefined,
     };
-    @memcpy(record.name_buf[0..entry.name_len], entry.getName());
+
+    @memcpy(record.name_buf[0..name.len], name);
+    @memset(record.name_buf[name.len..], 0);
 
     file.head = @intFromPtr(entry);
     return true;

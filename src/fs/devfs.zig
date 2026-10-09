@@ -10,8 +10,7 @@ pub var superblock: vfs.SuperBlock = .{
 pub var root: vfs.DirEntry = .{
     .ref_count = .init(2),
     .node = &root_node,
-    .name_len = 1,
-    .name_buf = @as([1]u8, "/".*) ++ @as([vfs.max_embedded_name_len - 1]u8, @splat(0)),
+    .name = .initEmbedded("/"),
     .parent = null,
 };
 
@@ -31,8 +30,7 @@ pub var root_node: vfs.Node = .{
 var disk_dir: vfs.DirEntry = .{
     .ref_count = .init(0),
     .node = &disk_dir_node,
-    .name_len = 4,
-    .name_buf = @as([4]u8, "disk".*) ++ @as([vfs.max_embedded_name_len - 4]u8, @splat(0)),
+    .name = .initEmbedded("disk"),
     .parent = &root,
 };
 
@@ -48,11 +46,11 @@ var disk_dir_node: vfs.Node = .{
 };
 
 pub fn init() !void {
-    try root_node.data.dir.entries.put(gpa, disk_dir.getName(), &disk_dir);
+    try root_node.data.dir.entries.put(gpa, disk_dir.name.get(), &disk_dir);
 }
 
 pub fn registerDisk(name: []const u8, bd: *BlockDevice) !void {
-    if (name.len > vfs.max_embedded_name_len) return error.NameTooLong;
+    if (name.len > vfs.max_name_len) return error.NameTooLong;
 
     const node = try gpa.create(vfs.Node);
     errdefer gpa.destroy(node);
@@ -73,14 +71,14 @@ pub fn registerDisk(name: []const u8, bd: *BlockDevice) !void {
         .ref_count = .init(0),
         .node = node,
         .parent = &disk_dir,
-        .name_len = @intCast(name.len),
-        .name_buf = @splat(0),
+        .name = undefined,
     };
-    @memcpy(entry.name_buf[0..name.len], name);
+    try entry.name.init(name);
+    errdefer entry.name.deinit();
 
     disk_dir.node.mutex.lock();
     defer disk_dir.node.mutex.unlock();
 
-    try disk_dir.node.data.dir.entries.put(gpa, entry.getName(), entry);
+    try disk_dir.node.data.dir.entries.put(gpa, entry.name.get(), entry);
     disk_dir.acquire();
 }
