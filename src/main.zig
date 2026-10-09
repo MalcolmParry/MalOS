@@ -128,12 +128,12 @@ pub fn kernelMain() noreturn {
     //     std.debug.panic("fs test failed: {}", .{err});
     // };
 
+    arch.interrupt.enable();
     ata_pio.detectAndRegister() catch @panic("failed to detect and register ata devices");
 
     ext2Test() catch |err| debug.dumpErrorAndPanic(err);
 
     // arch.spinWait();
-    scheduler.started = true;
     scheduler.testing.run() catch @panic("");
     scheduler.exitThread();
 }

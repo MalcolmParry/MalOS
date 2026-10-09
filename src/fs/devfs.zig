@@ -8,7 +8,7 @@ pub var superblock: vfs.SuperBlock = .{
 };
 
 pub var root: vfs.DirEntry = .{
-    .ref_count = .init(1),
+    .ref_count = .init(2),
     .node = &root_node,
     .name_len = 1,
     .name_buf = @as([1]u8, "/".*) ++ @as([vfs.max_embedded_name_len - 1]u8, @splat(0)),
@@ -29,7 +29,7 @@ pub var root_node: vfs.Node = .{
 };
 
 var disk_dir: vfs.DirEntry = .{
-    .ref_count = .init(1),
+    .ref_count = .init(0),
     .node = &disk_dir_node,
     .name_len = 4,
     .name_buf = @as([4]u8, "disk".*) ++ @as([vfs.max_embedded_name_len - 4]u8, @splat(0)),
@@ -70,7 +70,7 @@ pub fn registerDisk(name: []const u8, bd: *BlockDevice) !void {
     };
 
     entry.* = .{
-        .ref_count = .init(1),
+        .ref_count = .init(0),
         .node = node,
         .parent = &disk_dir,
         .name_len = @intCast(name.len),
@@ -78,6 +78,7 @@ pub fn registerDisk(name: []const u8, bd: *BlockDevice) !void {
     };
     @memcpy(entry.name_buf[0..name.len], name);
 
+    disk_dir.acquire();
     disk_dir.node.mutex.lock();
     defer disk_dir.node.mutex.unlock();
 

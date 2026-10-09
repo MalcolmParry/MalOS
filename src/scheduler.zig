@@ -46,7 +46,6 @@ const Thread = struct {
     };
 };
 
-pub var started: bool = false;
 pub var spinlock: Spinlock = .init;
 pub var current_tid: Tid = undefined;
 var idle_tid: Tid = undefined;
@@ -485,7 +484,7 @@ pub const testing = struct {
     }
 
     fn thread1() noreturn {
-        sleepNs(std.time.ns_per_ms * 500);
+        sleepNs(std.time.ns_per_ms * 50);
         mutex.lock();
         mutex.unlock();
         std.log.info("thread 1", .{});
@@ -503,7 +502,7 @@ pub const testing = struct {
 
     fn thread2() noreturn {
         mutex.lock();
-        sleepNs(std.time.ns_per_s * 2);
+        sleepNs(std.time.ns_per_ms * 100);
         mutex.unlock();
 
         std.log.info("thread 2", .{});

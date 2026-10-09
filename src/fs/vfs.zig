@@ -45,6 +45,7 @@ pub const Node = struct {
     /// immutable
     sb: *SuperBlock,
 
+    /// count of cached dentries pointing to this + open files + other things using this
     ref_count: std.atomic.Value(u32),
     lock: Spinlock = .init,
     mutex: Mutex = .init,
@@ -98,19 +99,17 @@ pub const Node = struct {
     };
 
     pub fn acquire(node: *Node) void {
-        const prev_count = node.ref_count.fetchAdd(1, .acquire);
-        std.debug.assert(prev_count != 0);
+        const prev = node.ref_count.fetchAdd(1, .acquire);
+        std.debug.assert(prev != 0);
     }
 
     pub fn release(node: *Node) void {
-        const prev_count = node.ref_count.fetchSub(1, .acq_rel);
+        const prev = node.ref_count.fetchSub(1, .release);
+        std.debug.assert(prev != 0);
+        if (prev != 1) return;
 
-        std.debug.assert(prev_count != 0);
-        if (prev_count == 1) node.destroy();
-    }
-
-    pub fn open(node: *Node) Error!*File {
-        return node.vtable.file_open(node);
+        _ = node.ref_count.load(.acquire);
+        node.destroy();
     }
 
     fn destroy(node: *Node) void {
@@ -136,6 +135,10 @@ pub const Node = struct {
         }
 
         node.vtable.node_free(node);
+    }
+
+    pub fn open(node: *Node) Error!*File {
+        return node.vtable.file_open(node);
     }
 
     /// caller needs to unlock page
@@ -203,18 +206,23 @@ pub const DirEntry = struct {
 
     /// immutable
     parent: ?*DirEntry,
+    /// number of child dentries + things currently using this dentry + 1 if root of superblock
+    /// highest bit is unlinked flag
     ref_count: std.atomic.Value(u32),
 
+    const unlinked_bit: u32 = 1 << 31;
     pub fn acquire(entry: *DirEntry) void {
-        const prev_count = entry.ref_count.fetchAdd(1, .acquire);
-        std.debug.assert(prev_count != 0);
+        const prev = entry.ref_count.fetchAdd(1, .acquire);
+        std.debug.assert(prev != unlinked_bit);
+        std.debug.assert(prev & ~unlinked_bit != ~unlinked_bit);
     }
 
     pub fn release(entry: *DirEntry) void {
-        const prev_count = entry.ref_count.fetchSub(1, .acq_rel);
+        const prev = entry.ref_count.fetchSub(1, .release);
+        std.debug.assert(prev & ~unlinked_bit != 0);
 
-        std.debug.assert(prev_count != 0);
-        if (prev_count == 1) {
+        if (prev == 1 | unlinked_bit) {
+            _ = entry.ref_count.load(.acquire);
             const node = entry.node;
             entry.destroy();
             node.release();
@@ -222,8 +230,8 @@ pub const DirEntry = struct {
     }
 
     pub fn destroy(entry: *DirEntry) void {
-        _ = entry;
-        @panic("not implemented");
+        std.debug.assert(entry.ref_count.load(.monotonic) == 0);
+        alloc.destroy(entry);
     }
 
     pub fn getName(entry: *const DirEntry) []const u8 {
@@ -256,7 +264,7 @@ pub const DirEntry = struct {
         }
 
         const child_node = try node.vtable.node_lookup(parent.node, name);
-        errdefer child_node.destroy();
+        errdefer child_node.release();
 
         const child_dentry = try alloc.create(DirEntry);
         errdefer alloc.destroy(child_dentry);
@@ -272,6 +280,8 @@ pub const DirEntry = struct {
         @memcpy(child_dentry.name_buf[0..name.len], name);
 
         try data.entries.put(alloc, child_dentry.getName(), child_dentry);
+
+        parent.acquire();
         return child_dentry;
     }
 
@@ -286,6 +296,7 @@ pub const DirEntry = struct {
         var iter = std.mem.splitScalar(u8, path, '/');
         while (iter.next()) |name| {
             if (name.len == 0) continue;
+            if (current.node.kind != .dir) return error.NotADir;
 
             const next = try current.lookupNameLocal(name);
             if (should_release) current.release();
