@@ -165,7 +165,7 @@ fn fsTest() !void {
 }
 
 fn ext2Test() !void {
-    // const alloc = gpa.allocator;
+    const alloc = gpa.allocator;
 
     var devfs_mount: vfs.Mount = .{
         .target = null,
@@ -180,50 +180,50 @@ fn ext2Test() !void {
 
     const drive_dentry = try devfs.root.lookupLocal("disk/ata0p0");
     defer drive_dentry.release();
-    // const bd = drive_dentry.node.data.block_device;
+    const bd = drive_dentry.node.data.block_device;
 
-    // var fs: Ext2 = undefined;
-    // const root = try fs.init(alloc, bd);
-    // defer {
-    //     root.release();
-    //     fs.deinit();
-    // }
-    //
-    // const hello_txt = try root.lookupLocal("hello.txt");
-    // defer hello_txt.release();
-    //
-    // const file = try hello_txt.node.open();
-    // defer file.close();
-    //
-    // var buffer: [1024]u8 = undefined;
-    // const read = try file.read(&buffer);
-    //
-    // std.log.info("{} bytes read", .{read});
-    // std.log.info("{s}", .{buffer[0..read]});
-    //
-    // vfs.root = .{
-    //     .target = null,
-    //     .src = root,
-    //
-    //     .parent = null,
-    //     .first_child = &devfs_mount,
-    //     .next_sibling = null,
-    // };
-    //
-    // const dev_target = try root.lookupNameLocal("dev");
-    // defer dev_target.release();
-    //
-    // devfs_mount.target = dev_target;
-    //
-    // const root_path = vfs.root.acquireRootPath();
-    // defer root_path.release();
-    //
-    // log.term.setColor(.blue) catch {};
-    // try log.term.writer.print("/", .{});
-    // log.term.setColor(.reset) catch {};
-    // try log.term.writer.print("\n", .{});
-    // try printFileTree(root_path, log.term, 1);
-    // log.writer.flush() catch {};
+    var fs: Ext2 = undefined;
+    const root = try fs.init(alloc, bd);
+    defer {
+        root.release();
+        fs.deinit();
+    }
+
+    const hello_txt = try root.lookupLocal("hello.txt");
+    defer hello_txt.release();
+
+    const file = try hello_txt.node.open();
+    defer file.close();
+
+    var buffer: [1024]u8 = undefined;
+    const read = try file.read(&buffer);
+
+    std.log.info("{} bytes read", .{read});
+    std.log.info("{s}", .{buffer[0..read]});
+
+    vfs.root = .{
+        .target = null,
+        .src = root,
+
+        .parent = null,
+        .first_child = &devfs_mount,
+        .next_sibling = null,
+    };
+
+    const dev_target = try root.lookupNameLocal("dev");
+    defer dev_target.release();
+
+    devfs_mount.target = dev_target;
+
+    const root_path = vfs.root.acquireRootPath();
+    defer root_path.release();
+
+    log.term.setColor(.blue) catch {};
+    try log.term.writer.print("/", .{});
+    log.term.setColor(.reset) catch {};
+    try log.term.writer.print("\n", .{});
+    try printFileTree(root_path, log.term, 1);
+    log.writer.flush() catch {};
 }
 
 fn printFileTree(parent: vfs.Path, term: std.Io.Terminal, indent: usize) !void {

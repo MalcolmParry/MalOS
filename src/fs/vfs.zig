@@ -32,7 +32,7 @@ pub const CreateOptions = struct {
 
 /// represents a single mounted filesystem
 pub const SuperBlock = struct {
-    root: *Node,
+    root: *DirEntry,
 };
 
 /// represents an object in the filesystem
@@ -163,7 +163,7 @@ pub const Node = struct {
 
         try node.vtable.node_read_page(node, page_offset, index);
 
-        try file.cache.put(alloc.*, page_offset, index);
+        try file.cache.put(alloc, page_offset, index);
         return .{ index, desc.data.vfs_cache.lock.lock() };
     }
 
@@ -230,7 +230,8 @@ pub const DirEntry = struct {
     }
 
     pub fn destroy(entry: *DirEntry) void {
-        std.debug.assert(entry.ref_count.load(.monotonic) == 0);
+        std.debug.assert(entry.ref_count.load(.monotonic) & ~unlinked_bit == 0);
+        if (entry.parent) |p| p.release();
         alloc.destroy(entry);
     }
 

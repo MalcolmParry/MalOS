@@ -13,9 +13,6 @@ gdt_descs: []align(1) BlockGroupDesc,
 scratch_block: []u8,
 
 sb: vfs.SuperBlock,
-node_pool: std.heap.MemoryPool(FsNode),
-dentry_pool: std.heap.MemoryPool(FsDirEntry),
-file_pool: std.heap.MemoryPool(vfs.File),
 
 pub fn init(fs: *Ext2, alloc: std.mem.Allocator, bd: *BlockDevice) !*vfs.DirEntry {
     const bd_block_size = bd.blockSize();
@@ -29,13 +26,7 @@ pub fn init(fs: *Ext2, alloc: std.mem.Allocator, bd: *BlockDevice) !*vfs.DirEntr
         .scratch_block = undefined,
 
         .sb = undefined,
-        .node_pool = .empty,
-        .dentry_pool = .empty,
-        .file_pool = .empty,
     };
-    errdefer fs.node_pool.deinit(alloc);
-    errdefer fs.dentry_pool.deinit(alloc);
-    errdefer fs.file_pool.deinit(alloc);
 
     const sb_offset = 1024 & block_size_mask;
     const sb_block_index: u64 = @as(u64, 1024) >> bd.log2_block_size;
@@ -69,39 +60,37 @@ pub fn init(fs: *Ext2, alloc: std.mem.Allocator, bd: *BlockDevice) !*vfs.DirEntr
     try fs.readBlocks(sb_info.first_data_block + 1, gdt_blocks);
     fs.gdt_descs = @as([*]align(1) BlockGroupDesc, @ptrCast(gdt_blocks.ptr))[0..block_group_count];
 
-    const root = try fs.node_pool.create(alloc);
+    const root = try alloc.create(vfs.DirEntry);
+    errdefer alloc.destroy(root);
+    const root_node = try alloc.create(FsNode);
+    errdefer alloc.destroy(root_node);
+
     root.* = .{
+        .name_len = 1,
+        .name_buf = "/".* ++ @as([vfs.max_embedded_name_len - 1]u8, @splat(0)),
+        .parent = null,
+        .ref_count = .init(1),
+        .node = &root_node.vfs,
+    };
+
+    root_node.* = .{
         .vfs = .{
             .kind = .dir,
             .vtable = &node_vtable,
             .sb = &fs.sb,
             .ref_count = .init(1),
             .data = .{ .dir = .{
-                .first_child = null,
+                .entries = .empty,
             } },
         },
         .inode = 2,
     };
 
-    const root_dentry = try fs.dentry_pool.create(alloc);
-    root_dentry.* = .{
-        .vfs = .{
-            .parent = null,
-            .node = &root.vfs,
-            .ref_count = .init(1),
-            .name_buf = @as([1]u8, "/".*) ++ @as([vfs.max_embedded_name_len - 1]u8, @splat(0)),
-            .name_len = 1,
-            .next_sibling = null,
-        },
-        .block_index = std.math.maxInt(u32),
-        .byte_offset = std.math.maxInt(u32),
-    };
-
     fs.sb = .{
-        .root = &root.vfs,
+        .root = root,
     };
 
-    return &root_dentry.vfs;
+    return root;
 }
 
 pub fn deinit(fs: *Ext2) void {
@@ -115,10 +104,6 @@ pub fn deinit(fs: *Ext2) void {
 
     alloc.free(fs.scratch_block);
     alloc.free(fs.sb_blocks);
-
-    fs.node_pool.deinit(alloc);
-    fs.dentry_pool.deinit(alloc);
-    fs.file_pool.deinit(alloc);
 }
 
 fn getInode(fs: *Ext2, inode: u32) !Inode {
@@ -141,7 +126,7 @@ fn getInode(fs: *Ext2, inode: u32) !Inode {
 fn readBlocks(fs: *Ext2, start: u32, buffer: []u8) !void {
     const bd_block_size = fs.bd.blockSize();
     const fs_block_size = fs.sbInfo().blockSize();
-    const bd_blocks_per_fs_block = fs_block_size / bd_block_size;
+    const bd_blocks_per_fs_block: u64 = fs_block_size / bd_block_size;
     std.debug.assert(buffer.len % fs_block_size == 0);
 
     try fs.bd.read(bd_blocks_per_fs_block * start, buffer);
@@ -159,27 +144,32 @@ fn readInodeBlocks(fs: *Ext2, inode: *align(1) const Inode, start: u32, buffer: 
 
         if (current < 12) {
             const block = inode.direct_pointers[current];
-            std.debug.assert(block != 0);
-            try fs.readBlocks(block, buffer[i * block_size ..][0..block_size]);
+            const dest = buffer[i * block_size ..][0..block_size];
+            if (block == 0) {
+                @memset(dest, 0);
+            } else {
+                try fs.readBlocks(block, dest);
+            }
+
             i += 1;
             continue;
         }
 
-        @panic("not implemented");
+        return error.NotSupported;
     }
 }
 
-inline fn sbData(fs: Ext2) *[1024]u8 {
+inline fn sbData(fs: *const Ext2) *[1024]u8 {
     const block_size_mask = fs.bd.blockSize() - 1;
     const sb_offset = 1024 & block_size_mask;
     return fs.sb_blocks[sb_offset..][0..1024];
 }
 
-inline fn sbInfo(fs: Ext2) *align(1) SbInfo {
+inline fn sbInfo(fs: *const Ext2) *align(1) SbInfo {
     return @ptrCast(fs.sbData());
 }
 
-inline fn sbExtraInfo(fs: Ext2) *align(1) SbExtraInfo {
+inline fn sbExtraInfo(fs: *const Ext2) *align(1) SbExtraInfo {
     return @ptrCast(&fs.sbData()[84]);
 }
 
@@ -187,37 +177,7 @@ fn nodeFree(vfs_node: *vfs.Node) void {
     const fs: *Ext2 = @fieldParentPtr("sb", vfs_node.sb);
     const node: *FsNode = @fieldParentPtr("vfs", vfs_node);
 
-    fs.node_pool.destroy(node);
-}
-
-fn dirEntryFree(vfs_dentry: *vfs.DirEntry) void {
-    const fs: *Ext2 = @fieldParentPtr("sb", vfs_dentry.node.sb);
-    const dentry: *FsDirEntry = @fieldParentPtr("vfs", vfs_dentry);
-
-    fs.dentry_pool.destroy(dentry);
-}
-
-fn fileOpen(vfs_node: *vfs.Node) vfs.Error!*vfs.File {
-    const fs: *Ext2 = @fieldParentPtr("sb", vfs_node.sb);
-
-    const file = try fs.file_pool.create(fs.alloc);
-    errdefer fs.file_pool.destroy(file);
-
-    file.* = .{
-        .node = vfs_node,
-        .head = 0,
-    };
-
-    vfs_node.acquire();
-    return file;
-}
-
-fn fileClose(file: *vfs.File) void {
-    const vfs_node = file.node;
-    const fs: *Ext2 = @fieldParentPtr("sb", vfs_node.sb);
-
-    vfs_node.release();
-    fs.file_pool.destroy(file);
+    fs.alloc.destroy(node);
 }
 
 fn fileReadDir(file: *vfs.File, record: *vfs.DirRecord) vfs.Error!bool {
@@ -298,12 +258,12 @@ fn nodeReadPage(vfs_node: *vfs.Node, page_offset: u32, phys_page: pmm.Index) vfs
     @memset(page.bytes[block_count * block_size ..], 0);
 }
 
-fn nodeLookup(vfs_dentry: *vfs.DirEntry, name: []const u8) vfs.Error!*vfs.DirEntry {
-    const fs: *Ext2 = @fieldParentPtr("sb", vfs_dentry.node.sb);
-    const node: *FsNode = @fieldParentPtr("vfs", vfs_dentry.node);
+fn nodeLookup(vfs_parent: *vfs.Node, name: []const u8) vfs.Error!*vfs.Node {
+    const fs: *Ext2 = @fieldParentPtr("sb", vfs_parent.sb);
+    const parent: *FsNode = @fieldParentPtr("vfs", vfs_parent);
     const fs_block_size = fs.sbInfo().blockSize();
 
-    const inode = fs.getInode(node.inode) catch return error.Io;
+    const inode = fs.getInode(parent.inode) catch return error.Io;
     const block_count = (inode.size() + fs_block_size - 1) / fs_block_size;
 
     const block = try fs.alloc.alloc(u8, fs_block_size);
@@ -329,16 +289,12 @@ fn nodeLookup(vfs_dentry: *vfs.DirEntry, name: []const u8) vfs.Error!*vfs.DirEnt
             if (!std.mem.eql(u8, name, found_name)) continue;
             if (found_name.len > vfs.max_embedded_name_len) return error.NameTooLong;
 
-            const new_node = try fs.node_pool.create(fs.alloc);
-            errdefer fs.node_pool.destroy(new_node);
-
-            const new_dentry = try fs.dentry_pool.create(fs.alloc);
-            errdefer fs.dentry_pool.destroy(new_dentry);
-
             const child_inode = fs.getInode(dentry.inode) catch return error.Io;
+            const child = try fs.alloc.create(FsNode);
+            errdefer fs.alloc.destroy(child);
 
             // TODO: this will break with hardlinks
-            new_node.* = .{
+            child.* = .{
                 .vfs = .{
                     .kind = switch (child_inode.t_perm.t) {
                         .regular_file => .file,
@@ -354,7 +310,7 @@ fn nodeLookup(vfs_dentry: *vfs.DirEntry, name: []const u8) vfs.Error!*vfs.DirEnt
                             .cache = .empty,
                         } },
                         .dir => .{ .dir = .{
-                            .first_child = null,
+                            .entries = .empty,
                         } },
                         else => return error.NotSupported,
                     },
@@ -362,22 +318,7 @@ fn nodeLookup(vfs_dentry: *vfs.DirEntry, name: []const u8) vfs.Error!*vfs.DirEnt
                 .inode = dentry.inode,
             };
 
-            new_dentry.* = .{
-                .vfs = .{
-                    .node = &new_node.vfs,
-                    .name_len = @intCast(found_name.len),
-                    .name_buf = @splat(0),
-                    .parent = vfs_dentry,
-                    .next_sibling = vfs_dentry.node.data.dir.first_child,
-                    .ref_count = .init(2),
-                },
-                .block_index = block_i,
-                .byte_offset = @intCast(@intFromPtr(dentry) - @intFromPtr(block.ptr)),
-            };
-
-            @memcpy(new_dentry.vfs.name_buf[0..found_name.len], found_name);
-            vfs_dentry.node.data.dir.first_child = &new_dentry.vfs;
-            return &new_dentry.vfs;
+            return &child.vfs;
         }
     }
 
@@ -386,10 +327,7 @@ fn nodeLookup(vfs_dentry: *vfs.DirEntry, name: []const u8) vfs.Error!*vfs.DirEnt
 
 const node_vtable: vfs.Node.VTable = .{
     .node_free = &nodeFree,
-    .dentry_free = &dirEntryFree,
-    .dentry_lookup = &nodeLookup,
-    .file_open = &fileOpen,
-    .file_close = &fileClose,
+    .node_lookup = &nodeLookup,
     .file_read_dir = &fileReadDir,
     .node_read_page = &nodeReadPage,
 };
@@ -397,12 +335,6 @@ const node_vtable: vfs.Node.VTable = .{
 const FsNode = struct {
     vfs: vfs.Node,
     inode: u32,
-};
-
-const FsDirEntry = struct {
-    vfs: vfs.DirEntry,
-    block_index: u32,
-    byte_offset: u32,
 };
 
 const SbInfo = extern struct {

@@ -4,7 +4,7 @@ const BlockDevice = @import("../block/BlockDevice.zig");
 const gpa = @import("../heap/gpa.zig").allocator;
 
 pub var superblock: vfs.SuperBlock = .{
-    .root = &root_node,
+    .root = &root,
 };
 
 pub var root: vfs.DirEntry = .{
@@ -78,9 +78,9 @@ pub fn registerDisk(name: []const u8, bd: *BlockDevice) !void {
     };
     @memcpy(entry.name_buf[0..name.len], name);
 
-    disk_dir.acquire();
     disk_dir.node.mutex.lock();
     defer disk_dir.node.mutex.unlock();
 
     try disk_dir.node.data.dir.entries.put(gpa, entry.getName(), entry);
+    disk_dir.acquire();
 }
