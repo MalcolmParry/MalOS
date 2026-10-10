@@ -1,4 +1,5 @@
 const std = @import("std");
+const debug = @import("../../debug.zig");
 
 pub const page_size = 4096;
 pub const kernel_virt_base: u64 = 0xffff_ffff_c000_0000;
@@ -21,7 +22,9 @@ pub const outl = cpu.outl;
 pub const ioWait = cpu.ioWait;
 
 pub fn kernelEntry() callconv(.{ .x86_64_sysv = .{} }) noreturn {
-    @import("../../main.zig").kernelMain();
+    @import("../../main.zig").kernelMain() catch |err| {
+        debug.dumpErrorAndPanic(err);
+    };
 }
 
 comptime {

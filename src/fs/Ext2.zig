@@ -13,8 +13,9 @@ gdt_descs: []align(1) BlockGroupDesc,
 scratch_block: []u8,
 
 sb: vfs.SuperBlock,
+root: *vfs.DirEntry,
 
-pub fn init(fs: *Ext2, alloc: std.mem.Allocator, bd: *BlockDevice) !*vfs.DirEntry {
+pub fn init(fs: *Ext2, alloc: std.mem.Allocator, bd: *BlockDevice) !void {
     const bd_block_size = bd.blockSize();
     const block_size_mask = bd_block_size - 1;
 
@@ -26,6 +27,7 @@ pub fn init(fs: *Ext2, alloc: std.mem.Allocator, bd: *BlockDevice) !*vfs.DirEntr
         .scratch_block = undefined,
 
         .sb = undefined,
+        .root = undefined,
     };
 
     const sb_offset = 1024 & block_size_mask;
@@ -60,12 +62,12 @@ pub fn init(fs: *Ext2, alloc: std.mem.Allocator, bd: *BlockDevice) !*vfs.DirEntr
     try fs.readBlocks(sb_info.first_data_block + 1, gdt_blocks);
     fs.gdt_descs = @as([*]align(1) BlockGroupDesc, @ptrCast(gdt_blocks.ptr))[0..block_group_count];
 
-    const root = try alloc.create(vfs.DirEntry);
-    errdefer alloc.destroy(root);
+    fs.root = try alloc.create(vfs.DirEntry);
+    errdefer alloc.destroy(fs.root);
     const root_node = try alloc.create(FsNode);
     errdefer alloc.destroy(root_node);
 
-    root.* = .{
+    fs.root.* = .{
         .name = .initEmbedded("/"),
         .parent = null,
         .ref_count = .init(1),
@@ -86,10 +88,8 @@ pub fn init(fs: *Ext2, alloc: std.mem.Allocator, bd: *BlockDevice) !*vfs.DirEntr
     };
 
     fs.sb = .{
-        .root = root,
+        .mount_count = .init(0),
     };
-
-    return root;
 }
 
 pub fn deinit(fs: *Ext2) void {
@@ -103,6 +103,20 @@ pub fn deinit(fs: *Ext2) void {
 
     alloc.free(fs.scratch_block);
     alloc.free(fs.sb_blocks);
+}
+
+pub fn mount(fs: *Ext2) !*vfs.Mount {
+    const m = try fs.alloc.create(vfs.Mount);
+
+    m.* = .{
+        .target = null,
+        .src = fs.root,
+        .ref_count = .init(0),
+    };
+
+    _ = fs.sb.mount_count.fetchAdd(1, .monotonic);
+    fs.root.acquire();
+    return m;
 }
 
 fn getInode(fs: *Ext2, inode: u32) !Inode {
@@ -172,8 +186,8 @@ inline fn sbExtraInfo(fs: *const Ext2) *align(1) SbExtraInfo {
     return @ptrCast(&fs.sbData()[84]);
 }
 
-fn nodeFree(vfs_node: *vfs.Node) void {
-    const fs: *Ext2 = @fieldParentPtr("sb", vfs_node.sb);
+fn nodeDestroy(vfs_node: *vfs.Node) void {
+    const fs: *Ext2 = @alignCast(@fieldParentPtr("sb", vfs_node.sb));
     const node: *FsNode = @fieldParentPtr("vfs", vfs_node);
 
     fs.alloc.destroy(node);
@@ -182,8 +196,9 @@ fn nodeFree(vfs_node: *vfs.Node) void {
 fn fileReadDir(file: *vfs.File, record: *vfs.DirRecord) vfs.Error!bool {
     if (file.head == std.math.maxInt(u64)) return false;
 
-    const fs: *Ext2 = @fieldParentPtr("sb", file.node.sb);
-    const node: *FsNode = @fieldParentPtr("vfs", file.node);
+    const vfs_node = file.path.dentry.node;
+    const fs: *Ext2 = @alignCast(@fieldParentPtr("sb", vfs_node.sb));
+    const node: *FsNode = @fieldParentPtr("vfs", vfs_node);
     const inode = fs.getInode(node.inode) catch return error.Io;
     const block_size = fs.sbInfo().blockSize();
 
@@ -240,7 +255,7 @@ fn fileReadDir(file: *vfs.File, record: *vfs.DirRecord) vfs.Error!bool {
 
 fn nodeReadPage(vfs_node: *vfs.Node, page_offset: u32, phys_page: pmm.Index) vfs.Error!void {
     const node: *FsNode = @fieldParentPtr("vfs", vfs_node);
-    const fs: *Ext2 = @fieldParentPtr("sb", vfs_node.sb);
+    const fs: *Ext2 = @alignCast(@fieldParentPtr("sb", vfs_node.sb));
     const block_size = fs.sbInfo().blockSize();
     const blocks_in_file = (vfs_node.data.file.size + block_size - 1) / block_size;
     const blocks_per_page = mem.page_size / block_size;
@@ -259,7 +274,7 @@ fn nodeReadPage(vfs_node: *vfs.Node, page_offset: u32, phys_page: pmm.Index) vfs
 }
 
 fn nodeLookup(vfs_parent: *vfs.Node, name: []const u8) vfs.Error!*vfs.Node {
-    const fs: *Ext2 = @fieldParentPtr("sb", vfs_parent.sb);
+    const fs: *Ext2 = @alignCast(@fieldParentPtr("sb", vfs_parent.sb));
     const parent: *FsNode = @fieldParentPtr("vfs", vfs_parent);
     const fs_block_size = fs.sbInfo().blockSize();
 
@@ -326,7 +341,7 @@ fn nodeLookup(vfs_parent: *vfs.Node, name: []const u8) vfs.Error!*vfs.Node {
 }
 
 const node_vtable: vfs.Node.VTable = .{
-    .node_free = &nodeFree,
+    .node_destroy = &nodeDestroy,
     .node_lookup = &nodeLookup,
     .file_read_dir = &fileReadDir,
     .node_read_page = &nodeReadPage,

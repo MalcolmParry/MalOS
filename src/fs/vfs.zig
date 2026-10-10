@@ -7,7 +7,9 @@ const Mutex = @import("../sync/Mutex.zig");
 const BlockDevice = @import("../block/BlockDevice.zig");
 const alloc = @import("../heap/gpa.zig").allocator;
 
-pub var root: Mount = undefined;
+pub var root: ?*Mount = null;
+var mounts: std.AutoHashMapUnmanaged(Path, *Mount) = .empty;
+var mounts_lock: Spinlock = .init;
 
 pub const Error = error{
     OutOfMemory,
@@ -32,7 +34,7 @@ pub const CreateOptions = struct {
 
 /// represents a single mounted filesystem
 pub const SuperBlock = struct {
-    root: *DirEntry,
+    mount_count: std.atomic.Value(u32),
 };
 
 /// represents an object in the filesystem
@@ -52,7 +54,7 @@ pub const Node = struct {
     data: Data,
 
     pub const VTable = struct {
-        node_free: *const fn (node: *Node) void,
+        node_destroy: *const fn (node: *Node) void,
         node_lookup: *const fn (parent: *Node, name: []const u8) Error!*Node = &nodeLookupNoEntry,
         node_create: *const fn (parent: *Node, name: []const u8, opts: CreateOptions) Error!*Node = &nodeCreateReadOnly,
         node_unlink: *const fn (parent: *Node, name: []const u8) Error!void = &nodeUnlinkReadOnly,
@@ -134,11 +136,7 @@ pub const Node = struct {
             .block_device => {},
         }
 
-        node.vtable.node_free(node);
-    }
-
-    pub fn open(node: *Node) Error!*File {
-        return node.vtable.file_open(node);
+        node.vtable.node_destroy(node);
     }
 
     /// caller needs to unlock page
@@ -258,7 +256,7 @@ pub const DirEntry = struct {
 
     /// immutable
     parent: ?*DirEntry,
-    /// number of child dentries + things currently using this dentry + 1 if root of superblock
+    /// number of child dentries + things currently using this dentry + 1 if root of superblock + 1 if mount root
     /// highest bit is unlinked flag
     ref_count: std.atomic.Value(u32),
 
@@ -290,18 +288,12 @@ pub const DirEntry = struct {
 
     pub fn lookupNameLocal(parent: *DirEntry, name: []const u8) Error!*DirEntry {
         const node = parent.node;
-        if (node.kind != .dir) return error.NotADir;
-        if (name.len == 0 or name.len > max_name_len) return error.NoEntry;
+        std.debug.assert(node.kind == .dir);
+        std.debug.assert(name.len != 0 and name.len <= max_name_len);
 
         if (name[0] == '.') {
-            if (name.len == 1) {
-                parent.acquire();
-                return parent;
-            } else if (name.len == 2 and name[1] == '.') {
-                const parent_parent = parent.parent orelse return error.NoParent;
-                parent_parent.acquire();
-                return parent_parent;
-            }
+            if (name.len == 1) unreachable;
+            if (name.len == 2 and name[1] == '.') unreachable;
         }
 
         const data = &node.data.dir;
@@ -334,28 +326,6 @@ pub const DirEntry = struct {
         return child_dentry;
     }
 
-    pub fn lookupLocal(parent: *DirEntry, path: []const u8) Error!*DirEntry {
-        if (path.len == 0) return error.NoEntry;
-        if (path[0] == '/') return error.NoParent;
-
-        var current = parent;
-        var should_release: bool = false;
-        errdefer if (should_release) current.release();
-
-        var iter = std.mem.splitScalar(u8, path, '/');
-        while (iter.next()) |name| {
-            if (name.len == 0) continue;
-            if (current.node.kind != .dir) return error.NotADir;
-
-            const next = try current.lookupNameLocal(name);
-            if (should_release) current.release();
-            should_release = true;
-            current = next;
-        }
-
-        return current;
-    }
-
     pub fn create(parent: *DirEntry, name: []const u8, opts: CreateOptions) Error!*DirEntry {
         if (parent.node.kind != .dir) return error.NotADir;
         if (!isNameValid(name)) return error.InvalidName;
@@ -370,21 +340,25 @@ pub const DirEntry = struct {
 
 pub const File = struct {
     /// immutable
-    node: *Node,
+    path: Path,
     head: u64 = 0,
 
     pub fn close(file: *File) void {
-        return file.node.vtable.file_close(file);
+        const path = file.path;
+        const node = path.dentry.node;
+        node.vtable.file_close(file);
+        path.release();
     }
 
     pub fn read(file: *File, buffer: []u8) Error!usize {
-        if (file.node.kind != .file) return error.NotAFile;
-        if (file.node.vtable.file_read) |func| return func(file, buffer);
+        const node = file.path.dentry.node;
+        if (node.kind != .file) return error.NotAFile;
+        if (node.vtable.file_read) |func| return func(file, buffer);
 
-        const lock = file.node.lock.lock();
+        const lock = node.lock.lock();
         defer lock.unlock();
 
-        const file_data = &file.node.data.file;
+        const file_data = &node.data.file;
         const end = @min(file.head + buffer.len, file_data.size);
         if (end <= file.head) return 0;
 
@@ -393,7 +367,7 @@ pub const File = struct {
         while (head < end) {
             const page_offset: u32 = @intCast(head / mem.page_size);
 
-            const page_index, const page_lock = try file.node.getOrCreatePage(page_offset);
+            const page_index, const page_lock = try node.getOrCreatePage(page_offset);
             defer page_lock.unlock();
 
             const direct = page_index.toDirectMap();
@@ -446,25 +420,51 @@ pub const File = struct {
     }
 
     pub fn readDir(file: *File, record: *DirRecord) Error!bool {
-        if (file.node.kind != .dir) return error.NotADir;
-        return file.node.vtable.file_read_dir(file, record);
+        const node = file.path.dentry.node;
+        if (node.kind != .dir) return error.NotADir;
+        return node.vtable.file_read_dir(file, record);
     }
 };
 
 pub const Mount = struct {
-    target: ?*DirEntry,
+    target: ?Path,
     src: *DirEntry,
+    /// open path count + sub mount count
+    ref_count: std.atomic.Value(u32),
 
-    parent: ?*Mount,
-    first_child: ?*Mount,
-    next_sibling: ?*Mount,
+    pub fn acquire(mount: *Mount) void {
+        _ = mount.ref_count.fetchAdd(1, .monotonic);
+    }
+
+    pub fn release(mount: *Mount) void {
+        const prev = mount.ref_count.fetchSub(1, .release);
+        std.debug.assert(prev != 0);
+    }
 
     pub fn acquireRootPath(mount: *Mount) Path {
-        mount.src.acquire();
-        return .{
+        const path: Path = .{
             .mount = mount,
             .dentry = mount.src,
         };
+
+        path.acquire();
+        return path;
+    }
+
+    pub fn mountOnto(mount: *Mount, target: Path) !void {
+        if (mount.target != null) return error.AlreadyMounted;
+        if (target.dentry == target.mount.src) return error.Busy;
+        if (target.dentry.node.kind != .dir) return error.NotADir;
+
+        const lock = mounts_lock.lock();
+        defer lock.unlock();
+
+        const res = try mounts.getOrPut(alloc, target);
+        if (res.found_existing) return error.Busy;
+        res.value_ptr.* = mount;
+
+        mount.target = target;
+        target.acquire();
     }
 };
 
@@ -473,59 +473,63 @@ pub const Path = struct {
     dentry: *DirEntry,
 
     pub fn acquire(path: Path) void {
+        path.mount.acquire();
         path.dentry.acquire();
     }
 
     pub fn release(path: Path) void {
         path.dentry.release();
+        path.mount.release();
     }
 
     pub fn lookupName(parent: Path, name: []const u8) Error!Path {
-        if (std.mem.eql(u8, name, "..")) {
-            if (parent.mount.src == parent.dentry) {
-                const mount = parent.mount.parent orelse return error.NoParent;
-                const target = parent.mount.target orelse return error.NoParent;
-                const dentry = target.parent orelse return error.NoParent;
-                dentry.acquire();
+        if (name.len == 0) return error.NoEntry;
 
-                return .{
-                    .mount = mount,
+        if (name[0] == '.') {
+            if (name.len == 2 and name[1] == '.') {
+                if (parent.mount.src == parent.dentry) {
+                    const target = parent.mount.target orelse return error.NoParent;
+                    const dentry = target.dentry.parent orelse return error.NoParent;
+                    const path: Path = .{
+                        .mount = target.mount,
+                        .dentry = dentry,
+                    };
+
+                    path.acquire();
+                    return path;
+                }
+
+                const dentry = parent.dentry.parent orelse return error.NoParent;
+                const path: Path = .{
+                    .mount = parent.mount,
                     .dentry = dentry,
                 };
+
+                path.acquire();
+                return path;
+            } else if (name.len == 1) {
+                parent.acquire();
+                return parent;
             }
-
-            const dentry = parent.dentry.parent orelse return error.NoParent;
-            dentry.acquire();
-
-            return .{
-                .mount = parent.mount,
-                .dentry = dentry,
-            };
-        }
-
-        if (std.mem.eql(u8, name, ".")) {
-            parent.acquire();
-            return parent;
         }
 
         const direct = try parent.dentry.lookupNameLocal(name);
-
-        var maybe_child = parent.mount.first_child;
-        while (maybe_child) |child| : (maybe_child = child.next_sibling) {
-            if (child.target != direct) continue;
-            child.src.acquire();
-            direct.release();
-
-            return .{
-                .mount = child,
-                .dentry = child.src,
-            };
-        }
-
-        return .{
+        const direct_path: Path = .{
             .mount = parent.mount,
             .dentry = direct,
         };
+
+        const lock = mounts_lock.lock();
+        defer lock.unlock();
+
+        if (mounts.get(direct_path)) |mount| {
+            const new = mount.acquireRootPath();
+            direct.release();
+            return new;
+        }
+
+        parent.mount.acquire();
+        return direct_path;
     }
 
     pub fn lookup(parent: Path, path: []const u8) Error!Path {
@@ -536,7 +540,8 @@ pub const Path = struct {
         errdefer if (should_release) current.release();
 
         if (path[0] == '/') {
-            current = root.acquireRootPath();
+            if (root == null) return error.NoParent;
+            current = root.?.acquireRootPath();
             should_release = true;
         }
 
@@ -551,6 +556,14 @@ pub const Path = struct {
         }
 
         return current;
+    }
+
+    pub fn open(path: Path) Error!*File {
+        const node = path.dentry.node;
+        const file = try node.vtable.file_open(node);
+        file.path = path;
+        path.acquire();
+        return file;
     }
 };
 
@@ -571,11 +584,7 @@ pub fn isNameValid(name: []const u8) bool {
     return true;
 }
 
-pub fn nodeFreePanic(_: *Node) void {
-    @panic("not implemented");
-}
-
-pub fn dentryFreePanic(_: *DirEntry) void {
+pub fn nodeDestroyPanic(_: *Node) void {
     @panic("not implemented");
 }
 
@@ -601,28 +610,26 @@ pub fn nodeUnlinkReadOnly(parent: *Node, _: []const u8) Error!void {
     return error.ReadOnly;
 }
 
-pub fn fileOpenDefault(node: *Node) Error!*File {
+pub fn fileOpenDefault(_: *Node) Error!*File {
     const file = try alloc.create(File);
     file.* = .{
-        .node = node,
+        .path = undefined,
         .head = 0,
     };
-
-    node.acquire();
     return file;
 }
 
 pub fn fileCloseDefault(file: *File) void {
-    file.node.release();
     alloc.destroy(file);
 }
 
 pub fn fileReadDirInCache(file: *File, record: *DirRecord) Error!bool {
-    file.node.mutex.lock();
-    defer file.node.mutex.unlock();
+    const node = file.path.dentry.node;
+    node.mutex.lock();
+    defer node.mutex.unlock();
 
     var lowest: ?*DirEntry = null;
-    var iter = file.node.data.dir.entries.iterator();
+    var iter = node.data.dir.entries.iterator();
     while (iter.next()) |kv| {
         const entry = kv.value_ptr.*;
         const addr = @intFromPtr(entry);
@@ -647,6 +654,6 @@ pub fn fileReadDirInCache(file: *File, record: *DirRecord) Error!bool {
 }
 
 pub fn fileReadDirNotSupported(file: *File, _: *DirRecord) Error!bool {
-    std.debug.assert(file.node.kind == .dir);
+    std.debug.assert(file.path.dentry.node.kind == .dir);
     return error.NotSupported;
 }

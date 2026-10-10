@@ -36,7 +36,7 @@ pub const os = struct {
     };
 };
 
-pub fn kernelMain() noreturn {
+pub fn kernelMain() !noreturn {
     arch.interrupt.init();
     log.writer.print("\x1b[H\x1b[2J\x1b[3J", .{}) catch {};
 
@@ -56,7 +56,7 @@ pub fn kernelMain() noreturn {
     const page_table = arch.paging.init(&boot_info);
     PageAllocator.global = .{
         .table = page_table,
-        .vmm = Vmm.init(arch.paging.heap_range) catch @panic("failed to init vmm"),
+        .vmm = try Vmm.init(arch.paging.heap_range),
         .default_flags = .{
             .writable = true,
             .executable = false,
@@ -74,13 +74,13 @@ pub fn kernelMain() noreturn {
 
     for (boot_info.module_buffer[0..boot_info.module_count]) |*module| {
         const phys_pages = mem.physPageAlignOutwards(module.phys_range);
-        const pages = PageAllocator.global.map(phys_pages, .{
+        const pages = try PageAllocator.global.map(phys_pages, .{
             .writable = false,
             .executable = false,
             .global = true,
             .user = false,
             .cache_mode = .full,
-        }) catch @panic("can't map module");
+        });
         const bytes = std.mem.sliceAsBytes(pages);
         module.data = bytes;
 
@@ -93,13 +93,13 @@ pub fn kernelMain() noreturn {
 
         const page_offset = @intFromPtr(section.phys_range.ptr) % mem.page_size;
         const phys_pages = mem.physPageAlignOutwards(section.phys_range);
-        const pages = PageAllocator.global.map(phys_pages, .{
+        const pages = try PageAllocator.global.map(phys_pages, .{
             .writable = false,
             .executable = false,
             .global = true,
             .user = false,
             .cache_mode = .full,
-        }) catch @panic("can't map debug elf sections");
+        });
 
         const bytes = std.mem.sliceAsBytes(pages);
         section.data = (bytes.ptr + page_offset)[0..section.phys_range.len];
@@ -121,78 +121,44 @@ pub fn kernelMain() noreturn {
     std.log.info("Memory Allocated {Bi}", .{page_count * mem.page_size});
     std.log.info("{Bi:.2} used out of {Bi:.2}", .{ pmm.used_pages.load(.monotonic) * mem.page_size, pmm.total_pages * mem.page_size });
 
-    devfs.init() catch |err| debug.dumpErrorAndPanic(err);
+    try devfs.init();
     pci.check();
 
-    // fsTest() catch |err| {
-    //     std.debug.panic("fs test failed: {}", .{err});
-    // };
-
     arch.interrupt.enable();
-    ata_pio.detectAndRegister() catch @panic("failed to detect and register ata devices");
+    try ata_pio.detectAndRegister();
 
-    ext2Test() catch |err| debug.dumpErrorAndPanic(err);
+    try ext2Test();
 
     // arch.spinWait();
-    scheduler.testing.run() catch @panic("");
+    try scheduler.testing.run();
     scheduler.exitThread();
-}
-
-fn fsTest() !void {
-    const alloc = PageAllocator.global.allocator();
-
-    var ramfs: Ramfs = undefined;
-    const root = try ramfs.init(alloc);
-    defer {
-        root.decRef();
-        ramfs.deinit();
-    }
-
-    const dentry = try root.node.vtable.node_create(root, "thing.txt", .{ .kind = .file });
-    defer dentry.decRef();
-    defer root.node.vtable.node_unlink(root, dentry) catch @panic("");
-
-    const open = try dentry.node.vtable.file_open(dentry.node);
-    defer open.node.vtable.file_close(open);
-
-    const test_str = "hello world";
-    std.debug.assert(try open.write(test_str) == test_str.len);
-
-    open.head = 0;
-    var buffer: [test_str.len]u8 = undefined;
-    std.debug.assert(try open.read(&buffer) == test_str.len);
-    std.debug.assert(std.mem.eql(u8, buffer[0..], test_str));
 }
 
 fn ext2Test() !void {
     const alloc = gpa.allocator;
 
-    var devfs_mount: vfs.Mount = .{
-        .target = null,
-        .src = &devfs.root,
+    const devfs_mount = try devfs.mount();
+    const devfs_root = devfs_mount.acquireRootPath();
+    defer devfs_root.release();
 
-        .parent = &vfs.root,
-        .first_child = null,
-        .next_sibling = null,
-    };
+    try printFileTree(devfs_root, log.term, 0);
 
-    try printFileTree(.{ .mount = &devfs_mount, .dentry = &devfs.root }, log.term, 0);
-
-    const drive_dentry = try devfs.root.lookupLocal("disk/ata0p0");
-    defer drive_dentry.release();
-    const bd = drive_dentry.node.data.block_device;
+    const drive = try devfs_root.lookup("disk/ata0p0");
+    defer drive.release();
+    const bd = drive.dentry.node.data.block_device;
 
     var fs: Ext2 = undefined;
-    const root = try fs.init(alloc, bd);
-    defer {
-        root.release();
-        fs.deinit();
-    }
+    try fs.init(alloc, bd);
+    const root_mount = try fs.mount();
+    vfs.root = root_mount;
 
-    const hello_txt = try root.lookupLocal("hello.txt");
+    const root = root_mount.acquireRootPath();
+    defer root.release();
+
+    const hello_txt = try root.lookup("hello.txt");
     defer hello_txt.release();
 
-    const file = try hello_txt.node.open();
+    const file = try hello_txt.open();
     defer file.close();
 
     var buffer: [1024]u8 = undefined;
@@ -201,33 +167,20 @@ fn ext2Test() !void {
     std.log.info("{} bytes read", .{read});
     std.log.info("{s}", .{buffer[0..read]});
 
-    vfs.root = .{
-        .target = null,
-        .src = root,
-
-        .parent = null,
-        .first_child = &devfs_mount,
-        .next_sibling = null,
-    };
-
-    const dev_target = try root.lookupNameLocal("dev");
+    const dev_target = try root.lookup("dev");
     defer dev_target.release();
-
-    devfs_mount.target = dev_target;
-
-    const root_path = vfs.root.acquireRootPath();
-    defer root_path.release();
+    try devfs_mount.mountOnto(dev_target);
 
     log.term.setColor(.blue) catch {};
     try log.term.writer.print("/", .{});
     log.term.setColor(.reset) catch {};
     try log.term.writer.print("\n", .{});
-    try printFileTree(root_path, log.term, 1);
+    try printFileTree(root, log.term, 1);
     log.writer.flush() catch {};
 }
 
 fn printFileTree(parent: vfs.Path, term: std.Io.Terminal, indent: usize) !void {
-    const file = try parent.dentry.node.open();
+    const file = try parent.open();
     defer file.close();
 
     var record: vfs.DirRecord = undefined;
