@@ -6,6 +6,7 @@ const gpa = @import("../heap/gpa.zig").allocator;
 pub var superblock: vfs.SuperBlock = .{
     .mount_count = .init(1),
     .destroy_ptr = &vfs.sbDestroyPanic,
+    .root = &root,
 };
 
 pub var root: vfs.DirEntry = .{

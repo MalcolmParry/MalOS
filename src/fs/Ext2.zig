@@ -98,6 +98,7 @@ pub fn create(alloc: std.mem.Allocator, bd_path: vfs.Path) !*vfs.Mount {
     fs.sb = .{
         .mount_count = .init(0),
         .destroy_ptr = &sbDestroy,
+        .root = fs.root,
     };
 
     return vfs.Mount.create(fs.root);

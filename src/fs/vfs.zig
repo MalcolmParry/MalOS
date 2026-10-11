@@ -37,10 +37,32 @@ pub const SuperBlock = struct {
     /// + 1 if permanent
     mount_count: std.atomic.Value(u32),
     destroy_ptr: *const fn (sb: *SuperBlock) void,
+    root: *DirEntry,
 
     pub fn destroy(sb: *SuperBlock) void {
         std.debug.assert(sb.mount_count.load(.monotonic) == 0);
-        // TODO: delete dentries
+
+        var current = sb.root;
+        current.release();
+
+        while (true) {
+            if (current.ref_count.load(.monotonic) == 0) {
+                const next = current.parent;
+                const node = current.node;
+                current.destroy();
+                node.release();
+                current = next orelse break;
+                continue;
+            }
+
+            std.debug.assert(current.node.kind == .dir);
+            const map = &current.node.data.dir.entries;
+            var iter = map.iterator();
+            const kv = iter.next() orelse @panic("dentry still referenced at unmount");
+            current = kv.value_ptr.*;
+            map.removeByPtr(kv.key_ptr);
+        }
+
         sb.destroy_ptr(sb);
     }
 };
