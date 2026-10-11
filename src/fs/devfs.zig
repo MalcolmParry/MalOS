@@ -4,7 +4,8 @@ const BlockDevice = @import("../block/BlockDevice.zig");
 const gpa = @import("../heap/gpa.zig").allocator;
 
 pub var superblock: vfs.SuperBlock = .{
-    .mount_count = .init(0),
+    .mount_count = .init(1),
+    .destroy_ptr = &vfs.sbDestroyPanic,
 };
 
 pub var root: vfs.DirEntry = .{
@@ -50,17 +51,7 @@ pub fn init() !void {
 }
 
 pub fn mount() !*vfs.Mount {
-    const m = try gpa.create(vfs.Mount);
-
-    m.* = .{
-        .target = null,
-        .src = &root,
-        .ref_count = .init(0),
-    };
-
-    _ = superblock.mount_count.fetchAdd(1, .monotonic);
-    root.acquire();
-    return m;
+    return vfs.Mount.create(&root);
 }
 
 pub fn registerDisk(name: []const u8, bd: *BlockDevice) !void {
@@ -93,6 +84,6 @@ pub fn registerDisk(name: []const u8, bd: *BlockDevice) !void {
     disk_dir.node.mutex.lock();
     defer disk_dir.node.mutex.unlock();
 
-    try disk_dir.node.data.dir.entries.put(gpa, entry.name.get(), entry);
+    try disk_dir.node.data.dir.entries.putNoClobber(gpa, entry.name.get(), entry);
     disk_dir.acquire();
 }

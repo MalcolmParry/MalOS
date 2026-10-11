@@ -138,6 +138,8 @@ fn ext2Test() !void {
     const alloc = gpa.allocator;
 
     const devfs_mount = try devfs.mount();
+    defer devfs_mount.unmount() catch unreachable;
+
     const devfs_root = devfs_mount.acquireRootPath();
     defer devfs_root.release();
 
@@ -145,11 +147,9 @@ fn ext2Test() !void {
 
     const drive = try devfs_root.lookup("disk/ata0p0");
     defer drive.release();
-    const bd = drive.dentry.node.data.block_device;
 
-    var fs: Ext2 = undefined;
-    try fs.init(alloc, bd);
-    const root_mount = try fs.mount();
+    const root_mount = try Ext2.create(alloc, drive);
+    defer root_mount.unmount() catch unreachable;
     vfs.root = root_mount;
 
     const root = root_mount.acquireRootPath();
@@ -170,6 +170,7 @@ fn ext2Test() !void {
     const dev_target = try root.lookup("dev");
     defer dev_target.release();
     try devfs_mount.mountOnto(dev_target);
+    defer devfs_mount.makeOrphan();
 
     log.term.setColor(.blue) catch {};
     try log.term.writer.print("/", .{});

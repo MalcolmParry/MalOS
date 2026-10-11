@@ -34,7 +34,15 @@ pub const CreateOptions = struct {
 
 /// represents a single mounted filesystem
 pub const SuperBlock = struct {
+    /// + 1 if permanent
     mount_count: std.atomic.Value(u32),
+    destroy_ptr: *const fn (sb: *SuperBlock) void,
+
+    pub fn destroy(sb: *SuperBlock) void {
+        std.debug.assert(sb.mount_count.load(.monotonic) == 0);
+        // TODO: delete dentries
+        sb.destroy_ptr(sb);
+    }
 };
 
 /// represents an object in the filesystem
@@ -441,6 +449,41 @@ pub const Mount = struct {
         std.debug.assert(prev != 0);
     }
 
+    pub fn unmount(mount: *Mount) Error!void {
+        {
+            const lock = mounts_lock.lock();
+            defer lock.unlock();
+
+            if (mount.ref_count.load(.monotonic) != 0) return error.Busy;
+            if (mount.target) |x| {
+                std.debug.assert(mounts.remove(x));
+            }
+        }
+
+        // not thread safe
+        if (mount == root) root = null;
+        if (mount.target) |x| x.release();
+
+        const sb = mount.src.node.sb;
+        mount.src.release();
+        alloc.destroy(mount);
+
+        const prev = sb.mount_count.fetchSub(1, .release);
+        std.debug.assert(prev != 0);
+        if (prev == 1) {
+            _ = sb.mount_count.load(.acquire);
+            sb.destroy();
+        }
+    }
+
+    /// not thread safe
+    pub fn makeOrphan(mount: *Mount) void {
+        const target = mount.target orelse return;
+        mount.target = null;
+        std.debug.assert(mounts.remove(target));
+        target.release();
+    }
+
     pub fn acquireRootPath(mount: *Mount) Path {
         const path: Path = .{
             .mount = mount,
@@ -449,6 +492,19 @@ pub const Mount = struct {
 
         path.acquire();
         return path;
+    }
+
+    pub fn create(src: *DirEntry) !*Mount {
+        const m = try alloc.create(Mount);
+        m.* = .{
+            .target = null,
+            .src = src,
+            .ref_count = .init(0),
+        };
+
+        src.acquire();
+        _ = src.node.sb.mount_count.fetchAdd(1, .acquire);
+        return m;
     }
 
     pub fn mountOnto(mount: *Mount, target: Path) !void {
@@ -483,7 +539,9 @@ pub const Path = struct {
     }
 
     pub fn lookupName(parent: Path, name: []const u8) Error!Path {
+        if (parent.dentry.node.kind != .dir) return error.NotADir;
         if (name.len == 0) return error.NoEntry;
+        if (name.len > max_name_len) return error.NameTooLong;
 
         if (name[0] == '.') {
             if (name.len == 2 and name[1] == '.') {
@@ -582,6 +640,10 @@ pub fn isNameValid(name: []const u8) bool {
     }
 
     return true;
+}
+
+pub fn sbDestroyPanic(_: *SuperBlock) void {
+    @panic("not implemented");
 }
 
 pub fn nodeDestroyPanic(_: *Node) void {

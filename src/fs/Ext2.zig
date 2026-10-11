@@ -7,7 +7,7 @@ const BlockDevice = @import("../block/BlockDevice.zig");
 const Ext2 = @This();
 
 alloc: std.mem.Allocator,
-bd: *BlockDevice,
+bd_path: vfs.Path,
 sb_blocks: []u8,
 gdt_descs: []align(1) BlockGroupDesc,
 scratch_block: []u8,
@@ -15,13 +15,21 @@ scratch_block: []u8,
 sb: vfs.SuperBlock,
 root: *vfs.DirEntry,
 
-pub fn init(fs: *Ext2, alloc: std.mem.Allocator, bd: *BlockDevice) !void {
+pub fn create(alloc: std.mem.Allocator, bd_path: vfs.Path) !*vfs.Mount {
+    if (bd_path.dentry.node.kind != .block_device) return error.NotABlockDevice;
+    bd_path.acquire();
+    errdefer bd_path.release();
+
+    const bd = bd_path.dentry.node.data.block_device;
     const bd_block_size = bd.blockSize();
     const block_size_mask = bd_block_size - 1;
 
+    const fs = try alloc.create(Ext2);
+    errdefer alloc.destroy(fs);
+
     fs.* = .{
         .alloc = alloc,
-        .bd = bd,
+        .bd_path = bd_path,
         .sb_blocks = undefined,
         .gdt_descs = undefined,
         .scratch_block = undefined,
@@ -89,10 +97,14 @@ pub fn init(fs: *Ext2, alloc: std.mem.Allocator, bd: *BlockDevice) !void {
 
     fs.sb = .{
         .mount_count = .init(0),
+        .destroy_ptr = &sbDestroy,
     };
+
+    return vfs.Mount.create(fs.root);
 }
 
-pub fn deinit(fs: *Ext2) void {
+pub fn sbDestroy(sb: *vfs.SuperBlock) void {
+    const fs: *Ext2 = @alignCast(@fieldParentPtr("sb", sb));
     const alloc = fs.alloc;
     const fs_block_size = fs.sbInfo().blockSize();
 
@@ -103,20 +115,8 @@ pub fn deinit(fs: *Ext2) void {
 
     alloc.free(fs.scratch_block);
     alloc.free(fs.sb_blocks);
-}
-
-pub fn mount(fs: *Ext2) !*vfs.Mount {
-    const m = try fs.alloc.create(vfs.Mount);
-
-    m.* = .{
-        .target = null,
-        .src = fs.root,
-        .ref_count = .init(0),
-    };
-
-    _ = fs.sb.mount_count.fetchAdd(1, .monotonic);
-    fs.root.acquire();
-    return m;
+    fs.bd_path.release();
+    alloc.destroy(fs);
 }
 
 fn getInode(fs: *Ext2, inode: u32) !Inode {
@@ -137,12 +137,13 @@ fn getInode(fs: *Ext2, inode: u32) !Inode {
 }
 
 fn readBlocks(fs: *Ext2, start: u32, buffer: []u8) !void {
-    const bd_block_size = fs.bd.blockSize();
+    const bd = fs.bd_path.dentry.node.data.block_device;
+    const bd_block_size = bd.blockSize();
     const fs_block_size = fs.sbInfo().blockSize();
     const bd_blocks_per_fs_block: u64 = fs_block_size / bd_block_size;
     std.debug.assert(buffer.len % fs_block_size == 0);
 
-    try fs.bd.read(bd_blocks_per_fs_block * start, buffer);
+    try bd.read(bd_blocks_per_fs_block * start, buffer);
 }
 
 fn readInodeBlocks(fs: *Ext2, inode: *align(1) const Inode, start: u32, buffer: []u8) !void {
@@ -173,7 +174,8 @@ fn readInodeBlocks(fs: *Ext2, inode: *align(1) const Inode, start: u32, buffer: 
 }
 
 inline fn sbData(fs: *const Ext2) *[1024]u8 {
-    const block_size_mask = fs.bd.blockSize() - 1;
+    const bd = fs.bd_path.dentry.node.data.block_device;
+    const block_size_mask = bd.blockSize() - 1;
     const sb_offset = 1024 & block_size_mask;
     return fs.sb_blocks[sb_offset..][0..1024];
 }
