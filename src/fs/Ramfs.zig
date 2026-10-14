@@ -1,5 +1,5 @@
 const std = @import("std");
-const vfs = @import("vfs.zig");
+const vfs = @import("vfs/vfs.zig");
 const pmm = @import("../pmm.zig");
 const Spinlock = @import("../sync/Spinlock.zig");
 const Ramfs = @This();

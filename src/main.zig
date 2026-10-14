@@ -10,7 +10,7 @@ const scheduler = @import("scheduler.zig");
 const log = @import("log.zig");
 const gpa = @import("heap/gpa.zig");
 
-const vfs = @import("fs/vfs.zig");
+const vfs = @import("fs/vfs/vfs.zig");
 const Ramfs = @import("fs/Ramfs.zig");
 const Ext2 = @import("fs/Ext2.zig");
 const BlockDevice = @import("block/BlockDevice.zig");
@@ -151,6 +151,7 @@ fn ext2Test() !void {
     const root_mount = try Ext2.create(alloc, drive);
     defer root_mount.unmount() catch unreachable;
     vfs.root = root_mount;
+    defer vfs.root = null;
 
     const root = root_mount.acquireRootPath();
     defer root.release();

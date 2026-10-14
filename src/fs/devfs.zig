@@ -1,5 +1,5 @@
 const std = @import("std");
-const vfs = @import("vfs.zig");
+const vfs = @import("vfs/vfs.zig");
 const BlockDevice = @import("../block/BlockDevice.zig");
 const gpa = @import("../heap/gpa.zig").allocator;
 
@@ -24,9 +24,9 @@ pub var root_node: vfs.Node = .{
     .ref_count = .init(1),
     .sb = &superblock,
     .vtable = &.{
-        .destroy = &vfs.nodeDestroyPanic,
-        .open = &vfs.NodeOpenDefault(&.{
-            .read_dir = &vfs.nodeHandleReadDirInCache,
+        .destroy = &vfs.Node.default_impls.destroyPanic,
+        .open = &vfs.Node.Handle.default_impls.OpenDefault(&.{
+            .read_dir = &vfs.Node.Handle.default_impls.readDirInCache,
         }),
     },
 };
@@ -44,9 +44,9 @@ var disk_dir_node: vfs.Node = .{
     .ref_count = .init(1),
     .sb = &superblock,
     .vtable = &.{
-        .destroy = &vfs.nodeDestroyPanic,
-        .open = &vfs.NodeOpenDefault(&.{
-            .read_dir = &vfs.nodeHandleReadDirInCache,
+        .destroy = &vfs.Node.default_impls.destroyPanic,
+        .open = &vfs.Node.Handle.default_impls.OpenDefault(&.{
+            .read_dir = &vfs.Node.Handle.default_impls.readDirInCache,
         }),
     },
 };
@@ -73,7 +73,7 @@ pub fn registerDisk(name: []const u8, bd: *BlockDevice) !void {
         .data = .{ .block_device = bd },
         .sb = &superblock,
         .vtable = &.{
-            .destroy = &vfs.nodeDestroyPanic,
+            .destroy = &vfs.Node.default_impls.destroyPanic,
         },
     };
 

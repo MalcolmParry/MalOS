@@ -2,7 +2,7 @@ const std = @import("std");
 const mem = @import("../memory.zig");
 const pmm = @import("../pmm.zig");
 const builtin = @import("builtin");
-const vfs = @import("vfs.zig");
+const vfs = @import("vfs/vfs.zig");
 const BlockDevice = @import("../block/BlockDevice.zig");
 const Ext2 = @This();
 
@@ -196,7 +196,7 @@ fn nodeDestroy(vfs_node: *vfs.Node) void {
     fs.alloc.destroy(node);
 }
 
-fn handleReadDir(handle: *vfs.NodeHandle, record: *vfs.DirRecord) vfs.Error!bool {
+fn handleReadDir(handle: *vfs.Node.Handle, record: *vfs.DirRecord) vfs.Error!bool {
     if (handle.cur == std.math.maxInt(u64)) return false;
 
     const vfs_node = handle.node;
@@ -348,7 +348,7 @@ const node_vtable: vfs.Node.VTable = .{
     .lookup = &nodeLookup,
     .read_page = &nodeReadPage,
 
-    .open = &vfs.NodeOpenDefault(&.{
+    .open = &vfs.Node.Handle.default_impls.OpenDefault(&.{
         .read_dir = &handleReadDir,
     }),
 };
