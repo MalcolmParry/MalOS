@@ -196,43 +196,43 @@ fn nodeDestroy(vfs_node: *vfs.Node) void {
     fs.alloc.destroy(node);
 }
 
-fn fileReadDir(file: *vfs.File, record: *vfs.DirRecord) vfs.Error!bool {
-    if (file.head == std.math.maxInt(u64)) return false;
+fn handleReadDir(handle: *vfs.NodeHandle, record: *vfs.DirRecord) vfs.Error!bool {
+    if (handle.cur == std.math.maxInt(u64)) return false;
 
-    const vfs_node = file.path.dentry.node;
+    const vfs_node = handle.node;
     const fs: *Ext2 = @alignCast(@fieldParentPtr("sb", vfs_node.sb));
     const node: *FsNode = @fieldParentPtr("vfs", vfs_node);
     const inode = fs.getInode(node.inode) catch return error.Io;
     const block_size = fs.sbInfo().blockSize();
 
-    var head = file.head;
-    defer file.head = head;
+    var cur = handle.cur;
+    defer handle.cur = cur;
 
     var block_index: u32 = std.math.maxInt(u32);
     const block = fs.scratch_block;
 
     while (true) {
-        if (head + 8 > inode.size()) {
-            head = std.math.maxInt(u64);
+        if (cur + 8 > inode.size()) {
+            cur = std.math.maxInt(u64);
             return false;
         }
 
-        const new_block_index: u32 = @intCast(head / block_size);
-        const head_offset = head % block_size;
-        if (head_offset + 8 > block_size) return error.Corrupt;
+        const new_block_index: u32 = @intCast(cur / block_size);
+        const offset_in_page = cur % block_size;
+        if (offset_in_page + 8 > block_size) return error.Corrupt;
 
         if (new_block_index != block_index) {
             block_index = new_block_index;
             fs.readInodeBlocks(&inode, block_index, block) catch return error.Io;
         }
 
-        const dentry: *align(1) Dentry = @ptrCast(block.ptr + head_offset);
+        const dentry: *align(1) Dentry = @ptrCast(block.ptr + offset_in_page);
         if (dentry.size < 8) return error.Corrupt;
-        if (head_offset + dentry.size > block_size) return error.Corrupt;
-        if (head + dentry.size > inode.size()) return error.Corrupt;
+        if (offset_in_page + dentry.size > block_size) return error.Corrupt;
+        if (cur + dentry.size > inode.size()) return error.Corrupt;
         if (dentry.size < @as(u64, dentry.name_len) + 8) return error.Corrupt;
 
-        defer head += dentry.size;
+        defer cur += dentry.size;
         if (dentry.inode == 0) continue;
 
         const name = @as([*]u8, @ptrCast(&dentry.name))[0..dentry.name_len];
@@ -344,10 +344,13 @@ fn nodeLookup(vfs_parent: *vfs.Node, name: []const u8) vfs.Error!*vfs.Node {
 }
 
 const node_vtable: vfs.Node.VTable = .{
-    .node_destroy = &nodeDestroy,
-    .node_lookup = &nodeLookup,
-    .file_read_dir = &fileReadDir,
-    .node_read_page = &nodeReadPage,
+    .destroy = &nodeDestroy,
+    .lookup = &nodeLookup,
+    .read_page = &nodeReadPage,
+
+    .open = &vfs.NodeOpenDefault(&.{
+        .read_dir = &handleReadDir,
+    }),
 };
 
 const FsNode = struct {

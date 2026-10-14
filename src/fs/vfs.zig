@@ -84,25 +84,20 @@ pub const Node = struct {
     data: Data,
 
     pub const VTable = struct {
-        node_destroy: *const fn (node: *Node) void,
-        node_lookup: *const fn (parent: *Node, name: []const u8) Error!*Node = &nodeLookupNoEntry,
-        node_create: *const fn (parent: *Node, name: []const u8, opts: CreateOptions) Error!*Node = &nodeCreateReadOnly,
-        node_unlink: *const fn (parent: *Node, name: []const u8) Error!void = &nodeUnlinkReadOnly,
+        destroy: *const fn (node: *Node) void,
+        lookup: *const fn (parent: *Node, name: []const u8) Error!*Node = &nodeLookupNoEntry,
+        create: *const fn (parent: *Node, name: []const u8, opts: CreateOptions) Error!*Node = &nodeCreateReadOnly,
+        unlink: *const fn (parent: *Node, name: []const u8) Error!void = &nodeUnlinkReadOnly,
 
         /// assumes caller already locked the page
-        node_read_page: *const fn (node: *Node, page_offset: u32, page: pmm.Index) Error!void = &nodeReadPageZero,
+        read_page: *const fn (node: *Node, page_offset: u32, page: pmm.Index) Error!void = &nodeReadPageZero,
         /// assumes caller already locked the page
-        node_write_page: *const fn (node: *Node, page_offset: u32, page: pmm.Index) Error!void = &nodeWritePageNoop,
+        write_page: *const fn (node: *Node, page_offset: u32, page: pmm.Index) Error!void = &nodeWritePageNoop,
         /// assumes caller has the node lock
         /// shouldn't touch the page cache, the vfs handles that
-        node_resize: ?*const fn (node: *Node, new_size: usize) Error!void = null,
+        resize: ?*const fn (node: *Node, new_size: usize) Error!void = null,
 
-        file_open: *const fn (node: *Node) Error!*File = &fileOpenDefault,
-        file_close: *const fn (file: *File) void = &fileCloseDefault,
-        file_read: ?*const fn (file: *File, buffer: []u8) Error!usize = null,
-        file_write: ?*const fn (file: *File, data: []const u8) Error!usize = null,
-        /// returns true if wrote to record
-        file_read_dir: *const fn (file: *File, record: *DirRecord) Error!bool = &fileReadDirNotSupported,
+        open: *const fn (node: *Node) Error!*NodeHandle = &NodeOpenDefault(&.{}),
     };
 
     pub const Kind = enum {
@@ -144,6 +139,12 @@ pub const Node = struct {
         node.destroy();
     }
 
+    pub fn open(node: *Node) Error!*NodeHandle {
+        const handle = try node.vtable.open(node);
+        node.acquire();
+        return handle;
+    }
+
     fn destroy(node: *Node) void {
         std.debug.assert(node.ref_count.load(.monotonic) == 0);
 
@@ -166,7 +167,7 @@ pub const Node = struct {
             .block_device => {},
         }
 
-        node.vtable.node_destroy(node);
+        node.vtable.destroy(node);
     }
 
     /// caller needs to unlock page
@@ -189,7 +190,7 @@ pub const Node = struct {
             .dirty = false,
         } };
 
-        try node.vtable.node_read_page(node, page_offset, index);
+        try node.vtable.read_page(node, page_offset, index);
 
         try file.cache.put(alloc, page_offset, index);
         return .{ index, desc.data.vfs_cache.lock.lock() };
@@ -210,6 +211,68 @@ pub const Node = struct {
         }
 
         file_data.size = new_size;
+    }
+};
+
+pub const NodeHandle = struct {
+    /// immutable
+    node: *Node,
+    /// immutable
+    vtable: *const VTable,
+    cur: u64,
+
+    pub const VTable = struct {
+        close: *const fn (handle: *NodeHandle) void = &nodeHandleCloseDefault,
+        read: ?*const fn (handle: *NodeHandle, buffer: []u8) Error!usize = null,
+        write: ?*const fn (handle: *NodeHandle, data: []const u8) Error!usize = null,
+        /// returns true if wrote to record
+        read_dir: *const fn (handle: *NodeHandle, record: *DirRecord) Error!bool = &nodeHandleReadDirNotSupported,
+    };
+
+    pub fn close(handle: *NodeHandle) void {
+        const node = handle.node;
+        handle.vtable.close(handle);
+        node.release();
+    }
+
+    pub fn read(handle: *NodeHandle, buffer: []u8) Error!usize {
+        const node = handle.node;
+        if (node.kind != .file) return error.NotAFile;
+        if (handle.vtable.read) |func| return func(handle, buffer);
+
+        const lock = node.lock.lock();
+        defer lock.unlock();
+
+        const file_data = &node.data.file;
+        const end = @min(handle.cur + buffer.len, file_data.size);
+        if (end <= handle.cur) return 0;
+
+        var cur = handle.cur;
+        var bytes_read: usize = 0;
+        while (cur < end) {
+            const page_offset: u32 = @intCast(cur / mem.page_size);
+
+            const page_index, const page_lock = try node.getOrCreatePage(page_offset);
+            defer page_lock.unlock();
+
+            const direct = page_index.toDirectMap();
+            const head_offset_from_page = cur % mem.page_size;
+            const end_offset_from_page = @min(end - (@as(usize, page_offset) * mem.page_size), mem.page_size);
+            const to_read = end_offset_from_page - head_offset_from_page;
+
+            @memcpy(buffer[bytes_read..][0..to_read], direct.bytes[head_offset_from_page..end_offset_from_page]);
+
+            cur += to_read;
+            bytes_read += to_read;
+        }
+
+        handle.cur = cur;
+        return bytes_read;
+    }
+
+    pub fn readDir(handle: *NodeHandle, record: *DirRecord) Error!bool {
+        if (handle.node.kind != .dir) return error.NotADir;
+        return handle.vtable.read_dir(handle, record);
     }
 };
 
@@ -335,7 +398,7 @@ pub const DirEntry = struct {
             return entry;
         }
 
-        const child_node = try node.vtable.node_lookup(parent.node, name);
+        const child_node = try node.vtable.lookup(parent.node, name);
         errdefer child_node.release();
 
         const child_dentry = try alloc.create(DirEntry);
@@ -369,90 +432,20 @@ pub const DirEntry = struct {
 };
 
 pub const File = struct {
-    /// immutable
+    handle: *NodeHandle,
     path: Path,
-    head: u64 = 0,
 
-    pub fn close(file: *File) void {
-        const path = file.path;
-        const node = path.dentry.node;
-        node.vtable.file_close(file);
-        path.release();
+    pub fn close(file: File) void {
+        file.handle.close();
+        file.path.release();
     }
 
-    pub fn read(file: *File, buffer: []u8) Error!usize {
-        const node = file.path.dentry.node;
-        if (node.kind != .file) return error.NotAFile;
-        if (node.vtable.file_read) |func| return func(file, buffer);
-
-        const lock = node.lock.lock();
-        defer lock.unlock();
-
-        const file_data = &node.data.file;
-        const end = @min(file.head + buffer.len, file_data.size);
-        if (end <= file.head) return 0;
-
-        var head = file.head;
-        var bytes_read: usize = 0;
-        while (head < end) {
-            const page_offset: u32 = @intCast(head / mem.page_size);
-
-            const page_index, const page_lock = try node.getOrCreatePage(page_offset);
-            defer page_lock.unlock();
-
-            const direct = page_index.toDirectMap();
-            const head_offset_from_page = head % mem.page_size;
-            const end_offset_from_page = @min(end - (@as(usize, page_offset) * mem.page_size), mem.page_size);
-            const to_read = end_offset_from_page - head_offset_from_page;
-
-            @memcpy(buffer[bytes_read..][0..to_read], direct.bytes[head_offset_from_page..end_offset_from_page]);
-
-            head += to_read;
-            bytes_read += to_read;
-        }
-
-        file.head = head;
-        return bytes_read;
+    pub fn read(file: File, buffer: []u8) Error!usize {
+        return file.handle.read(buffer);
     }
 
-    pub fn write(file: *File, data: []const u8) Error!usize {
-        if (file.node.kind != .file) return error.NotAFile;
-        if (file.node.vtable.file_write) |func| return func(file, data);
-
-        const lock = file.node.lock.lock();
-        defer lock.unlock();
-
-        const file_data = &file.node.data.file;
-        const end = file.head + data.len;
-        if (end > file_data.size) try file.node.resizeLocked(end);
-
-        var head = file.head;
-        var written: usize = 0;
-        while (head < end) {
-            const page_offset: u32 = @intCast(head / mem.page_size);
-            const page_index, const page_lock = try file.node.getOrCreatePage(page_offset);
-            defer page_lock.unlock();
-
-            const direct = page_index.toDirectMap();
-            const head_offset_from_page = head % mem.page_size;
-            const end_offset_from_page = @min(end - (@as(usize, page_offset) * mem.page_size), mem.page_size);
-            const to_write = end_offset_from_page - head_offset_from_page;
-
-            @memcpy(direct.bytes[head_offset_from_page..end_offset_from_page], data[written..][0..to_write]);
-            pmm.getPageDesc(page_index).data.vfs_cache.dirty = true;
-
-            head += to_write;
-            written += to_write;
-        }
-
-        file.head = head;
-        return written;
-    }
-
-    pub fn readDir(file: *File, record: *DirRecord) Error!bool {
-        const node = file.path.dentry.node;
-        if (node.kind != .dir) return error.NotADir;
-        return node.vtable.file_read_dir(file, record);
+    pub fn readDir(file: File, record: *DirRecord) Error!bool {
+        return file.handle.readDir(record);
     }
 };
 
@@ -638,12 +631,13 @@ pub const Path = struct {
         return current;
     }
 
-    pub fn open(path: Path) Error!*File {
-        const node = path.dentry.node;
-        const file = try node.vtable.file_open(node);
-        file.path = path;
+    pub fn open(path: Path) Error!File {
+        const handle = try path.dentry.node.open();
         path.acquire();
-        return file;
+        return .{
+            .handle = handle,
+            .path = path,
+        };
     }
 };
 
@@ -694,21 +688,26 @@ pub fn nodeUnlinkReadOnly(parent: *Node, _: []const u8) Error!void {
     return error.ReadOnly;
 }
 
-pub fn fileOpenDefault(_: *Node) Error!*File {
-    const file = try alloc.create(File);
-    file.* = .{
-        .path = undefined,
-        .head = 0,
-    };
-    return file;
+pub fn NodeOpenDefault(comptime vtable: *const NodeHandle.VTable) fn (node: *Node) Error!*NodeHandle {
+    return struct {
+        fn open(node: *Node) Error!*NodeHandle {
+            const handle = try alloc.create(NodeHandle);
+            handle.* = .{
+                .node = node,
+                .vtable = vtable,
+                .cur = 0,
+            };
+            return handle;
+        }
+    }.open;
 }
 
-pub fn fileCloseDefault(file: *File) void {
-    alloc.destroy(file);
+pub fn nodeHandleCloseDefault(handle: *NodeHandle) void {
+    alloc.destroy(handle);
 }
 
-pub fn fileReadDirInCache(file: *File, record: *DirRecord) Error!bool {
-    const node = file.path.dentry.node;
+pub fn nodeHandleReadDirInCache(handle: *NodeHandle, record: *DirRecord) Error!bool {
+    const node = handle.node;
     node.mutex.lock();
     defer node.mutex.unlock();
 
@@ -717,7 +716,7 @@ pub fn fileReadDirInCache(file: *File, record: *DirRecord) Error!bool {
     while (iter.next()) |kv| {
         const entry = kv.value_ptr.*;
         const addr = @intFromPtr(entry);
-        if (addr > file.head and (lowest == null or addr < @intFromPtr(lowest.?)))
+        if (addr > handle.cur and (lowest == null or addr < @intFromPtr(lowest.?)))
             lowest = entry;
     }
 
@@ -733,11 +732,11 @@ pub fn fileReadDirInCache(file: *File, record: *DirRecord) Error!bool {
     @memcpy(record.name_buf[0..name.len], name);
     @memset(record.name_buf[name.len..], 0);
 
-    file.head = @intFromPtr(entry);
+    handle.cur = @intFromPtr(entry);
     return true;
 }
 
-pub fn fileReadDirNotSupported(file: *File, _: *DirRecord) Error!bool {
-    std.debug.assert(file.path.dentry.node.kind == .dir);
+pub fn nodeHandleReadDirNotSupported(handle: *NodeHandle, _: *DirRecord) Error!bool {
+    std.debug.assert(handle.node.kind == .dir);
     return error.NotSupported;
 }

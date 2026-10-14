@@ -24,8 +24,10 @@ pub var root_node: vfs.Node = .{
     .ref_count = .init(1),
     .sb = &superblock,
     .vtable = &.{
-        .node_destroy = &vfs.nodeDestroyPanic,
-        .file_read_dir = &vfs.fileReadDirInCache,
+        .destroy = &vfs.nodeDestroyPanic,
+        .open = &vfs.NodeOpenDefault(&.{
+            .read_dir = &vfs.nodeHandleReadDirInCache,
+        }),
     },
 };
 
@@ -42,8 +44,10 @@ var disk_dir_node: vfs.Node = .{
     .ref_count = .init(1),
     .sb = &superblock,
     .vtable = &.{
-        .node_destroy = &vfs.nodeDestroyPanic,
-        .file_read_dir = &vfs.fileReadDirInCache,
+        .destroy = &vfs.nodeDestroyPanic,
+        .open = &vfs.NodeOpenDefault(&.{
+            .read_dir = &vfs.nodeHandleReadDirInCache,
+        }),
     },
 };
 
@@ -69,7 +73,7 @@ pub fn registerDisk(name: []const u8, bd: *BlockDevice) !void {
         .data = .{ .block_device = bd },
         .sb = &superblock,
         .vtable = &.{
-            .node_destroy = &vfs.nodeDestroyPanic,
+            .destroy = &vfs.nodeDestroyPanic,
         },
     };
 
