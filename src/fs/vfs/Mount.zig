@@ -217,4 +217,8 @@ pub const File = struct {
     pub fn readDir(file: File, record: *Node.DirRecord) Error!bool {
         return file.handle.readDir(record);
     }
+
+    pub fn reader(file: File, buffer: []u8) Node.Handle.Reader {
+        return file.handle.reader(buffer);
+    }
 };

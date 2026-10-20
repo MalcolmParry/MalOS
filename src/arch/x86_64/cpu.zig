@@ -261,6 +261,23 @@ pub fn pushInitThreadFrame(info: ThreadInitInfo) *align(1) State {
     return state;
 }
 
+pub fn pushUserThreadFrame(info: ThreadInitInfo) *align(1) State {
+    const state: *State = @ptrFromInt(info.stack_top - @sizeOf(State));
+
+    state.* = .{
+        .cr3 = info.phys_page_table,
+        .rbp = 0,
+        .rip = info.entry,
+        .flags = .{ .IF = true },
+        .rsp = 0,
+        .rdi = info.arg,
+        .cs = 0x23,
+        .ss = 0x1b,
+    };
+
+    return state;
+}
+
 pub const Flags = packed struct(u64) {
     CF: bool = false,
     _1: bool = true,

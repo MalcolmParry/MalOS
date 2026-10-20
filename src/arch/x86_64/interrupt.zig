@@ -93,6 +93,8 @@ pub fn init() void {
         setupIDT(@intCast(i), .interrupt, 0, true);
     }
 
+    setupIDT(0x80, .interrupt, 3, true);
+
     idtr.size = @sizeOf([256]IDT) - 1;
     idtr.base = &idts;
 

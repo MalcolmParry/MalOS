@@ -1,5 +1,6 @@
 const std = @import("std");
 const debug = @import("../../debug.zig");
+const gdt = @import("gdt.zig");
 
 pub const page_size = 4096;
 pub const kernel_virt_base: u64 = 0xffff_ffff_c000_0000;
@@ -13,6 +14,7 @@ pub const initBootInfo = multiboot.initBootInfo;
 
 pub const halt = cpu.halt;
 pub const spinWait = cpu.spinWait;
+pub const setKernelStackPtr = gdt.setKernelStackPtr;
 
 pub const in = cpu.in;
 pub const out = cpu.out;

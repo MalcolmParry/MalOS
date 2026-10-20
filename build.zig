@@ -44,6 +44,16 @@ fn addBuildStep(b: *Build, optimize: std.builtin.OptimizeMode, target: Build.Res
     });
     kernel_compile.bundle_compiler_rt = true;
 
+    const init = b.addExecutable(.{
+        .name = "init",
+        .root_module = b.createModule(.{
+            .target = target,
+            .optimize = optimize,
+            .pic = false,
+        }),
+    });
+    init.root_module.addAssemblyFile(b.path("init.s"));
+
     const options = b.addOptions();
     options.addOption([]const u8, "build_root", b.build_root.path.?);
     options.addOption(bool, "single_core", true);
@@ -101,6 +111,7 @@ fn addBuildStep(b: *Build, optimize: std.builtin.OptimizeMode, target: Build.Res
     const root = b.addWriteFiles();
     _ = root.addCopyDirectory(b.path("build/x86_64/disk/"), "", .{});
     _ = root.addCopyFile(kernel, "boot/kernel.elf");
+    _ = root.addCopyFile(init.getEmittedBin(), "bin/init");
     if (debug_info)
         _ = root.addCopyFile(src_tar, "boot/kernel_src.tar");
     root.step.dependOn(&multiboot_check.step);

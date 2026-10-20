@@ -233,6 +233,18 @@ pub const Handle = struct {
         return handle.vtable.read_dir(handle, record);
     }
 
+    pub fn reader(handle: *Handle, buffer: []u8) Reader {
+        return .{
+            .interface = .{
+                .buffer = buffer,
+                .vtable = &.{ .stream = &Reader.stream },
+                .end = 0,
+                .seek = 0,
+            },
+            .handle = handle,
+        };
+    }
+
     pub const default_impls = struct {
         pub fn OpenDefault(comptime vtable: *const Handle.VTable) fn (node: *Node) Error!*Handle {
             return struct {
@@ -285,6 +297,34 @@ pub const Handle = struct {
         pub fn readDirNotSupported(handle: *Handle, _: *DirRecord) Error!bool {
             std.debug.assert(handle.node.kind == .dir);
             return error.NotSupported;
+        }
+    };
+
+    pub const Reader = struct {
+        interface: std.Io.Reader,
+        handle: *Handle,
+
+        pub fn logicalPos(r: *const Reader) u64 {
+            return r.handle.cur - r.interface.bufferedLen();
+        }
+
+        pub fn seekTo(r: *Reader, pos: u64) void {
+            const logical_pos = r.logicalPos();
+            if (pos < logical_pos or pos >= r.handle.cur) {
+                r.interface.tossBuffered();
+                r.handle.cur = pos;
+            } else r.interface.toss(pos - logical_pos);
+        }
+
+        fn stream(r: *std.Io.Reader, w: *std.Io.Writer, limit: std.Io.Limit) std.Io.Reader.StreamError!usize {
+            const this: *Reader = @fieldParentPtr("interface", r);
+            const dest = limit.slice(try w.writableSliceGreedy(1));
+
+            const n = this.handle.read(dest) catch return error.ReadFailed;
+            if (n == 0) return error.EndOfStream;
+
+            w.advance(n);
+            return n;
         }
     };
 };

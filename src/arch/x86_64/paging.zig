@@ -105,7 +105,7 @@ fn getOrCreateTable(entry: *Entry) !*Table {
     entry.* = .{
         .present = true,
         .writable = true,
-        .user = false,
+        .user = true,
         .write_through = false,
         .disable_cache = false,
         .huge = false,
@@ -117,7 +117,7 @@ fn getOrCreateTable(entry: *Entry) !*Table {
     return table;
 }
 
-pub fn mapPage(table: *Table, level: Table.Level, virt: *mem.Page, phys: *mem.PhysPage, page_flags: Vmm.PageFlags) !void {
+pub fn mapPage(table: *Table, level: Table.Level, virt: *allowzero mem.Page, phys: *mem.PhysPage, page_flags: Vmm.PageFlags) !void {
     const indices = getIndicesFromVirtAddr(@intFromPtr(virt));
     std.debug.assert((@intFromPtr(virt) < @intFromPtr(getVirtAddrFromIndices(256, 0, 0, 0))) == page_flags.user);
 
@@ -221,6 +221,7 @@ fn getVirtAddrFromIndices(l4: Table.Index, l3: Table.Index, l2: Table.Index, l1:
 
 pub const heap_range = @as([*]mem.Page, @ptrCast(getVirtAddrFromIndices(511, 0, 0, 0)))[0 .. 512 * 512 * 511];
 pub const direct_map = @as([*]mem.Page, @ptrCast(getVirtAddrFromIndices(256, 0, 0, 0)))[0 .. 512 * 512 * 512];
+pub const max_user_addr = 0x0000_8000_0000_0000;
 const direct_map_base = @intFromPtr(direct_map.ptr);
 
 pub var l4_table: Table = undefined;
@@ -349,6 +350,17 @@ pub fn invalidatePages() void {
         \\movq %%cr3, %%rax
         \\movq %%rax, %%cr3
         ::: .{ .rax = true, .memory = true });
+}
+
+pub fn createTable() !*Table {
+    const phys = try pmm.allocatePage();
+    const virt = pmm.Index.fromPtr(phys).toDirectMap();
+    const table: *Table = @ptrCast(virt);
+
+    @memset(table.entries[0..256], .blank);
+    @memcpy(table.entries[256..], l4_table.entries[256..]);
+
+    return table;
 }
 
 // TODO: when i get multiple cores i need to change this

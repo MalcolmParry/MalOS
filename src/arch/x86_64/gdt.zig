@@ -41,10 +41,10 @@ pub fn init() void {
         executable_bit | code_or_data_bit | present_bit | long_mode_bit | read_write_bit,
         // kernel data desc
         present_bit | code_or_data_bit | read_write_bit,
-        // user code desc
-        executable_bit | code_or_data_bit | present_bit | long_mode_bit | read_write_bit | dpl3_bits,
         // user data desc
         present_bit | code_or_data_bit | read_write_bit | dpl3_bits,
+        // user code desc
+        executable_bit | code_or_data_bit | present_bit | long_mode_bit | read_write_bit | dpl3_bits,
         // task state segment
         (tss_limit & 0xffff) |
             ((tss_base & 0xffff) << 16) |
@@ -87,4 +87,8 @@ pub fn init() void {
         \\mov $0x28, %%ax
         \\ltr %%ax
         ::: .{ .ax = true });
+}
+
+pub fn setKernelStackPtr(sp: usize) void {
+    tss.rsp0 = sp;
 }

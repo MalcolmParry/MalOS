@@ -30,9 +30,13 @@ const Thread = struct {
     prev: OptTid,
     next: OptTid,
 
-    stack: ?[]mem.Page,
+    kernel_stack: ?[]mem.Page,
     cpu_state: *align(1) arch.cpu.State,
     ext_cpu_state: arch.cpu.ExtendedState,
+
+    fn kernelStackTop(t: *Thread) usize {
+        return if (t.kernel_stack) |x| @intFromPtr(x.ptr + x.len) else 0;
+    }
 
     const State = union(enum) {
         dead,
@@ -72,7 +76,7 @@ pub fn init() void {
         .next = .none,
 
         // null bc i dont want this to get deallocated when the boot thread exits
-        .stack = null,
+        .kernel_stack = null,
         .cpu_state = undefined,
         .ext_cpu_state = .zero,
     };
@@ -150,7 +154,46 @@ pub fn spawnKernelThreadRaw(func: ?*const ThreadEntry, arg: usize, stack: []mem.
         .next = .none,
         .prev = .none,
 
-        .stack = stack,
+        .kernel_stack = stack,
+        .ext_cpu_state = .zero,
+        .cpu_state = state,
+    };
+
+    linkReadyThread(tid);
+    return tid;
+}
+
+pub fn spawnUserThread(func: u64, table: *arch.paging.Table) !Tid {
+    const stack_size = 32 * 1024;
+    const stack = try PageAllocator.global.alloc(stack_size / mem.page_size, .{
+        .cache_mode = .full,
+        .global = true,
+        .executable = false,
+        .user = false,
+        .writable = true,
+    });
+    errdefer PageAllocator.global.free(stack);
+
+    const lock = spinlock.lock();
+    defer lock.unlock();
+
+    const tid = try allocThread();
+    errdefer freeThread(tid);
+    const t = &threads[tid];
+
+    const state = arch.cpu.pushUserThreadFrame(.{
+        .entry = func,
+        .arg = 0,
+        .stack_top = @intFromPtr(stack.ptr + stack.len),
+        .phys_page_table = @intFromPtr(table) - @intFromPtr(mem.direct_map.ptr),
+    });
+
+    t.* = .{
+        .state = .ready,
+        .next = .none,
+        .prev = .none,
+
+        .kernel_stack = stack,
         .ext_cpu_state = .zero,
         .cpu_state = state,
     };
@@ -188,6 +231,7 @@ pub fn exitThread() noreturn {
     next.state = .running;
 
     current_tid = next_tid;
+    arch.setKernelStackPtr(next.kernelStackTop());
     next.ext_cpu_state.load();
     next.cpu_state.restore();
 }
@@ -209,6 +253,7 @@ pub fn preempt() noreturn {
     next.state = .running;
 
     current_tid = next_tid;
+    arch.setKernelStackPtr(next.kernelStackTop());
     next.ext_cpu_state.load();
     next.cpu_state.restore();
 }
@@ -254,6 +299,7 @@ pub fn scheduleLockHeld(next_state: Thread.State) bool {
     if (next_tid == last_tid) return false;
 
     current_tid = next_tid;
+    arch.setKernelStackPtr(next.kernelStackTop());
     next.ext_cpu_state.load();
     next.cpu_state.saveAndRestore(last.cpu_state);
     return true;
@@ -321,7 +367,7 @@ fn reapZombies() void {
         const t = &threads[tid];
         first_zombie_thread = t.next;
 
-        if (t.stack) |stack| PageAllocator.global.free(stack);
+        if (t.kernel_stack) |stack| PageAllocator.global.free(stack);
         freeThread(tid);
     }
 }
@@ -353,7 +399,7 @@ fn allocThread() !Tid {
         .next = .none,
         .cpu_state = undefined,
         .ext_cpu_state = undefined,
-        .stack = undefined,
+        .kernel_stack = undefined,
     };
 
     return tid;

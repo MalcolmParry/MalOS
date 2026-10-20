@@ -138,7 +138,7 @@ fn ext2Test() !void {
     const alloc = gpa.allocator;
 
     const devfs_mount = try devfs.mount();
-    defer devfs_mount.unmount() catch unreachable;
+    defer devfs_mount.unmount() catch |err| debug.dumpErrorAndPanic(err);
 
     const devfs_root = devfs_mount.acquireRootPath();
     defer devfs_root.release();
@@ -149,7 +149,7 @@ fn ext2Test() !void {
     defer drive.release();
 
     const root_mount = try Ext2.create(alloc, drive);
-    defer root_mount.unmount() catch unreachable;
+    defer root_mount.unmount() catch |err| debug.dumpErrorAndPanic(err);
     vfs.root = root_mount;
     defer vfs.root = null;
 
@@ -179,6 +179,56 @@ fn ext2Test() !void {
     try log.term.writer.print("\n", .{});
     try printFileTree(root, log.term, 1);
     log.writer.flush() catch {};
+
+    const init = try root.lookup("bin/init");
+    defer init.release();
+
+    const init_open = try init.open();
+    defer init_open.close();
+
+    var init_buffer: [4096]u8 = undefined;
+    var init_reader = init_open.reader(&init_buffer);
+
+    const init_header = try std.elf.Header.read(&init_reader.interface);
+    if (!init_header.is_64) return error.NotSupported;
+
+    const init_table = try arch.paging.createTable();
+
+    for (0..init_header.phnum) |i| {
+        init_reader.seekTo(init_header.phoff + i * init_header.phentsize);
+        const ph = try init_reader.interface.takeStruct(std.elf.Elf64.Phdr, init_header.endian);
+        if (ph.type != .LOAD) continue;
+        if (ph.filesz > ph.memsz) return error.BadElf;
+
+        const seg_end = std.math.add(u64, ph.vaddr, ph.memsz) catch return error.BadElf;
+        if (seg_end > arch.paging.max_user_addr) return error.BadElf;
+
+        var page = std.mem.alignBackward(u64, ph.vaddr, mem.page_size);
+        while (page < seg_end) : (page += mem.page_size) {
+            const phys = try pmm.allocatePage();
+            const direct = pmm.Index.fromPtr(phys).toDirectMap();
+            @memset(&direct.bytes, 0);
+
+            const start = @max(page, ph.vaddr);
+            const end = @min(page + mem.page_size, ph.vaddr + ph.filesz);
+            if (start < end) {
+                init_reader.seekTo(ph.offset + (start - ph.vaddr));
+                try init_reader.interface.readSliceAll(direct.bytes[start - page ..][0 .. end - start]);
+            }
+
+            try arch.paging.mapPage(init_table, .l4, @ptrFromInt(page), phys, .{
+                .global = false,
+                .cache_mode = .full,
+                .user = true,
+                .writable = ph.flags.W,
+                .executable = ph.flags.X,
+            });
+        }
+    }
+
+    if (init_header.entry > arch.paging.max_user_addr) return error.BadElf;
+    _ = try scheduler.spawnUserThread(init_header.entry, init_table);
+    // scheduler.sleepNs(std.time.ns_per_s * 2);
 }
 
 fn printFileTree(parent: vfs.Path, term: std.Io.Terminal, indent: usize) !void {
