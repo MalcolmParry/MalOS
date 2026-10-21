@@ -235,15 +235,15 @@ pub const State = extern struct {
     }
 };
 
-pub const thread_callconv: std.builtin.CallingConvention = .{ .x86_64_sysv = .{} };
-const ThreadInitInfo = struct {
+pub const task_callconv: std.builtin.CallingConvention = .{ .x86_64_sysv = .{} };
+const TaskInitInfo = struct {
     entry: usize,
     stack_top: usize,
     phys_page_table: usize,
     arg: usize,
 };
 
-pub fn pushInitThreadFrame(info: ThreadInitInfo) *align(1) State {
+pub fn pushInitTaskFrame(info: TaskInitInfo) *align(1) State {
     const sp = (info.stack_top & ~@as(usize, 15)) - 8;
     // return address
     @as(*u64, @ptrFromInt(sp)).* = 0;
@@ -261,7 +261,7 @@ pub fn pushInitThreadFrame(info: ThreadInitInfo) *align(1) State {
     return state;
 }
 
-pub fn pushUserThreadFrame(info: ThreadInitInfo) *align(1) State {
+pub fn pushUserTaskFrame(info: TaskInitInfo) *align(1) State {
     const state: *State = @ptrFromInt(info.stack_top - @sizeOf(State));
 
     state.* = .{

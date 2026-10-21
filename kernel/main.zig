@@ -131,7 +131,7 @@ pub fn kernelMain() !noreturn {
 
     // arch.spinWait();
     try scheduler.testing.run();
-    scheduler.exitThread();
+    scheduler.exitTask();
 }
 
 fn ext2Test() !void {
@@ -227,7 +227,7 @@ fn ext2Test() !void {
     }
 
     if (init_header.entry > arch.paging.max_user_addr) return error.BadElf;
-    _ = try scheduler.spawnUserThread(init_header.entry, init_table);
+    _ = try scheduler.spawnUserTask(init_header.entry, init_table);
     // scheduler.sleepNs(std.time.ns_per_s * 2);
 }
 

@@ -24,8 +24,8 @@ pub const OptTid = enum(u32) {
     }
 };
 
-pub const ThreadEntry = fn (arg: usize) callconv(arch.cpu.thread_callconv) noreturn;
-const Thread = struct {
+pub const TaskEntry = fn (arg: usize) callconv(arch.cpu.task_callconv) noreturn;
+const Task = struct {
     state: State,
     prev: OptTid,
     next: OptTid,
@@ -34,7 +34,7 @@ const Thread = struct {
     cpu_state: *align(1) arch.cpu.State,
     ext_cpu_state: arch.cpu.ExtendedState,
 
-    fn kernelStackTop(t: *Thread) usize {
+    fn kernelStackTop(t: *Task) usize {
         return if (t.kernel_stack) |x| @intFromPtr(x.ptr + x.len) else 0;
     }
 
@@ -54,28 +54,28 @@ pub var spinlock: Spinlock = .init;
 pub var current_tid: Tid = undefined;
 var idle_tid: Tid = undefined;
 
-var threads: [64]Thread = undefined;
-var thread_bump: Tid = 0;
-var first_dead_thread: OptTid = .none;
-var first_zombie_thread: OptTid = .none;
-var first_sleeping_thread: OptTid = .none;
+var tasks: [64]Task = undefined;
+var task_bump: Tid = 0;
+var first_dead_task: OptTid = .none;
+var first_zombie_task: OptTid = .none;
+var first_sleeping_task: OptTid = .none;
 
-var first_ready_thread: OptTid = .none;
-var last_ready_thread: OptTid = .none;
+var first_ready_task: OptTid = .none;
+var last_ready_task: OptTid = .none;
 
 pub fn init() void {
-    idle_tid = spawnKernelThread(idleThread, .{}) catch @panic("cant spawn idle thread");
-    unlinkThread(idle_tid);
+    idle_tid = spawnKernelTask(idleTask, .{}) catch @panic("cant spawn idle task");
+    unlinkTask(idle_tid);
 
-    const tid = allocThread() catch @panic("cant alloc boot thread");
-    const t = &threads[tid];
+    const tid = allocTask() catch @panic("cant alloc boot task");
+    const t = &tasks[tid];
 
     t.* = .{
         .state = .running,
         .prev = .none,
         .next = .none,
 
-        // null bc i dont want this to get deallocated when the boot thread exits
+        // null bc i dont want this to get deallocated when the boot task exits
         .kernel_stack = null,
         .cpu_state = undefined,
         .ext_cpu_state = .zero,
@@ -83,13 +83,13 @@ pub fn init() void {
     current_tid = tid;
 }
 
-fn WrapThreadFunc(func: anytype) ThreadEntry {
+fn WrapTaskFunc(func: anytype) TaskEntry {
     return struct {
         const Func = @TypeOf(func);
         const Ret = @typeInfo(Func).@"fn".return_type.?;
         const Args = std.meta.ArgsTuple(Func);
 
-        fn wrapThreadEntry(arg: usize) callconv(arch.cpu.thread_callconv) noreturn {
+        fn wrapTaskEntry(arg: usize) callconv(arch.cpu.task_callconv) noreturn {
             const args_ptr: *Args = @ptrFromInt(arg);
             const args = args_ptr.*;
             gpa.allocator.destroy(args_ptr);
@@ -100,22 +100,22 @@ fn WrapThreadFunc(func: anytype) ThreadEntry {
                 },
                 .void => {
                     @call(.auto, func, args);
-                    exitThread();
+                    exitTask();
                 },
                 .error_union => |eu| {
                     if (eu.payload != void)
-                        @compileError("bad return value for thread function");
+                        @compileError("bad return value for task function");
 
                     @call(.auto, func, args) catch |err| debug.dumpErrorAndPanic(err);
-                    exitThread();
+                    exitTask();
                 },
-                else => @compileError("bad return value for thread function"),
+                else => @compileError("bad return value for task function"),
             }
         }
-    }.wrapThreadEntry;
+    }.wrapTaskEntry;
 }
 
-pub fn spawnKernelThread(func: anytype, args: std.meta.ArgsTuple(@TypeOf(func))) !Tid {
+pub fn spawnKernelTask(func: anytype, args: std.meta.ArgsTuple(@TypeOf(func))) !Tid {
     const Args = @TypeOf(args);
     const args_ptr = try gpa.allocator.create(Args);
     errdefer gpa.allocator.destroy(args_ptr);
@@ -131,18 +131,18 @@ pub fn spawnKernelThread(func: anytype, args: std.meta.ArgsTuple(@TypeOf(func)))
     });
     errdefer PageAllocator.global.free(stack);
 
-    return spawnKernelThreadRaw(&WrapThreadFunc(func), @intFromPtr(args_ptr), stack);
+    return spawnKernelTaskRaw(&WrapTaskFunc(func), @intFromPtr(args_ptr), stack);
 }
 
-pub fn spawnKernelThreadRaw(func: ?*const ThreadEntry, arg: usize, stack: []mem.Page) !Tid {
+pub fn spawnKernelTaskRaw(func: ?*const TaskEntry, arg: usize, stack: []mem.Page) !Tid {
     const lock = spinlock.lock();
     defer lock.unlock();
 
-    const tid = try allocThread();
-    errdefer freeThread(tid);
-    const t = &threads[tid];
+    const tid = try allocTask();
+    errdefer freeTask(tid);
+    const t = &tasks[tid];
 
-    const state = arch.cpu.pushInitThreadFrame(.{
+    const state = arch.cpu.pushInitTaskFrame(.{
         .entry = @intFromPtr(func),
         .arg = arg,
         .stack_top = @intFromPtr(stack.ptr + stack.len),
@@ -159,11 +159,11 @@ pub fn spawnKernelThreadRaw(func: ?*const ThreadEntry, arg: usize, stack: []mem.
         .cpu_state = state,
     };
 
-    linkReadyThread(tid);
+    linkReadyTask(tid);
     return tid;
 }
 
-pub fn spawnUserThread(func: u64, table: *arch.paging.Table) !Tid {
+pub fn spawnUserTask(func: u64, table: *arch.paging.Table) !Tid {
     const stack_size = 32 * 1024;
     const stack = try PageAllocator.global.alloc(stack_size / mem.page_size, .{
         .cache_mode = .full,
@@ -177,11 +177,11 @@ pub fn spawnUserThread(func: u64, table: *arch.paging.Table) !Tid {
     const lock = spinlock.lock();
     defer lock.unlock();
 
-    const tid = try allocThread();
-    errdefer freeThread(tid);
-    const t = &threads[tid];
+    const tid = try allocTask();
+    errdefer freeTask(tid);
+    const t = &tasks[tid];
 
-    const state = arch.cpu.pushUserThreadFrame(.{
+    const state = arch.cpu.pushUserTaskFrame(.{
         .entry = func,
         .arg = 0,
         .stack_top = @intFromPtr(stack.ptr + stack.len),
@@ -198,7 +198,7 @@ pub fn spawnUserThread(func: u64, table: *arch.paging.Table) !Tid {
         .cpu_state = state,
     };
 
-    linkReadyThread(tid);
+    linkReadyTask(tid);
     return tid;
 }
 
@@ -212,22 +212,22 @@ pub fn sleepNs(ns: u64) void {
     sleepTicks((ns + pit.period_ns - 1) / pit.period_ns);
 }
 
-pub fn exitThread() noreturn {
+pub fn exitTask() noreturn {
     _ = spinlock.lock();
     reapZombies();
     wakeSleeping();
 
     const last_tid = current_tid;
-    const last = &threads[last_tid];
+    const last = &tasks[last_tid];
     std.debug.assert(last.state == .running);
     std.debug.assert(last.prev == .none);
     std.debug.assert(last.next == .none);
     last.state = .zombie;
-    last.next = first_zombie_thread;
-    first_zombie_thread = .wrap(last_tid);
+    last.next = first_zombie_task;
+    first_zombie_task = .wrap(last_tid);
 
-    const next_tid = chooseThread();
-    const next = &threads[next_tid];
+    const next_tid = chooseTask();
+    const next = &tasks[next_tid];
     next.state = .running;
 
     current_tid = next_tid;
@@ -242,14 +242,14 @@ pub fn preempt() noreturn {
     wakeSleeping();
 
     const last_tid = current_tid;
-    const last = &threads[last_tid];
+    const last = &tasks[last_tid];
     std.debug.assert(last.state == .running);
 
     last.state = .ready;
-    if (last_tid != idle_tid) linkReadyThread(last_tid);
+    if (last_tid != idle_tid) linkReadyTask(last_tid);
 
-    const next_tid = chooseThread();
-    const next = &threads[next_tid];
+    const next_tid = chooseTask();
+    const next = &tasks[next_tid];
     next.state = .running;
 
     current_tid = next_tid;
@@ -259,12 +259,12 @@ pub fn preempt() noreturn {
 }
 
 pub fn saveState(state: *align(1) arch.cpu.State) void {
-    const t = &threads[current_tid];
+    const t = &tasks[current_tid];
     t.ext_cpu_state.save();
     t.cpu_state = state;
 }
 
-pub fn schedule(next_state: Thread.State) void {
+pub fn schedule(next_state: Task.State) void {
     const lock = spinlock.lock();
     if (scheduleLockHeld(next_state)) {
         // arch.cpu.State.saveAndRestore already released the lock
@@ -275,11 +275,11 @@ pub fn schedule(next_state: Thread.State) void {
 }
 
 /// returns true if the context switch happened
-pub fn scheduleLockHeld(next_state: Thread.State) bool {
+pub fn scheduleLockHeld(next_state: Task.State) bool {
     wakeSleeping();
 
     const last_tid = current_tid;
-    const last = &threads[last_tid];
+    const last = &tasks[last_tid];
     assert(last.state == .running);
 
     var last_state: arch.cpu.State = undefined;
@@ -289,12 +289,12 @@ pub fn scheduleLockHeld(next_state: Thread.State) bool {
     switch (next_state) {
         .dead, .zombie, .running => unreachable,
         .blocked => {},
-        .sleeping => linkSleepingThread(last_tid),
-        .ready => linkReadyThread(last_tid),
+        .sleeping => linkSleepingTask(last_tid),
+        .ready => linkReadyTask(last_tid),
     }
 
-    const next_tid = chooseThread();
-    const next = &threads[next_tid];
+    const next_tid = chooseTask();
+    const next = &tasks[next_tid];
     next.state = .running;
     if (next_tid == last_tid) return false;
 
@@ -309,51 +309,51 @@ pub fn wake(tid: Tid) void {
     const lock = spinlock.lock();
     defer lock.unlock();
 
-    const t = &threads[tid];
+    const t = &tasks[tid];
     std.debug.assert(t.state == .blocked);
     t.state = .ready;
-    linkReadyThread(tid);
+    linkReadyTask(tid);
 }
 
 /// assumes scheduler lock is held
 fn wakeSleeping() void {
     const ticks = pit.ticks.load(.monotonic);
     while (true) {
-        const tid = first_sleeping_thread.unwrap() orelse break;
-        const t = &threads[tid];
+        const tid = first_sleeping_task.unwrap() orelse break;
+        const t = &tasks[tid];
         if (t.state.sleeping.until_ticks > ticks) break;
 
         assert(t.prev == .none);
-        first_sleeping_thread = t.next;
+        first_sleeping_task = t.next;
         if (t.next.unwrap()) |next_tid| {
-            threads[next_tid].prev = .none;
+            tasks[next_tid].prev = .none;
         }
         t.next = .none;
 
         t.state = .ready;
-        linkReadyThread(tid);
+        linkReadyTask(tid);
     }
 }
 
 /// assumes scheduler lock is held
-fn chooseThread() Tid {
-    if (first_ready_thread.unwrap()) |tid| {
-        const t = &threads[tid];
+fn chooseTask() Tid {
+    if (first_ready_task.unwrap()) |tid| {
+        const t = &tasks[tid];
         assert(t.state == .ready);
 
         if (t.next.unwrap()) |next_tid| {
-            threads[next_tid].prev = .none;
+            tasks[next_tid].prev = .none;
         } else {
-            last_ready_thread = .none;
+            last_ready_task = .none;
         }
 
-        first_ready_thread = t.next;
+        first_ready_task = t.next;
         t.prev = .none;
         t.next = .none;
         return tid;
     }
 
-    const t = &threads[idle_tid];
+    const t = &tasks[idle_tid];
     assert(t.state == .ready);
     assert(t.prev == .none);
     assert(t.next == .none);
@@ -363,35 +363,35 @@ fn chooseThread() Tid {
 /// assumes scheduler lock is held
 fn reapZombies() void {
     while (true) {
-        const tid = first_zombie_thread.unwrap() orelse return;
-        const t = &threads[tid];
-        first_zombie_thread = t.next;
+        const tid = first_zombie_task.unwrap() orelse return;
+        const t = &tasks[tid];
+        first_zombie_task = t.next;
 
         if (t.kernel_stack) |stack| PageAllocator.global.free(stack);
-        freeThread(tid);
+        freeTask(tid);
     }
 }
 
 /// assumes scheduler lock is held
-fn allocThread() !Tid {
-    if (thread_bump < threads.len) {
-        const tid = thread_bump;
-        thread_bump += 1;
+fn allocTask() !Tid {
+    if (task_bump < tasks.len) {
+        const tid = task_bump;
+        task_bump += 1;
         return tid;
     }
 
-    const tid = first_dead_thread.unwrap() orelse return error.OutOfThreads;
-    const t = &threads[tid];
+    const tid = first_dead_task.unwrap() orelse return error.OutOfTasks;
+    const t = &tasks[tid];
     assert(t.state == .dead);
     assert(t.prev == .none);
 
     if (t.next.unwrap()) |other_tid| {
-        const other = &threads[other_tid];
+        const other = &tasks[other_tid];
         assert(other.state == .dead);
         assert(other.prev.unwrap() == tid);
         other.prev = .none;
     }
-    first_dead_thread = t.next;
+    first_dead_task = t.next;
 
     t.* = .{
         .state = .dead,
@@ -406,44 +406,44 @@ fn allocThread() !Tid {
 }
 
 /// assumes scheduler lock is held
-fn freeThread(tid: Tid) void {
-    const t = &threads[tid];
+fn freeTask(tid: Tid) void {
+    const t = &tasks[tid];
     t.state = .dead;
 
-    unlinkThread(tid);
+    unlinkTask(tid);
 
-    if (first_dead_thread.unwrap()) |other_tid| {
-        const other = &threads[other_tid];
+    if (first_dead_task.unwrap()) |other_tid| {
+        const other = &tasks[other_tid];
         assert(other.state == .dead);
         assert(other.prev == .none);
         other.prev = .wrap(tid);
     }
 
     t.prev = .none;
-    t.next = first_dead_thread;
-    first_dead_thread = .wrap(tid);
+    t.next = first_dead_task;
+    first_dead_task = .wrap(tid);
 }
 
 /// assumes scheduler lock is held
-fn unlinkThread(tid: Tid) void {
-    const t = &threads[tid];
+fn unlinkTask(tid: Tid) void {
+    const t = &tasks[tid];
     switch (t.state) {
         .ready, .dead => {},
         else => unreachable,
     }
 
     if (t.prev.unwrap()) |prev_tid| {
-        const prev = &threads[prev_tid];
+        const prev = &tasks[prev_tid];
         prev.next = t.next;
     } else if (t.state == .ready) {
-        first_ready_thread = t.next;
+        first_ready_task = t.next;
     }
 
     if (t.next.unwrap()) |next_tid| {
-        const next = &threads[next_tid];
+        const next = &tasks[next_tid];
         next.prev = t.prev;
     } else if (t.state == .ready) {
-        last_ready_thread = t.prev;
+        last_ready_task = t.prev;
     }
 
     t.prev = .none;
@@ -451,40 +451,40 @@ fn unlinkThread(tid: Tid) void {
 }
 
 /// assumes scheduler lock is held
-fn linkReadyThread(tid: Tid) void {
-    const t = &threads[tid];
+fn linkReadyTask(tid: Tid) void {
+    const t = &tasks[tid];
     assert(t.state == .ready);
     assert(t.next == .none);
     assert(t.prev == .none);
 
-    t.prev = last_ready_thread;
-    if (last_ready_thread.unwrap()) |other_tid| {
-        const other = &threads[other_tid];
+    t.prev = last_ready_task;
+    if (last_ready_task.unwrap()) |other_tid| {
+        const other = &tasks[other_tid];
         assert(other.state == .ready);
         assert(other.next == .none);
         other.next = .wrap(tid);
     } else {
-        first_ready_thread = .wrap(tid);
+        first_ready_task = .wrap(tid);
     }
 
-    last_ready_thread = .wrap(tid);
+    last_ready_task = .wrap(tid);
 }
 
-fn linkSleepingThread(tid: Tid) void {
-    const t = &threads[tid];
+fn linkSleepingTask(tid: Tid) void {
+    const t = &tasks[tid];
     const ticks = t.state.sleeping.until_ticks;
     assert(t.next == .none);
     assert(t.prev == .none);
 
-    var next_tid = first_sleeping_thread.unwrap() orelse {
+    var next_tid = first_sleeping_task.unwrap() orelse {
         t.next = .none;
         t.prev = .none;
-        first_sleeping_thread = .wrap(tid);
+        first_sleeping_task = .wrap(tid);
         return;
     };
 
     while (true) {
-        const next = &threads[next_tid];
+        const next = &tasks[next_tid];
         if (next.state.sleeping.until_ticks <= ticks) {
             if (next.next.unwrap()) |x| {
                 next_tid = x;
@@ -501,9 +501,9 @@ fn linkSleepingThread(tid: Tid) void {
         t.prev = next.prev;
 
         if (next.prev.unwrap()) |prev_tid| {
-            threads[prev_tid].next = .wrap(tid);
+            tasks[prev_tid].next = .wrap(tid);
         } else {
-            first_sleeping_thread = .wrap(tid);
+            first_sleeping_task = .wrap(tid);
         }
 
         next.prev = .wrap(tid);
@@ -511,7 +511,7 @@ fn linkSleepingThread(tid: Tid) void {
     }
 }
 
-fn idleThread() noreturn {
+fn idleTask() noreturn {
     arch.spinWait();
 }
 
@@ -525,15 +525,15 @@ pub const testing = struct {
     var mutex: Mutex = .init;
 
     pub fn run() !void {
-        _ = try spawnKernelThread(thread1, .{});
-        _ = try spawnKernelThread(thread2, .{});
+        _ = try spawnKernelTask(task1, .{});
+        _ = try spawnKernelTask(task2, .{});
     }
 
-    fn thread1() noreturn {
+    fn task1() noreturn {
         sleepNs(std.time.ns_per_ms * 50);
         mutex.lock();
         mutex.unlock();
-        std.log.info("thread 1", .{});
+        std.log.info("task 1", .{});
 
         while (true) {
             const byte = serial.read();
@@ -546,12 +546,12 @@ pub const testing = struct {
         }
     }
 
-    fn thread2() noreturn {
+    fn task2() noreturn {
         mutex.lock();
         sleepNs(std.time.ns_per_ms * 100);
         mutex.unlock();
 
-        std.log.info("thread 2", .{});
+        std.log.info("task 2", .{});
 
         while (true) {
             while (in_head.load(.monotonic) == in_tail.load(.monotonic)) {
