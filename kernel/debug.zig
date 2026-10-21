@@ -35,17 +35,19 @@ pub fn panic(str: []const u8, ret_addr: ?usize) noreturn {
 
     arch.interrupt.disable();
     log.spinlock.status.store(.unlocked, .monotonic);
+    std.log.err("Kernel Panic: {s}", .{str});
 
     std.debug.writeCurrentStackTrace(.{
         .first_address = ret_addr orelse @returnAddress(),
         .allow_unsafe_unwind = true,
     }, log.term) catch {};
 
-    std.log.err("Kernel Panic: {s}", .{str});
     arch.spinWait();
 }
 
 pub fn dumpError(err: anytype) void {
+    std.log.err("Error: {}", .{err});
+
     if (@errorReturnTrace()) |trace|
         std.debug.writeErrorReturnTrace(trace, log.term) catch {};
 
@@ -55,12 +57,15 @@ pub fn dumpError(err: anytype) void {
         .allow_unsafe_unwind = true,
         .first_address = @returnAddress(),
     }, log.term) catch {};
-
-    std.log.err("Error: {}", .{err});
 }
 
 pub fn dumpErrorAndPanic(err: anytype) noreturn {
+    @branchHint(.cold);
+
     arch.interrupt.disable();
+    log.spinlock.status.store(.unlocked, .monotonic);
+    std.log.err("Kernel Panic: {}", .{err});
+
     if (@errorReturnTrace()) |trace|
         std.debug.writeErrorReturnTrace(trace, log.term) catch {};
 
@@ -71,7 +76,6 @@ pub fn dumpErrorAndPanic(err: anytype) noreturn {
         .first_address = @returnAddress(),
     }, log.term) catch {};
 
-    std.log.err("Kernel Panic: {}", .{err});
     arch.spinWait();
 }
 

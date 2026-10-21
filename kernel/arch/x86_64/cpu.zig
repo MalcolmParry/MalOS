@@ -1,6 +1,6 @@
 const std = @import("std");
 const arch = @import("x86_64.zig");
-const scheduler = @import("../../scheduler.zig");
+const Task = @import("../../task/Task.zig");
 const mem = @import("../../memory.zig");
 
 pub const ExtendedState = struct {
@@ -126,14 +126,14 @@ pub const State = extern struct {
     }
 
     comptime {
-        const Status = @TypeOf(scheduler.spinlock.status.raw);
+        const Status = @TypeOf(Task.spinlock.status.raw);
         std.debug.assert(@sizeOf(Status) == 1);
         std.debug.assert(@intFromEnum(Status.unlocked) == 0);
     }
 
     fn nakedRestore() callconv(.naked) noreturn {
         asm volatile (
-            \\ movb $0, %[scheduler_lock:P](%rip)
+            \\ movb $0, %[lock:P](%rip)
             \\
             \\ pop %rax
             \\ mov %cr3, %rbx
@@ -161,11 +161,11 @@ pub const State = extern struct {
             \\ addq $0x10, %rsp
             \\ iretq
             :
-            : [scheduler_lock] "i" (&scheduler.spinlock.status.raw),
+            : [lock] "i" (&Task.spinlock.status.raw),
         );
     }
 
-    // assumes scheduler lock is held
+    // assumes task list lock is held
     pub fn restore(state: *align(1) const State) noreturn {
         asm volatile (
             \\ jmp %[nakedRestore:P]
@@ -177,7 +177,7 @@ pub const State = extern struct {
         unreachable;
     }
 
-    // assumes scheduler lock is held
+    // assumes task list lock is held
     // assumes interrupts are disabled
     pub fn saveAndRestore(new: *align(1) const State, old: *align(1) State) void {
         const old_top = @intFromPtr(old) + @sizeOf(State);

@@ -6,7 +6,8 @@ const Vmm = @import("Vmm.zig");
 const PageAllocator = @import("heap/PageAllocator.zig");
 const std = @import("std");
 const builtin = @import("builtin");
-const scheduler = @import("scheduler.zig");
+const scheduler = @import("task/scheduler.zig");
+const Task = @import("task/Task.zig");
 const log = @import("log.zig");
 const gpa = @import("heap/gpa.zig");
 
@@ -227,7 +228,7 @@ fn ext2Test() !void {
     }
 
     if (init_header.entry > arch.paging.max_user_addr) return error.BadElf;
-    _ = try scheduler.spawnUserTask(init_header.entry, init_table);
+    _ = try Task.spawnUserTask(init_header.entry, init_table);
     // scheduler.sleepNs(std.time.ns_per_s * 2);
 }
 

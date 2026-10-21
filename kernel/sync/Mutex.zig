@@ -1,7 +1,8 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const arch = @import("../arch/arch.zig").current;
-const scheduler = @import("../scheduler.zig");
+const Task = @import("../task/Task.zig");
+const scheduler = @import("../task/scheduler.zig");
 const Mutex = @This();
 
 const debug_info = switch (builtin.mode) {
@@ -20,7 +21,7 @@ pub const init: Mutex = .{
 };
 
 const Waiter = struct {
-    tid: scheduler.Tid,
+    tid: Task.Tid,
     next: ?*Waiter,
 };
 
@@ -31,12 +32,12 @@ const owner_shift = 3;
 const flags_mask: u32 = (1 << owner_shift) - 1;
 
 comptime {
-    std.debug.assert(@bitSizeOf(scheduler.Tid) <= 32 - owner_shift);
+    std.debug.assert(@bitSizeOf(Task.Tid) <= 32 - owner_shift);
 }
 
 pub fn lock(m: *Mutex) void {
     arch.interrupt.assertEnabled();
-    const me = if (debug_info) @as(u32, scheduler.current_tid) << owner_shift else 0;
+    const me = if (debug_info) @as(u32, @intFromEnum(Task.current_tid)) << owner_shift else 0;
 
     if (m.state.cmpxchgStrong(0, locked | me, .acquire, .monotonic) == null) {
         @branchHint(.likely);
@@ -58,7 +59,7 @@ pub fn lock(m: *Mutex) void {
     }
 
     var waiter: Waiter = .{
-        .tid = scheduler.current_tid,
+        .tid = Task.current_tid,
         .next = null,
     };
 
@@ -69,7 +70,7 @@ pub fn lock(m: *Mutex) void {
     }
     m.last_waiter = &waiter;
 
-    _ = scheduler.spinlock.lock();
+    _ = Task.spinlock.lock();
     m.state.store(locked | contended | owner, .release);
     std.debug.assert(scheduler.scheduleLockHeld(.blocked));
     arch.interrupt.enable();
@@ -77,7 +78,7 @@ pub fn lock(m: *Mutex) void {
 
 pub fn unlock(m: *Mutex) void {
     arch.interrupt.assertEnabled();
-    const me = if (debug_info) @as(u32, scheduler.current_tid) << owner_shift else 0;
+    const me = if (debug_info) @as(u32, @intFromEnum(Task.current_tid)) << owner_shift else 0;
 
     if (debug_info) {
         const s = m.state.load(.monotonic);
@@ -100,7 +101,7 @@ pub fn unlock(m: *Mutex) void {
         m.last_waiter = null;
 
     const c_bit = if (w.next != null) contended else 0;
-    const owner = if (debug_info) @as(u32, wtid) << owner_shift else 0;
+    const owner = if (debug_info) @as(u32, @intFromEnum(wtid)) << owner_shift else 0;
 
     m.state.store(locked | c_bit | owner, .release);
     scheduler.wake(wtid);
