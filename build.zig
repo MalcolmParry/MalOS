@@ -29,17 +29,33 @@ fn addBuildStep(b: *Build, optimize: std.builtin.OptimizeMode, target: Build.Res
         .ReleaseFast, .ReleaseSmall => false,
     };
 
+    const abi = b.createModule(.{
+        .root_source_file = b.path("abi.zig"),
+    });
+
+    const lib = b.createModule(.{
+        .root_source_file = b.path("user/lib/lib.zig"),
+        .imports = &.{.{
+            .name = "abi",
+            .module = abi,
+        }},
+    });
+
     const kernel_compile = b.addObject(.{
         .name = "kernel.elf",
         .use_llvm = true,
         .root_module = b.createModule(.{
-            .root_source_file = b.path("src/main.zig"),
+            .root_source_file = b.path("kernel/main.zig"),
             .target = target,
             .optimize = optimize,
             .code_model = .kernel,
             .single_threaded = true,
             .strip = !debug_info,
             .omit_frame_pointer = !debug_info,
+            .imports = &.{.{
+                .name = "abi",
+                .module = abi,
+            }},
         }),
     });
     kernel_compile.bundle_compiler_rt = true;
@@ -48,12 +64,16 @@ fn addBuildStep(b: *Build, optimize: std.builtin.OptimizeMode, target: Build.Res
         .name = "init",
         .use_llvm = true,
         .root_module = b.createModule(.{
-            .root_source_file = b.path("init.zig"),
+            .root_source_file = b.path("user/init.zig"),
             .target = target,
             .optimize = optimize,
             .pic = false,
             .strip = !debug_info,
             .omit_frame_pointer = !debug_info,
+            .imports = &.{.{
+                .name = "lib",
+                .module = lib,
+            }},
         }),
     });
 
@@ -99,16 +119,16 @@ fn addBuildStep(b: *Build, optimize: std.builtin.OptimizeMode, target: Build.Res
         "-cf",
     });
     const src_tar = tar.addOutputFileArg("kernel_src.tar");
-    tar.addArgs(&.{ "-C", b.build_root.path.?, "src" });
+    tar.addArgs(&.{ "-C", b.build_root.path.?, "kernel" });
 
-    var src_dir = try cwd.openDir(io, b.pathJoin(&.{ b.build_root.path.?, "src" }), .{ .iterate = true });
+    var src_dir = try cwd.openDir(io, b.pathJoin(&.{ b.build_root.path.?, "kernel" }), .{ .iterate = true });
     defer src_dir.close(io);
 
     var src_iter = try src_dir.walk(alloc);
     defer src_iter.deinit();
     while (try src_iter.next(io)) |entry| {
         if (entry.kind != .file) continue;
-        tar.addFileInput(.{ .cwd_relative = b.pathJoin(&.{ b.build_root.path.?, "src", entry.path }) });
+        tar.addFileInput(.{ .cwd_relative = b.pathJoin(&.{ b.build_root.path.?, "kernel", entry.path }) });
     }
 
     const root = b.addWriteFiles();
@@ -148,7 +168,7 @@ fn addBuildStep(b: *Build, optimize: std.builtin.OptimizeMode, target: Build.Res
 }
 
 fn linkAssembly(b: *Build, link: *Build.Step.Run) !void {
-    const asm_source_path = b.pathJoin(&.{ b.build_root.path.?, "src/arch/x86_64/" });
+    const asm_source_path = b.pathJoin(&.{ b.build_root.path.?, "kernel/arch/x86_64/" });
     var asm_source_dir = try std.Io.Dir.cwd().openDir(b.graph.io, asm_source_path, .{ .iterate = true });
     defer asm_source_dir.close(b.graph.io);
 
