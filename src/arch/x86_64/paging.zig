@@ -222,6 +222,7 @@ fn getVirtAddrFromIndices(l4: Table.Index, l3: Table.Index, l2: Table.Index, l1:
 pub const heap_range = @as([*]mem.Page, @ptrCast(getVirtAddrFromIndices(511, 0, 0, 0)))[0 .. 512 * 512 * 511];
 pub const direct_map = @as([*]mem.Page, @ptrCast(getVirtAddrFromIndices(256, 0, 0, 0)))[0 .. 512 * 512 * 512];
 pub const max_user_addr = 0x0000_8000_0000_0000;
+pub const min_kernel_addr = 0xffff_8000_0000_0000;
 const direct_map_base = @intFromPtr(direct_map.ptr);
 
 pub var l4_table: Table = undefined;

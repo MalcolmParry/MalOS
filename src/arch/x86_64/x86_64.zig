@@ -23,6 +23,9 @@ pub const outw = cpu.outw;
 pub const outl = cpu.outl;
 pub const ioWait = cpu.ioWait;
 
+const user_copy = @import("user_copy.zig");
+pub const copyFromUser = user_copy.copyFromUser;
+
 pub fn kernelEntry() callconv(.{ .x86_64_sysv = .{} }) noreturn {
     @import("../../main.zig").kernelMain() catch |err| {
         debug.dumpErrorAndPanic(err);

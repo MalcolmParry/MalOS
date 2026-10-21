@@ -5,6 +5,13 @@ const arch = @import("x86_64.zig");
 const pic = @import("pic.zig");
 const scheduler = @import("../../scheduler.zig");
 const log = @import("../../log.zig");
+const syscall = @import("../../syscall.zig");
+const user_copy = @import("user_copy.zig");
+
+const debug = switch (builtin.mode) {
+    .ReleaseFast, .ReleaseSmall => false,
+    .Debug, .ReleaseSafe => true,
+};
 
 const IDT = packed struct {
     // part of the ISR ptr
@@ -45,6 +52,16 @@ pub fn enable() void {
 pub fn disable() void {
     if (builtin.is_test) return;
     asm volatile ("cli");
+}
+
+pub fn assertEnabled() void {
+    if (!debug) return;
+    if (!isEnabled()) unreachable;
+}
+
+pub fn assertDisabled() void {
+    if (!debug) return;
+    if (isEnabled()) unreachable;
 }
 
 pub fn isEnabled() bool {
@@ -119,6 +136,12 @@ fn handler(state: *align(1) arch.cpu.State) callconv(.{ .x86_64_sysv = .{ .incom
     std.debug.assert(!arch.interrupt.isEnabled());
     scheduler.saveState(state);
 
+    if (state.int_code == 0x0e and state.rip == @intFromPtr(&user_copy.copy_from_user_fault_ip)) {
+        state.rip = @intFromPtr(&user_copy.copy_from_user_done);
+        state.rax = 0;
+        state.restore();
+    }
+
     switch (state.int_code) {
         0...31 => {
             var ctx: std.debug.cpu_context.Native = undefined;
@@ -176,9 +199,18 @@ fn handler(state: *align(1) arch.cpu.State) callconv(.{ .x86_64_sysv = .{ .incom
             arch.spinWait();
         },
         0x80 => {
-            std.log.info("syscall", .{});
+            const args: [3]usize = .{
+                state.rax,
+                state.rdi,
+                state.rsi,
+            };
 
-            pic.eoi();
+            std.log.info("syscall with {any}", .{args});
+            const result = syscall.handler(args);
+            std.log.info("syscall returned with {any}", .{result});
+
+            state.rax = result[0];
+            state.rdi = result[1];
             scheduler.preempt();
         },
         else => {
