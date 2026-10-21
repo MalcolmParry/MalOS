@@ -46,13 +46,16 @@ fn addBuildStep(b: *Build, optimize: std.builtin.OptimizeMode, target: Build.Res
 
     const init = b.addExecutable(.{
         .name = "init",
+        .use_llvm = true,
         .root_module = b.createModule(.{
+            .root_source_file = b.path("init.zig"),
             .target = target,
             .optimize = optimize,
             .pic = false,
+            .strip = !debug_info,
+            .omit_frame_pointer = !debug_info,
         }),
     });
-    init.root_module.addAssemblyFile(b.path("init.s"));
 
     const options = b.addOptions();
     options.addOption([]const u8, "build_root", b.build_root.path.?);
