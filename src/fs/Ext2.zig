@@ -11,6 +11,7 @@ bd_path: vfs.Path,
 sb_blocks: []u8,
 gdt_descs: []align(1) BlockGroupDesc,
 scratch_block: []u8,
+scratch_block2: []u8,
 
 sb: vfs.SuperBlock,
 root: *vfs.DirEntry,
@@ -33,6 +34,7 @@ pub fn create(alloc: std.mem.Allocator, bd_path: vfs.Path) !*vfs.Mount {
         .sb_blocks = undefined,
         .gdt_descs = undefined,
         .scratch_block = undefined,
+        .scratch_block2 = undefined,
 
         .sb = undefined,
         .root = undefined,
@@ -61,6 +63,9 @@ pub fn create(alloc: std.mem.Allocator, bd_path: vfs.Path) !*vfs.Mount {
 
     fs.scratch_block = try alloc.alloc(u8, fs_block_size);
     errdefer alloc.free(fs.scratch_block);
+
+    fs.scratch_block2 = try alloc.alloc(u8, fs_block_size);
+    errdefer alloc.free(fs.scratch_block2);
 
     const block_group_count = (sb_info.block_count + sb_info.blocks_per_group - 1) / sb_info.blocks_per_group;
     const gdt_byte_count = block_group_count * @sizeOf(BlockGroupDesc);
@@ -114,6 +119,7 @@ pub fn sbDestroy(sb: *vfs.SuperBlock) void {
     const gdt_blocks = gdt_byte_ptr[0..std.mem.alignForward(usize, gdt_byte_count, fs_block_size)];
     alloc.free(gdt_blocks);
 
+    alloc.free(fs.scratch_block2);
     alloc.free(fs.scratch_block);
     alloc.free(fs.sb_blocks);
     fs.bd_path.release();
@@ -149,9 +155,10 @@ fn readBlocks(fs: *Ext2, start: u32, buffer: []u8) !void {
 
 fn readInodeBlocks(fs: *Ext2, inode: *align(1) const Inode, start: u32, buffer: []u8) !void {
     const block_size = fs.sbInfo().blockSize();
-    const block_count = buffer.len / block_size;
-    std.debug.assert(buffer.len % block_size == 0);
+    const block_count = @divExact(buffer.len, block_size);
     if (block_count == 0) return;
+    const entries_per_indirect = block_size / 4;
+    const entries_per_dindirect = entries_per_indirect * entries_per_indirect;
 
     var i: u32 = 0;
     while (i < block_count) {
@@ -170,7 +177,68 @@ fn readInodeBlocks(fs: *Ext2, inode: *align(1) const Inode, start: u32, buffer: 
             continue;
         }
 
+        if (current - 12 < entries_per_indirect) {
+            const first = current - 12;
+            const count = @min(entries_per_indirect - first, block_count - i);
+
+            try fs.readFromIndirect(inode.singly_indirect_pointer, first, count, buffer[i * block_size ..]);
+            i += count;
+            continue;
+        }
+
+        if (current - 12 - entries_per_indirect < entries_per_dindirect) {
+            const dfirst = current - 12 - entries_per_indirect;
+
+            if (inode.doubly_indirect_pointer == 0) {
+                const count = @min(entries_per_dindirect - dfirst, block_count - i);
+                @memset(buffer[i * block_size ..][0 .. count * block_size], 0);
+                i += count;
+                continue;
+            }
+
+            const dindirect_block = fs.scratch_block2;
+            try fs.readBlocks(inode.doubly_indirect_pointer, dindirect_block);
+            const dindirect = std.mem.bytesAsSlice(u32, dindirect_block);
+
+            var outer = dfirst / entries_per_indirect;
+            var inner = dfirst % entries_per_indirect;
+
+            while (i < block_count and outer < entries_per_indirect) : ({
+                outer += 1;
+                inner = 0;
+            }) {
+                const count = @min(entries_per_indirect - inner, block_count - i);
+                try fs.readFromIndirect(dindirect[outer], inner, count, buffer[i * block_size ..]);
+                i += count;
+            }
+
+            continue;
+        }
+
         return error.NotSupported;
+    }
+}
+
+fn readFromIndirect(fs: *Ext2, table_block: u32, first: u32, count: u32, dst: []u8) !void {
+    const block_size = fs.sbInfo().blockSize();
+
+    if (table_block == 0) {
+        @memset(dst[0 .. count * block_size], 0);
+        return;
+    }
+
+    const indirect_block = fs.scratch_block;
+    try fs.readBlocks(table_block, indirect_block);
+    const indirect = std.mem.bytesAsSlice(u32, indirect_block);
+
+    for (indirect[first..][0..count], 0..) |block_idx, n| {
+        const block = dst[n * block_size ..][0..block_size];
+
+        if (block_idx == 0) {
+            @memset(block, 0);
+        } else {
+            try fs.readBlocks(block_idx, block);
+        }
     }
 }
 
