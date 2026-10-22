@@ -161,7 +161,7 @@ fn ext2Test() !void {
     defer hello_txt.release();
 
     const file = try hello_txt.open();
-    defer file.close();
+    defer file.release();
 
     var buffer: [1024]u8 = undefined;
     const read = try file.read(0, &buffer);
@@ -185,7 +185,7 @@ fn ext2Test() !void {
     defer init.release();
 
     const init_open = try init.open();
-    defer init_open.close();
+    defer init_open.release();
 
     var init_buffer: [4096]u8 = undefined;
     var init_reader = init_open.reader(&init_buffer);
@@ -234,7 +234,7 @@ fn ext2Test() !void {
 
 fn printFileTree(parent: vfs.Path, term: std.Io.Terminal, indent: usize) !void {
     const file = try parent.open();
-    defer file.close();
+    defer file.release();
 
     var next_pos: u64 = 0;
     var record: vfs.DirRecord = undefined;

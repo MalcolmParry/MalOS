@@ -117,15 +117,17 @@ pub const FileDescTable = struct {
 
         var iter = table.map.iterator();
         while (iter.next()) |kv| {
-            // TODO: make file refcounted
-            kv.value_ptr.*.close();
+            kv.value_ptr.*.release();
         }
 
         table.map.deinit(gpa.allocator);
         gpa.allocator.destroy(table);
     }
 
+    /// takes callers reference
     pub fn putFd(table: *FileDescTable, file: vfs.File) !abi.Fd {
+        errdefer file.release();
+
         const l = table.lock.lock();
         defer l.unlock();
 
@@ -144,8 +146,19 @@ pub const FileDescTable = struct {
         defer l.unlock();
 
         const file = table.map.get(fd) orelse return null;
-        // TODO: acquire
+        file.acquire();
         return file;
+    }
+
+    pub fn removeFd(table: *FileDescTable, fd: abi.Fd) bool {
+        const kv = blk: {
+            const l = table.lock.lock();
+            defer l.unlock();
+            break :blk table.map.fetchRemove(fd) orelse return false;
+        };
+
+        kv.value.release();
+        return true;
     }
 };
 

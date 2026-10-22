@@ -25,6 +25,17 @@ pub fn handler(args: [5]usize) [2]usize {
 
             return .{ @intFromEnum(abi.Status.success), @intFromEnum(fd) };
         },
+        .fclose => {
+            fclose(args) catch |err| {
+                const status: abi.Status = switch (err) {
+                    else => .unknown,
+                };
+
+                return .{ @intFromEnum(status), 0 };
+            };
+
+            return .{ @intFromEnum(abi.Status.success), 0 };
+        },
         .fread => {
             const err_read = fread(args);
             const read = err_read catch |err| {
@@ -78,14 +89,21 @@ fn fopen(args: [5]usize) !abi.Fd {
     const vfs_path = try vfs_root.lookup(path);
     defer vfs_path.release();
 
-    const file = try vfs_path.open();
-    errdefer file.close();
-
     const task = Task.current_tid.get();
     const fd_table = task.fd_table orelse return error.TooManyFds;
+    const file = try vfs_path.open();
     const fd = try fd_table.putFd(file);
 
     return fd;
+}
+
+fn fclose(args: [5]usize) !void {
+    if (args[1] > abi.Fd.max) return error.BadFd;
+    const fd: abi.Fd = @enumFromInt(args[1]);
+
+    const task = Task.current_tid.get();
+    const fd_table = task.fd_table orelse return error.BadFd;
+    if (!fd_table.removeFd(fd)) return error.BadFd;
 }
 
 fn fread(args: [5]usize) !usize {
@@ -101,7 +119,7 @@ fn fread(args: [5]usize) !usize {
     const task = Task.current_tid.get();
     const fd_table = task.fd_table orelse return error.BadFd;
     const file = fd_table.getFd(fd) orelse return error.BadFd;
-    // TODO: defer release
+    defer file.release();
 
     const read = blk: {
         arch.interrupt.enable();

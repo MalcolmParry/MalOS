@@ -205,8 +205,13 @@ pub const File = struct {
     handle: *Node.Handle,
     path: Path,
 
-    pub fn close(file: File) void {
-        file.handle.close();
+    pub fn acquire(file: File) void {
+        file.path.acquire();
+        file.handle.acquire();
+    }
+
+    pub fn release(file: File) void {
+        file.handle.release();
         file.path.release();
     }
 

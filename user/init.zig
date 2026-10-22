@@ -2,17 +2,20 @@ const std = @import("std");
 const lib = @import("lib");
 
 pub fn main() noreturn {
-    lib.syscall.debugPrint("hello world\n") catch {};
-    const fd = lib.syscall.fopen("/boot/grub/grub.cfg") catch {
-        panic("failed to open file\n");
-    };
+    {
+        lib.syscall.debugPrint("hello world\n") catch {};
+        const fd = lib.syscall.fopen("/boot/grub/grub.cfg") catch {
+            panic("failed to open file\n");
+        };
+        defer lib.syscall.fclose(fd) catch {};
 
-    var buffer: [4096]u8 = undefined;
-    const read = lib.syscall.fread(fd, 0, &buffer) catch {
-        panic("failed to read file\n");
-    };
+        var buffer: [4096]u8 = undefined;
+        const read = lib.syscall.fread(fd, 0, &buffer) catch {
+            panic("failed to read file\n");
+        };
 
-    lib.syscall.debugPrint(buffer[0..read]) catch {};
+        lib.syscall.debugPrint(buffer[0..read]) catch {};
+    }
 
     spinwait();
 }

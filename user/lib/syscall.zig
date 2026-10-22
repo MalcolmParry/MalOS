@@ -39,6 +39,25 @@ pub fn fopen(path: []const u8) !abi.Fd {
     };
 }
 
+pub fn fclose(fd: abi.Fd) !void {
+    const result = syscall(.{
+        @intFromEnum(abi.Syscall.fclose),
+        @intFromEnum(fd),
+        0,
+        0,
+        0,
+    });
+
+    return switch (std.enums.fromInt(abi.Status, result[0]) orelse .unknown) {
+        .success => {},
+        .invalid_syscall => error.InvalidSyscall,
+        .invalid_arg => error.InvalidArg,
+        .fault => error.Fault,
+        .too_long => error.TooLong,
+        .unknown => error.Unknown,
+    };
+}
+
 pub fn fread(fd: abi.Fd, offset: u64, buffer: []u8) !usize {
     const result = syscall(.{
         @intFromEnum(abi.Syscall.fread),

@@ -177,6 +177,7 @@ pub const Handle = struct {
     node: *Node,
     /// immutable
     vtable: *const Handle.VTable,
+    ref_count: std.atomic.Value(u32),
 
     pub const VTable = struct {
         close: *const fn (handle: *Handle) void = &Handle.default_impls.closeDefault,
@@ -186,7 +187,18 @@ pub const Handle = struct {
         read_dir: *const fn (handle: *Handle, pos: u64, record: *DirRecord) Error!?u64 = &Handle.default_impls.readDirNotSupported,
     };
 
-    pub fn close(handle: *Handle) void {
+    pub fn acquire(handle: *Handle) void {
+        const prev = handle.ref_count.fetchAdd(1, .monotonic);
+        std.debug.assert(prev != 0);
+    }
+
+    pub fn release(handle: *Handle) void {
+        const prev = handle.ref_count.fetchSub(1, .acq_rel);
+        std.debug.assert(prev != 0);
+        if (prev == 1) handle.close();
+    }
+
+    fn close(handle: *Handle) void {
         const node = handle.node;
         handle.vtable.close(handle);
         node.release();
@@ -254,6 +266,7 @@ pub const Handle = struct {
                     handle.* = .{
                         .node = node,
                         .vtable = vtable,
+                        .ref_count = .init(1),
                     };
                     return handle;
                 }
