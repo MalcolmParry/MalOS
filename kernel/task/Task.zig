@@ -6,6 +6,8 @@ const PageAllocator = @import("../heap/PageAllocator.zig");
 const gpa = @import("../heap/gpa.zig");
 const scheduler = @import("scheduler.zig");
 const debug = @import("../debug.zig");
+const vfs = @import("../fs/vfs/vfs.zig");
+const abi = @import("abi");
 const Task = @This();
 const assert = std.debug.assert;
 
@@ -15,6 +17,7 @@ next: OptTid,
 
 /// null if this uses the global kernel table
 addr_space: ?*AddressSpace,
+fd_table: ?*FileDescTable,
 kernel_stack: ?[]mem.Page,
 cpu_state: *align(1) arch.cpu.State,
 ext_cpu_state: arch.cpu.ExtendedState,
@@ -78,6 +81,71 @@ pub const AddressSpace = struct {
     pub fn destroy(as: *AddressSpace) void {
         _ = as;
         @panic("not implemented");
+    }
+};
+
+pub const FileDescTable = struct {
+    ref_count: std.atomic.Value(u32),
+    map: std.AutoHashMapUnmanaged(abi.Fd, vfs.File),
+    lock: Spinlock,
+    bump: u32,
+
+    pub fn acquire(table: *FileDescTable) void {
+        const prev = table.ref_count.fetchAdd(1, .monotonic);
+        assert(prev != 0);
+    }
+
+    pub fn release(table: *FileDescTable) void {
+        const prev = table.ref_count.fetchSub(1, .acq_rel);
+        assert(prev != 0);
+        if (prev == 1) table.destroy();
+    }
+
+    pub fn create() !*FileDescTable {
+        const table = try gpa.allocator.create(FileDescTable);
+        table.* = .{
+            .ref_count = .init(1),
+            .map = .empty,
+            .lock = .init,
+            .bump = 0,
+        };
+        return table;
+    }
+
+    pub fn destroy(table: *FileDescTable) void {
+        assert(table.ref_count.load(.monotonic) == 0);
+
+        var iter = table.map.iterator();
+        while (iter.next()) |kv| {
+            // TODO: make file refcounted
+            kv.value_ptr.*.close();
+        }
+
+        table.map.deinit(gpa.allocator);
+        gpa.allocator.destroy(table);
+    }
+
+    pub fn putFd(table: *FileDescTable, file: vfs.File) !abi.Fd {
+        const l = table.lock.lock();
+        defer l.unlock();
+
+        const fd: abi.Fd = @enumFromInt(table.bump);
+        table.bump +|= 1;
+
+        const kv = try table.map.getOrPut(gpa.allocator, fd);
+        if (kv.found_existing) return error.TooManyFds;
+
+        kv.value_ptr.* = file;
+        return fd;
+    }
+
+    pub fn getFd(table: *FileDescTable, fd: abi.Fd) ?vfs.File {
+        const l = table.lock.lock();
+        defer l.unlock();
+
+        const file = table.map.get(fd) orelse return null;
+        // TODO: acquire
+        return file;
     }
 };
 
@@ -161,6 +229,7 @@ pub fn spawnKernelTaskRaw(func: ?*const Task.Entry, arg: usize, stack: []mem.Pag
         .prev = .none,
 
         .addr_space = null,
+        .fd_table = null,
         .kernel_stack = stack,
         .ext_cpu_state = .zero,
         .cpu_state = state,
@@ -170,7 +239,10 @@ pub fn spawnKernelTaskRaw(func: ?*const Task.Entry, arg: usize, stack: []mem.Pag
     return tid;
 }
 
-pub fn spawnUserTask(func: u64, table: *arch.paging.Table) !Tid {
+/// takes ownership of the callers reference to fd_table
+pub fn spawnUserTask(func: u64, table: *arch.paging.Table, fd_table: *FileDescTable) !Tid {
+    errdefer fd_table.release();
+
     const stack_size = 32 * 1024;
     const stack = try PageAllocator.global.alloc(stack_size / mem.page_size, .{
         .cache_mode = .full,
@@ -202,6 +274,7 @@ pub fn spawnUserTask(func: u64, table: *arch.paging.Table) !Tid {
 
         // TODO: fix this
         .addr_space = null,
+        .fd_table = fd_table,
         .kernel_stack = stack,
         .ext_cpu_state = .zero,
         .cpu_state = state,
@@ -237,6 +310,7 @@ pub fn allocTask() !Tid {
         .prev = .none,
         .next = .none,
         .addr_space = undefined,
+        .fd_table = undefined,
         .cpu_state = undefined,
         .ext_cpu_state = undefined,
         .kernel_stack = undefined,

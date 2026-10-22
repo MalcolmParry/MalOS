@@ -136,14 +136,17 @@ fn handler(state: *align(1) arch.cpu.State) callconv(.{ .x86_64_sysv = .{ .incom
     std.debug.assert(!arch.interrupt.isEnabled());
     scheduler.saveState(state);
 
-    if (state.int_code == 0x0e and state.rip == @intFromPtr(&user_copy.copy_from_user_fault_ip)) {
-        state.rip = @intFromPtr(&user_copy.copy_from_user_done);
-        state.rax = 0;
+    if (state.int_code == 0x0e and user_copy.maybeHandleFault(state)) {
         state.restore();
     }
 
     switch (state.int_code) {
-        0...31 => {
+        0...31 => blk: {
+            if (state.rbp < arch.paging.min_kernel_addr or state.rip < arch.paging.min_kernel_addr) {
+                std.log.err("userspace exception at 0x{x}", .{state.rip});
+                break :blk;
+            }
+
             var ctx: std.debug.cpu_context.Native = undefined;
             ctx.gprs.set(.rip, state.rip);
             ctx.gprs.set(.rbp, state.rbp);
@@ -199,10 +202,11 @@ fn handler(state: *align(1) arch.cpu.State) callconv(.{ .x86_64_sysv = .{ .incom
             arch.spinWait();
         },
         0x80 => {
-            const args: [3]usize = .{
+            const args: [4]usize = .{
                 state.rax,
                 state.rdi,
                 state.rsi,
+                state.rdx,
             };
 
             std.log.info("syscall with {any}", .{args});

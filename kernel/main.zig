@@ -228,8 +228,8 @@ fn ext2Test() !void {
     }
 
     if (init_header.entry > arch.paging.max_user_addr) return error.BadElf;
-    _ = try Task.spawnUserTask(init_header.entry, init_table);
-    // scheduler.sleepNs(std.time.ns_per_s * 2);
+    _ = try Task.spawnUserTask(init_header.entry, init_table, try .create());
+    scheduler.sleepNs(std.time.ns_per_s * 2000000000);
 }
 
 fn printFileTree(parent: vfs.Path, term: std.Io.Terminal, indent: usize) !void {

@@ -25,6 +25,7 @@ pub fn init() void {
         .next = .none,
 
         .addr_space = null,
+        .fd_table = null,
         // null bc i dont want this to get deallocated when the boot task exits
         .kernel_stack = null,
         .cpu_state = undefined,

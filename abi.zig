@@ -1,12 +1,21 @@
+const std = @import("std");
+
 pub const Syscall = enum(usize) {
-    debug_print = 0,
+    debug_print,
+    fopen,
+    fread,
 };
 
 pub const Status = enum(usize) {
-    success = 0,
-    invalid_syscall = 1,
-    invalid_arg = 2,
-    fault = 3,
-    too_long = 4,
-    unknown = 5,
+    success,
+    invalid_syscall,
+    invalid_arg,
+    fault,
+    too_long,
+    unknown,
+};
+
+pub const Fd = enum(u32) {
+    pub const max = std.math.maxInt(u32);
+    _,
 };
