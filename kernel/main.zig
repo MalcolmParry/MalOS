@@ -164,7 +164,7 @@ fn ext2Test() !void {
     defer file.close();
 
     var buffer: [1024]u8 = undefined;
-    const read = try file.read(&buffer);
+    const read = try file.read(0, &buffer);
 
     std.log.info("{} bytes read", .{read});
     std.log.info("{s}", .{buffer[0..read]});
@@ -236,8 +236,11 @@ fn printFileTree(parent: vfs.Path, term: std.Io.Terminal, indent: usize) !void {
     const file = try parent.open();
     defer file.close();
 
+    var next_pos: u64 = 0;
     var record: vfs.DirRecord = undefined;
-    while (try file.readDir(&record)) {
+    while (true) {
+        next_pos = (try file.readDir(next_pos, &record)) orelse break;
+
         for (0..indent) |_| try term.writer.print("    ", .{});
 
         term.setColor(switch (record.kind) {

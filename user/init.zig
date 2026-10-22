@@ -8,7 +8,7 @@ pub fn main() noreturn {
     };
 
     var buffer: [4096]u8 = undefined;
-    const read = lib.syscall.fread(fd, &buffer) catch {
+    const read = lib.syscall.fread(fd, 0, &buffer) catch {
         panic("failed to read file\n");
     };
 

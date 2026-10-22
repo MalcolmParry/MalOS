@@ -210,12 +210,12 @@ pub const File = struct {
         file.path.release();
     }
 
-    pub fn read(file: File, buffer: []u8) Error!usize {
-        return file.handle.read(buffer);
+    pub fn read(file: File, offset: u64, buffer: []u8) Error!usize {
+        return file.handle.read(offset, buffer);
     }
 
-    pub fn readDir(file: File, record: *Node.DirRecord) Error!bool {
-        return file.handle.readDir(record);
+    pub fn readDir(file: File, pos: u64, record: *Node.DirRecord) Error!?u64 {
+        return file.handle.readDir(pos, record);
     }
 
     pub fn reader(file: File, buffer: []u8) Node.Handle.Reader {

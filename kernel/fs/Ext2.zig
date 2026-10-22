@@ -264,26 +264,21 @@ fn nodeDestroy(vfs_node: *vfs.Node) void {
     fs.alloc.destroy(node);
 }
 
-fn handleReadDir(handle: *vfs.Node.Handle, record: *vfs.DirRecord) vfs.Error!bool {
-    if (handle.cur == std.math.maxInt(u64)) return false;
-
+fn handleReadDir(handle: *vfs.Node.Handle, pos: u64, record: *vfs.DirRecord) vfs.Error!?u64 {
     const vfs_node = handle.node;
     const fs: *Ext2 = @alignCast(@fieldParentPtr("sb", vfs_node.sb));
     const node: *FsNode = @fieldParentPtr("vfs", vfs_node);
     const inode = fs.getInode(node.inode) catch return error.Io;
     const block_size = fs.sbInfo().blockSize();
 
-    var cur = handle.cur;
-    defer handle.cur = cur;
-
     var block_index: u32 = std.math.maxInt(u32);
     const block = fs.scratch_block;
 
+    if (pos > inode.size()) return null;
+
+    var cur = pos;
     while (true) {
-        if (cur + 8 > inode.size()) {
-            cur = std.math.maxInt(u64);
-            return false;
-        }
+        if (cur + 8 > inode.size()) return null;
 
         const new_block_index: u32 = @intCast(cur / block_size);
         const offset_in_page = cur % block_size;
@@ -300,7 +295,7 @@ fn handleReadDir(handle: *vfs.Node.Handle, record: *vfs.DirRecord) vfs.Error!boo
         if (cur + dentry.size > inode.size()) return error.Corrupt;
         if (dentry.size < @as(u64, dentry.name_len) + 8) return error.Corrupt;
 
-        defer cur += dentry.size;
+        cur += dentry.size;
         if (dentry.inode == 0) continue;
 
         const name = @as([*]u8, @ptrCast(&dentry.name))[0..dentry.name_len];
@@ -320,7 +315,7 @@ fn handleReadDir(handle: *vfs.Node.Handle, record: *vfs.DirRecord) vfs.Error!boo
 
         @memcpy(record.name_buf[0..name.len], name);
         @memset(record.name_buf[name.len..], 0);
-        return true;
+        return cur;
     }
 }
 

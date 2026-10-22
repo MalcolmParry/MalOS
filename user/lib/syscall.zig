@@ -7,6 +7,7 @@ pub fn debugPrint(msg: []const u8) !void {
         @intFromPtr(msg.ptr),
         msg.len,
         0,
+        0,
     });
 
     return switch (std.enums.fromInt(abi.Status, result[0]) orelse .unknown) {
@@ -25,6 +26,7 @@ pub fn fopen(path: []const u8) !abi.Fd {
         @intFromPtr(path.ptr),
         path.len,
         0,
+        0,
     });
 
     return switch (std.enums.fromInt(abi.Status, result[0]) orelse .unknown) {
@@ -37,10 +39,11 @@ pub fn fopen(path: []const u8) !abi.Fd {
     };
 }
 
-pub fn fread(fd: abi.Fd, buffer: []u8) !usize {
+pub fn fread(fd: abi.Fd, offset: u64, buffer: []u8) !usize {
     const result = syscall(.{
         @intFromEnum(abi.Syscall.fread),
         @intFromEnum(fd),
+        offset,
         @intFromPtr(buffer.ptr),
         buffer.len,
     });
@@ -55,7 +58,7 @@ pub fn fread(fd: abi.Fd, buffer: []u8) !usize {
     };
 }
 
-pub fn syscall(args: [4]usize) [2]usize {
+pub fn syscall(args: [5]usize) [2]usize {
     var ret0: usize = undefined;
     var ret1: usize = undefined;
 
@@ -67,6 +70,7 @@ pub fn syscall(args: [4]usize) [2]usize {
           [arg1] "{rdi}" (args[1]),
           [arg2] "{rsi}" (args[2]),
           [arg3] "{rdx}" (args[3]),
+          [arg4] "{r8}" (args[4]),
         : .{ .memory = true });
 
     return .{ ret0, ret1 };

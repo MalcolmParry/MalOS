@@ -202,11 +202,12 @@ fn handler(state: *align(1) arch.cpu.State) callconv(.{ .x86_64_sysv = .{ .incom
             arch.spinWait();
         },
         0x80 => {
-            const args: [4]usize = .{
+            const args: [5]usize = .{
                 state.rax,
                 state.rdi,
                 state.rsi,
                 state.rdx,
+                state.r8,
             };
 
             std.log.info("syscall with {any}", .{args});

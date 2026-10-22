@@ -5,7 +5,7 @@ const abi = @import("abi");
 const vfs = @import("fs/vfs/vfs.zig");
 const Task = @import("task/Task.zig");
 
-pub fn handler(args: [4]usize) [2]usize {
+pub fn handler(args: [5]usize) [2]usize {
     const code = std.enums.fromInt(abi.Syscall, args[0]) orelse return .{ @intFromEnum(abi.Status.invalid_syscall), 0 };
 
     switch (code) {
@@ -40,7 +40,7 @@ pub fn handler(args: [4]usize) [2]usize {
     }
 }
 
-fn debugPrint(args: [4]usize) abi.Status {
+fn debugPrint(args: [5]usize) abi.Status {
     const len = args[2];
     const src = @as([*]allowzero const u8, @ptrFromInt(args[1]))[0..len];
     var buffer: [1024 * 4]u8 = undefined;
@@ -59,7 +59,7 @@ fn debugPrint(args: [4]usize) abi.Status {
     return .success;
 }
 
-fn fopen(args: [4]usize) !abi.Fd {
+fn fopen(args: [5]usize) !abi.Fd {
     const len = args[2];
     const user_path = @as([*]allowzero const u8, @ptrFromInt(args[1]))[0..len];
     var path_buffer: [vfs.max_name_len]u8 = undefined;
@@ -88,13 +88,14 @@ fn fopen(args: [4]usize) !abi.Fd {
     return fd;
 }
 
-fn fread(args: [4]usize) !usize {
+fn fread(args: [5]usize) !usize {
     if (args[1] > abi.Fd.max) return error.BadFd;
     const fd: abi.Fd = @enumFromInt(args[1]);
 
+    const offset = args[2];
     var full_buffer: [1024 * 4]u8 = undefined;
-    const len = @min(args[3], full_buffer.len);
-    const user_buffer = @as([*]allowzero u8, @ptrFromInt(args[2]))[0..len];
+    const len = @min(args[4], full_buffer.len);
+    const user_buffer = @as([*]allowzero u8, @ptrFromInt(args[3]))[0..len];
     const buffer = full_buffer[0..len];
 
     const task = Task.current_tid.get();
@@ -105,7 +106,7 @@ fn fread(args: [4]usize) !usize {
     const read = blk: {
         arch.interrupt.enable();
         defer arch.interrupt.disable();
-        break :blk try file.read(buffer);
+        break :blk try file.read(offset, buffer);
     };
 
     if (!arch.copyToUser(user_buffer[0..read], buffer[0..read])) return error.Fault;

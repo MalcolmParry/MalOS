@@ -177,14 +177,13 @@ pub const Handle = struct {
     node: *Node,
     /// immutable
     vtable: *const Handle.VTable,
-    cur: u64,
 
     pub const VTable = struct {
         close: *const fn (handle: *Handle) void = &Handle.default_impls.closeDefault,
-        read: ?*const fn (handle: *Handle, buffer: []u8) Error!usize = null,
-        write: ?*const fn (handle: *Handle, data: []const u8) Error!usize = null,
-        /// returns true if wrote to record
-        read_dir: *const fn (handle: *Handle, record: *DirRecord) Error!bool = &Handle.default_impls.readDirNotSupported,
+        read: ?*const fn (handle: *Handle, offset: u64, buffer: []u8) Error!usize = null,
+        write: ?*const fn (handle: *Handle, offset: u64, data: []const u8) Error!usize = null,
+        /// returns null if end of directory
+        read_dir: *const fn (handle: *Handle, pos: u64, record: *DirRecord) Error!?u64 = &Handle.default_impls.readDirNotSupported,
     };
 
     pub fn close(handle: *Handle) void {
@@ -193,19 +192,21 @@ pub const Handle = struct {
         node.release();
     }
 
-    pub fn read(handle: *Handle, buffer: []u8) Error!usize {
+    pub fn read(handle: *Handle, offset: u64, buffer: []u8) Error!usize {
+        if (buffer.len == 0) return 0;
+
         const node = handle.node;
         if (node.kind != .file) return error.NotAFile;
-        if (handle.vtable.read) |func| return func(handle, buffer);
+        if (handle.vtable.read) |func| return func(handle, offset, buffer);
 
         const lock = node.lock.lock();
         defer lock.unlock();
 
         const file_data = &node.data.file;
-        const end = @min(handle.cur + buffer.len, file_data.size);
-        if (end <= handle.cur) return 0;
+        const end = @min(offset + buffer.len, file_data.size);
+        if (end <= offset) return 0;
 
-        var cur = handle.cur;
+        var cur = offset;
         var bytes_read: usize = 0;
         while (cur < end) {
             const page_offset: u32 = @intCast(cur / mem.page_size);
@@ -224,13 +225,12 @@ pub const Handle = struct {
             bytes_read += to_read;
         }
 
-        handle.cur = cur;
         return bytes_read;
     }
 
-    pub fn readDir(handle: *Handle, record: *DirRecord) Error!bool {
+    pub fn readDir(handle: *Handle, pos: u64, record: *DirRecord) Error!?u64 {
         if (handle.node.kind != .dir) return error.NotADir;
-        return handle.vtable.read_dir(handle, record);
+        return handle.vtable.read_dir(handle, pos, record);
     }
 
     pub fn reader(handle: *Handle, buffer: []u8) Reader {
@@ -242,6 +242,7 @@ pub const Handle = struct {
                 .seek = 0,
             },
             .handle = handle,
+            .pos = 0,
         };
     }
 
@@ -253,7 +254,6 @@ pub const Handle = struct {
                     handle.* = .{
                         .node = node,
                         .vtable = vtable,
-                        .cur = 0,
                     };
                     return handle;
                 }
@@ -264,7 +264,7 @@ pub const Handle = struct {
             alloc.destroy(handle);
         }
 
-        pub fn readDirInCache(handle: *Handle, record: *DirRecord) Error!bool {
+        pub fn readDirInCache(handle: *Handle, pos: u64, record: *DirRecord) Error!?u64 {
             const node = handle.node;
             node.mutex.lock();
             defer node.mutex.unlock();
@@ -274,11 +274,11 @@ pub const Handle = struct {
             while (iter.next()) |kv| {
                 const entry = kv.value_ptr.*;
                 const addr = @intFromPtr(entry);
-                if (addr > handle.cur and (lowest == null or addr < @intFromPtr(lowest.?)))
+                if (addr > pos and (lowest == null or addr < @intFromPtr(lowest.?)))
                     lowest = entry;
             }
 
-            const entry = lowest orelse return false;
+            const entry = lowest orelse return null;
             const name = entry.name.get();
 
             record.* = .{
@@ -290,11 +290,10 @@ pub const Handle = struct {
             @memcpy(record.name_buf[0..name.len], name);
             @memset(record.name_buf[name.len..], 0);
 
-            handle.cur = @intFromPtr(entry);
-            return true;
+            return @intFromPtr(entry);
         }
 
-        pub fn readDirNotSupported(handle: *Handle, _: *DirRecord) Error!bool {
+        pub fn readDirNotSupported(handle: *Handle, _: u64, _: *DirRecord) Error!?u64 {
             std.debug.assert(handle.node.kind == .dir);
             return error.NotSupported;
         }
@@ -303,16 +302,17 @@ pub const Handle = struct {
     pub const Reader = struct {
         interface: std.Io.Reader,
         handle: *Handle,
+        pos: u64,
 
         pub fn logicalPos(r: *const Reader) u64 {
-            return r.handle.cur - r.interface.bufferedLen();
+            return r.pos - r.interface.bufferedLen();
         }
 
         pub fn seekTo(r: *Reader, pos: u64) void {
             const logical_pos = r.logicalPos();
-            if (pos < logical_pos or pos >= r.handle.cur) {
+            if (pos < logical_pos or pos >= r.pos) {
                 r.interface.tossBuffered();
-                r.handle.cur = pos;
+                r.pos = pos;
             } else r.interface.toss(pos - logical_pos);
         }
 
@@ -320,8 +320,9 @@ pub const Handle = struct {
             const this: *Reader = @fieldParentPtr("interface", r);
             const dest = limit.slice(try w.writableSliceGreedy(1));
 
-            const n = this.handle.read(dest) catch return error.ReadFailed;
+            const n = this.handle.read(this.pos, dest) catch return error.ReadFailed;
             if (n == 0) return error.EndOfStream;
+            this.pos += n;
 
             w.advance(n);
             return n;
