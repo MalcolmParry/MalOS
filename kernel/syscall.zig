@@ -5,66 +5,56 @@ const abi = @import("abi");
 const vfs = @import("fs/vfs/vfs.zig");
 const Task = @import("task/Task.zig");
 
+const Handler = fn (args: [5]usize) Error!usize;
+const Error = vfs.LookupError || vfs.OpenError || vfs.ReadError || vfs.WriteError || error{
+    PathTooLong,
+    Fault,
+    TooManyFds,
+    BadFd,
+};
+
+fn errorToStatus(err: Error) abi.Status {
+    return switch (err) {
+        Error.Fault => .fault,
+        Error.PathTooLong => .path_too_long,
+        Error.TooManyFds => .too_many_fds,
+        Error.Io => .io,
+        Error.Corrupt => .corrupt,
+        Error.OutOfMemory => .out_of_memory,
+        Error.InvalidName => .invalid_name,
+        Error.NotADir => .not_a_dir,
+        Error.IsADir => .is_a_dir,
+        Error.NameTooLong => .name_too_long,
+        Error.NoEntry => .no_entry,
+        Error.ReadOnly => .read_only,
+        Error.NotSupported => .not_supported,
+        Error.BadFd => .bad_fd,
+    };
+}
+
 pub fn handler(args: [5]usize) [2]usize {
     const code = std.enums.fromInt(abi.Syscall, args[0]) orelse return .{ @intFromEnum(abi.Status.invalid_syscall), 0 };
 
-    switch (code) {
-        .fopen => {
-            const err_fd = fopen(args);
-            const fd = err_fd catch |err| {
-                const status: abi.Status = switch (err) {
-                    else => .unknown,
-                };
+    const inner_handler: *const Handler = switch (code) {
+        .fopen => &fopen,
+        .fclose => &fclose,
+        .fread => &fread,
+        .fwrite => &fwrite,
+    };
 
-                return .{ @intFromEnum(status), 0 };
-            };
+    const result = inner_handler(args) catch |err| {
+        return .{ @intFromEnum(errorToStatus(err)), 0 };
+    };
 
-            return .{ @intFromEnum(abi.Status.success), @intFromEnum(fd) };
-        },
-        .fclose => {
-            fclose(args) catch |err| {
-                const status: abi.Status = switch (err) {
-                    else => .unknown,
-                };
-
-                return .{ @intFromEnum(status), 0 };
-            };
-
-            return .{ @intFromEnum(abi.Status.success), 0 };
-        },
-        .fread => {
-            const err_read = fread(args);
-            const read = err_read catch |err| {
-                const status: abi.Status = switch (err) {
-                    else => .unknown,
-                };
-
-                return .{ @intFromEnum(status), 0 };
-            };
-
-            return .{ @intFromEnum(abi.Status.success), read };
-        },
-        .fwrite => {
-            const err_wrote = fwrite(args);
-            const wrote = err_wrote catch |err| {
-                const status: abi.Status = switch (err) {
-                    else => .unknown,
-                };
-
-                return .{ @intFromEnum(status), 0 };
-            };
-
-            return .{ @intFromEnum(abi.Status.success), wrote };
-        },
-    }
+    return .{ @intFromEnum(abi.Status.success), result };
 }
 
-fn fopen(args: [5]usize) !abi.Fd {
+fn fopen(args: [5]usize) !usize {
     const len = args[2];
     const user_path = @as([*]allowzero const u8, @ptrFromInt(args[1]))[0..len];
     var path_buffer: [vfs.max_path_len]u8 = undefined;
 
-    if (len > vfs.max_path_len) return error.NameTooLong;
+    if (len > vfs.max_path_len) return error.PathTooLong;
     const path = path_buffer[0..len];
     if (!arch.copyFromUser(path, user_path)) return error.Fault;
 
@@ -83,16 +73,17 @@ fn fopen(args: [5]usize) !abi.Fd {
     const file = try vfs_path.open();
     const fd = try fd_table.putFd(file);
 
-    return fd;
+    return @intFromEnum(fd);
 }
 
-fn fclose(args: [5]usize) !void {
+fn fclose(args: [5]usize) !usize {
     if (args[1] > abi.Fd.max) return error.BadFd;
     const fd: abi.Fd = @enumFromInt(args[1]);
 
     const task = Task.current_tid.get();
     const fd_table = task.fd_table orelse return error.BadFd;
     if (!fd_table.removeFd(fd)) return error.BadFd;
+    return 0;
 }
 
 fn fread(args: [5]usize) !usize {

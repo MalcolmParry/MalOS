@@ -1,24 +1,6 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const abi = @import("abi");
-
-pub fn debugPrint(msg: []const u8) !void {
-    const result = syscall(.{
-        @intFromEnum(abi.Syscall.debug_print),
-        @intFromPtr(msg.ptr),
-        msg.len,
-        0,
-        0,
-    });
-
-    return switch (std.enums.fromInt(abi.Status, result[0]) orelse .unknown) {
-        .success => {},
-        .invalid_syscall => error.InvalidSyscall,
-        .invalid_arg => error.InvalidArg,
-        .fault => error.Fault,
-        .too_long => error.TooLong,
-        .unknown => error.Unknown,
-    };
-}
 
 pub fn fopen(path: []const u8) !abi.Fd {
     const result = syscall(.{
@@ -29,13 +11,19 @@ pub fn fopen(path: []const u8) !abi.Fd {
         0,
     });
 
-    return switch (std.enums.fromInt(abi.Status, result[0]) orelse .unknown) {
+    return switch (try readStatus(result[0])) {
         .success => @enumFromInt(result[1]),
-        .invalid_syscall => error.InvalidSyscall,
-        .invalid_arg => error.InvalidArg,
+        .io => error.Io,
+        .corrupt => error.Corrupt,
+        .out_of_memory => error.OutOfMemory,
+        .not_a_dir => error.NotADir,
+        .path_too_long => error.PathTooLong,
+        .name_too_long => error.NameTooLong,
+        .invalid_name => error.InvalidName,
+        .no_entry => error.NoEntry,
         .fault => error.Fault,
-        .too_long => error.TooLong,
-        .unknown => error.Unknown,
+        .too_many_fds => error.TooManyFds,
+        else => unexpected(result[0]),
     };
 }
 
@@ -48,13 +36,10 @@ pub fn fclose(fd: abi.Fd) !void {
         0,
     });
 
-    return switch (std.enums.fromInt(abi.Status, result[0]) orelse .unknown) {
+    return switch (try readStatus(result[0])) {
         .success => {},
-        .invalid_syscall => error.InvalidSyscall,
-        .invalid_arg => error.InvalidArg,
-        .fault => error.Fault,
-        .too_long => error.TooLong,
-        .unknown => error.Unknown,
+        .bad_fd => error.BadFd,
+        else => unexpected(result[0]),
     };
 }
 
@@ -67,13 +52,16 @@ pub fn fread(fd: abi.Fd, offset: u64, buffer: []u8) !usize {
         buffer.len,
     });
 
-    return switch (std.enums.fromInt(abi.Status, result[0]) orelse .unknown) {
+    return switch (try readStatus(result[0])) {
         .success => result[1],
-        .invalid_syscall => error.InvalidSyscall,
-        .invalid_arg => error.InvalidArg,
         .fault => error.Fault,
-        .too_long => error.TooLong,
-        .unknown => error.Unknown,
+        .bad_fd => error.BadFd,
+        .io => error.Io,
+        .corrupt => error.Corrupt,
+        .out_of_memory => error.OutOfMemory,
+        .is_a_dir => error.IsADir,
+        .not_supported => error.NotSupported,
+        else => unexpected(result[0]),
     };
 }
 
@@ -86,14 +74,31 @@ pub fn fwrite(fd: abi.Fd, offset: u64, buffer: []const u8) !usize {
         buffer.len,
     });
 
-    return switch (std.enums.fromInt(abi.Status, result[0]) orelse .unknown) {
+    return switch (try readStatus(result[0])) {
         .success => result[1],
-        .invalid_syscall => error.InvalidSyscall,
-        .invalid_arg => error.InvalidArg,
         .fault => error.Fault,
-        .too_long => error.TooLong,
-        .unknown => error.Unknown,
+        .bad_fd => error.BadFd,
+        .io => error.Io,
+        .corrupt => error.Corrupt,
+        .out_of_memory => error.OutOfMemory,
+        .is_a_dir => error.IsADir,
+        .read_only => error.ReadOnly,
+        .not_supported => error.NotSupported,
+        else => unexpected(result[0]),
     };
+}
+
+fn readStatus(int: usize) error{Unexpected}!abi.Status {
+    return std.enums.fromInt(abi.Status, int) orelse unexpected(int);
+}
+
+fn unexpected(status: usize) error{Unexpected} {
+    if (builtin.mode == .Debug) {
+        // TODO: print warning
+    }
+
+    _ = status;
+    return error.Unexpected;
 }
 
 pub fn syscall(args: [5]usize) [2]usize {

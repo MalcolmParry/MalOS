@@ -9,18 +9,15 @@ const Mutex = @import("../../sync/Mutex.zig");
 const BlockDevice = @import("../../block/BlockDevice.zig");
 const alloc = @import("../../heap/gpa.zig").allocator;
 const DirEntry = @import("DirEntry.zig");
-const Node = @This();
-
 const vfs = @import("vfs.zig");
-const SuperBlock = vfs.SuperBlock;
-const Error = vfs.Error;
+const Node = @This();
 
 /// immutable
 kind: Kind,
 /// immutable
 vtable: *const VTable,
 /// immutable
-sb: *SuperBlock,
+sb: *vfs.SuperBlock,
 
 /// count of cached dentries pointing to this + open files + other things using this
 ref_count: std.atomic.Value(u32),
@@ -30,19 +27,19 @@ data: Data,
 
 pub const VTable = struct {
     destroy: *const fn (node: *Node) void,
-    lookup: *const fn (parent: *Node, name: []const u8) Error!*Node = &default_impls.lookupNoEntry,
-    create: *const fn (parent: *Node, name: []const u8, opts: CreateOptions) Error!*Node = &default_impls.createReadOnly,
-    unlink: *const fn (parent: *Node, name: []const u8) Error!void = &default_impls.unlinkReadOnly,
+    lookup: *const fn (parent: *Node, name: []const u8) vfs.LookupError!*Node = &default_impls.lookupNoEntry,
+    create: *const fn (parent: *Node, name: []const u8, opts: CreateOptions) vfs.CreateError!*Node = &default_impls.createReadOnly,
+    unlink: *const fn (parent: *Node, name: []const u8) vfs.UnlinkError!void = &default_impls.unlinkReadOnly,
 
     /// assumes caller already locked the page
-    read_page: *const fn (node: *Node, page_offset: u32, page: pmm.Index) Error!void = &default_impls.readPageZero,
+    read_page: *const fn (node: *Node, page_offset: u32, page: pmm.Index) vfs.ReadError!void = &default_impls.readPageZero,
     /// assumes caller already locked the page
-    write_page: *const fn (node: *Node, page_offset: u32, page: pmm.Index) Error!void = &default_impls.writePageNoop,
+    write_page: *const fn (node: *Node, page_offset: u32, page: pmm.Index) vfs.WriteError!void = &default_impls.writePageNoop,
     /// assumes caller has the node lock
     /// shouldn't touch the page cache, the vfs handles that
-    resize: ?*const fn (node: *Node, new_size: usize) Error!void = null,
+    resize: ?*const fn (node: *Node, new_size: usize) vfs.ResizeError!void = null,
 
-    open: *const fn (node: *Node) Error!*Handle = &Handle.default_impls.OpenDefault(&.{}),
+    open: *const fn (node: *Node) vfs.OpenError!*Handle = &Handle.default_impls.OpenDefault(&.{}),
 };
 
 pub const DirRecord = struct {
@@ -100,7 +97,7 @@ pub fn release(node: *Node) void {
     node.destroy();
 }
 
-pub fn open(node: *Node) Error!*Handle {
+pub fn open(node: *Node) vfs.OpenError!*Handle {
     const handle = try node.vtable.open(node);
     node.acquire();
     return handle;
@@ -157,7 +154,7 @@ fn getOrCreatePage(node: *Node, page_offset: u32) !struct { pmm.Index, Spinlock.
     return .{ index, desc.data.vfs_cache.lock.lock() };
 }
 
-pub fn resizeLocked(node: *Node, new_size: usize) Error!void {
+pub fn resizeLocked(node: *Node, new_size: usize) vfs.ResizeError!void {
     if (node.vtable.node_resize) |func| try func(node, new_size);
 
     const file_data = &node.data.file;
@@ -183,10 +180,10 @@ pub const Handle = struct {
 
     pub const VTable = struct {
         close: *const fn (handle: *Handle) void = &Handle.default_impls.closeDefault,
-        read: ?*const fn (handle: *Handle, offset: u64, buffer: []u8) Error!usize = null,
-        write: ?*const fn (handle: *Handle, offset: u64, data: []const u8) Error!usize = null,
+        read: ?*const fn (handle: *Handle, offset: u64, buffer: []u8) vfs.ReadError!usize = null,
+        write: ?*const fn (handle: *Handle, offset: u64, data: []const u8) vfs.WriteError!usize = null,
         /// returns null if end of directory
-        read_dir: *const fn (handle: *Handle, pos: u64, record: *DirRecord) Error!?u64 = &Handle.default_impls.readDirNotSupported,
+        read_dir: *const fn (handle: *Handle, pos: u64, record: *DirRecord) vfs.ReadDirError!?u64 = &Handle.default_impls.readDirNotSupported,
     };
 
     pub fn acquire(handle: *Handle) void {
@@ -206,7 +203,7 @@ pub const Handle = struct {
         node.release();
     }
 
-    pub fn read(handle: *Handle, offset: u64, buffer: []u8) Error!usize {
+    pub fn read(handle: *Handle, offset: u64, buffer: []u8) vfs.ReadError!usize {
         if (buffer.len == 0) return 0;
 
         const node = handle.node;
@@ -243,7 +240,7 @@ pub const Handle = struct {
         return bytes_read;
     }
 
-    pub fn write(handle: *Handle, offset: u64, buffer: []const u8) Error!usize {
+    pub fn write(handle: *Handle, offset: u64, buffer: []const u8) vfs.WriteError!usize {
         if (buffer.len == 0) return 0;
 
         const node = handle.node;
@@ -253,7 +250,7 @@ pub const Handle = struct {
         return error.NotSupported;
     }
 
-    pub fn readDir(handle: *Handle, pos: u64, record: *DirRecord) Error!?u64 {
+    pub fn readDir(handle: *Handle, pos: u64, record: *DirRecord) vfs.ReadDirError!?u64 {
         if (handle.node.kind != .dir) return error.NotADir;
         return handle.vtable.read_dir(handle, pos, record);
     }
@@ -272,9 +269,9 @@ pub const Handle = struct {
     }
 
     pub const default_impls = struct {
-        pub fn OpenDefault(comptime vtable: *const Handle.VTable) fn (node: *Node) Error!*Handle {
+        pub fn OpenDefault(comptime vtable: *const Handle.VTable) fn (node: *Node) vfs.OpenError!*Handle {
             return struct {
-                fn open(node: *Node) Error!*Handle {
+                fn open(node: *Node) vfs.OpenError!*Handle {
                     const handle = try alloc.create(Handle);
                     handle.* = .{
                         .node = node,
@@ -290,7 +287,7 @@ pub const Handle = struct {
             alloc.destroy(handle);
         }
 
-        pub fn readDirInCache(handle: *Handle, pos: u64, record: *DirRecord) Error!?u64 {
+        pub fn readDirInCache(handle: *Handle, pos: u64, record: *DirRecord) vfs.ReadDirError!?u64 {
             const node = handle.node;
             node.mutex.lock();
             defer node.mutex.unlock();
@@ -319,7 +316,7 @@ pub const Handle = struct {
             return @intFromPtr(entry);
         }
 
-        pub fn readDirNotSupported(handle: *Handle, _: u64, _: *DirRecord) Error!?u64 {
+        pub fn readDirNotSupported(handle: *Handle, _: u64, _: *DirRecord) vfs.ReadDirError!?u64 {
             std.debug.assert(handle.node.kind == .dir);
             return error.NotSupported;
         }
@@ -361,24 +358,24 @@ pub const default_impls = struct {
         @panic("not implemented");
     }
 
-    pub fn readPageZero(_: *Node, _: u32, index: pmm.Index) Error!void {
+    pub fn readPageZero(_: *Node, _: u32, index: pmm.Index) vfs.ReadError!void {
         const direct = index.toDirectMap();
         @memset(direct.bytes[0..], 0);
     }
 
-    pub fn writePageNoop(_: *Node, _: u32, _: pmm.Index) Error!void {}
+    pub fn writePageNoop(_: *Node, _: u32, _: pmm.Index) vfs.WriteError!void {}
 
-    pub fn lookupNoEntry(parent: *Node, _: []const u8) Error!*Node {
+    pub fn lookupNoEntry(parent: *Node, _: []const u8) vfs.LookupError!*Node {
         std.debug.assert(parent.kind == .dir);
         return error.NoEntry;
     }
 
-    pub fn createReadOnly(parent: *Node, _: []const u8, _: CreateOptions) Error!*Node {
+    pub fn createReadOnly(parent: *Node, _: []const u8, _: CreateOptions) vfs.CreateError!*Node {
         std.debug.assert(parent.kind == .dir);
         return error.ReadOnly;
     }
 
-    pub fn unlinkReadOnly(parent: *Node, _: []const u8) Error!void {
+    pub fn unlinkReadOnly(parent: *Node, _: []const u8) vfs.UnlinkError!void {
         std.debug.assert(parent.kind == .dir);
         return error.ReadOnly;
     }

@@ -117,7 +117,7 @@ var console_node: vfs.Node = .{
     },
 };
 
-fn vfsWrite(_: *vfs.Node.Handle, _: u64, data: []const u8) vfs.Error!usize {
+fn vfsWrite(_: *vfs.Node.Handle, _: u64, data: []const u8) vfs.WriteError!usize {
     const l = spinlock.lock();
     defer l.unlock();
 

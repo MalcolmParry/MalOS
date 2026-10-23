@@ -264,7 +264,7 @@ fn nodeDestroy(vfs_node: *vfs.Node) void {
     fs.alloc.destroy(node);
 }
 
-fn handleReadDir(handle: *vfs.Node.Handle, pos: u64, record: *vfs.DirRecord) vfs.Error!?u64 {
+fn handleReadDir(handle: *vfs.Node.Handle, pos: u64, record: *vfs.DirRecord) vfs.ReadDirError!?u64 {
     const vfs_node = handle.node;
     const fs: *Ext2 = @alignCast(@fieldParentPtr("sb", vfs_node.sb));
     const node: *FsNode = @fieldParentPtr("vfs", vfs_node);
@@ -299,7 +299,7 @@ fn handleReadDir(handle: *vfs.Node.Handle, pos: u64, record: *vfs.DirRecord) vfs
         if (dentry.inode == 0) continue;
 
         const name = @as([*]u8, @ptrCast(&dentry.name))[0..dentry.name_len];
-        if (name.len > vfs.max_name_len) return error.NameTooLong;
+        if (name.len > vfs.max_name_len) continue;
         if (std.mem.eql(u8, name, ".")) continue;
         if (std.mem.eql(u8, name, "..")) continue;
 
@@ -307,7 +307,7 @@ fn handleReadDir(handle: *vfs.Node.Handle, pos: u64, record: *vfs.DirRecord) vfs
             .kind = switch (dentry.t) {
                 .regular_file => .file,
                 .dir => .dir,
-                else => return error.NotSupported,
+                else => continue,
             },
             .name_len = @intCast(name.len),
             .name_buf = undefined,
@@ -319,7 +319,7 @@ fn handleReadDir(handle: *vfs.Node.Handle, pos: u64, record: *vfs.DirRecord) vfs
     }
 }
 
-fn nodeReadPage(vfs_node: *vfs.Node, page_offset: u32, phys_page: pmm.Index) vfs.Error!void {
+fn nodeReadPage(vfs_node: *vfs.Node, page_offset: u32, phys_page: pmm.Index) vfs.ReadError!void {
     const node: *FsNode = @fieldParentPtr("vfs", vfs_node);
     const fs: *Ext2 = @alignCast(@fieldParentPtr("sb", vfs_node.sb));
     const block_size = fs.sbInfo().blockSize();
@@ -339,7 +339,7 @@ fn nodeReadPage(vfs_node: *vfs.Node, page_offset: u32, phys_page: pmm.Index) vfs
     @memset(page.bytes[block_count * block_size ..], 0);
 }
 
-fn nodeLookup(vfs_parent: *vfs.Node, name: []const u8) vfs.Error!*vfs.Node {
+fn nodeLookup(vfs_parent: *vfs.Node, name: []const u8) vfs.LookupError!*vfs.Node {
     const fs: *Ext2 = @alignCast(@fieldParentPtr("sb", vfs_parent.sb));
     const parent: *FsNode = @fieldParentPtr("vfs", vfs_parent);
     const fs_block_size = fs.sbInfo().blockSize();
@@ -380,7 +380,7 @@ fn nodeLookup(vfs_parent: *vfs.Node, name: []const u8) vfs.Error!*vfs.Node {
                     .kind = switch (child_inode.t_perm.t) {
                         .regular_file => .file,
                         .dir => .dir,
-                        else => return error.NotSupported,
+                        else => return error.NoEntry,
                     },
                     .vtable = &node_vtable,
                     .sb = &fs.sb,
@@ -393,7 +393,7 @@ fn nodeLookup(vfs_parent: *vfs.Node, name: []const u8) vfs.Error!*vfs.Node {
                         .dir => .{ .dir = .{
                             .entries = .empty,
                         } },
-                        else => return error.NotSupported,
+                        else => return error.NoEntry,
                     },
                 },
                 .inode = dentry.inode,

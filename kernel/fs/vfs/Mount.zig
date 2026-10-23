@@ -3,10 +3,8 @@ const Spinlock = @import("../../sync/Spinlock.zig");
 const Node = @import("Node.zig");
 const DirEntry = @import("DirEntry.zig");
 const alloc = @import("../../heap/gpa.zig").allocator;
-const Mount = @This();
-
 const vfs = @import("vfs.zig");
-const Error = vfs.Error;
+const Mount = @This();
 
 var mounts: std.AutoHashMapUnmanaged(Path, *Mount) = .empty;
 var mounts_lock: Spinlock = .init;
@@ -25,7 +23,7 @@ pub fn release(mount: *Mount) void {
     std.debug.assert(prev != 0);
 }
 
-pub fn unmount(mount: *Mount) Error!void {
+pub fn unmount(mount: *Mount) vfs.UnmountError!void {
     if (mount == vfs.root) return error.Busy;
 
     {
@@ -113,7 +111,7 @@ pub const Path = struct {
         path.mount.release();
     }
 
-    pub fn lookupName(parent: Path, name: []const u8) Error!Path {
+    pub fn lookupName(parent: Path, name: []const u8) vfs.LookupError!Path {
         if (parent.dentry.node.kind != .dir) return error.NotADir;
         if (name.len == 0) return error.NoEntry;
         if (name.len > vfs.max_name_len) return error.NameTooLong;
@@ -121,8 +119,16 @@ pub const Path = struct {
         if (name[0] == '.') {
             if (name.len == 2 and name[1] == '.') {
                 if (parent.mount.src == parent.dentry) {
-                    const target = parent.mount.target orelse return error.NoParent;
-                    const dentry = target.dentry.parent orelse return error.NoParent;
+                    const target = parent.mount.target orelse {
+                        parent.acquire();
+                        return parent;
+                    };
+
+                    const dentry = target.dentry.parent orelse {
+                        parent.acquire();
+                        return parent;
+                    };
+
                     const path: Path = .{
                         .mount = target.mount,
                         .dentry = dentry,
@@ -132,7 +138,11 @@ pub const Path = struct {
                     return path;
                 }
 
-                const dentry = parent.dentry.parent orelse return error.NoParent;
+                const dentry = parent.dentry.parent orelse {
+                    parent.acquire();
+                    return parent;
+                };
+
                 const path: Path = .{
                     .mount = parent.mount,
                     .dentry = dentry,
@@ -165,7 +175,7 @@ pub const Path = struct {
         return direct_path;
     }
 
-    pub fn lookup(parent: Path, path: []const u8) Error!Path {
+    pub fn lookup(parent: Path, path: []const u8) vfs.LookupError!Path {
         if (path.len == 0) return error.NoEntry;
 
         var current = parent;
@@ -173,7 +183,7 @@ pub const Path = struct {
         errdefer if (should_release) current.release();
 
         if (path[0] == '/') {
-            const root = vfs.root orelse return error.NoParent;
+            const root = vfs.root orelse return error.NoEntry;
             current = root.acquireRootPath();
             should_release = true;
         }
@@ -191,7 +201,7 @@ pub const Path = struct {
         return current;
     }
 
-    pub fn open(path: Path) Error!File {
+    pub fn open(path: Path) vfs.OpenError!File {
         const handle = try path.dentry.node.open();
         path.acquire();
         return .{
@@ -215,15 +225,15 @@ pub const File = struct {
         file.path.release();
     }
 
-    pub fn read(file: File, offset: u64, buffer: []u8) Error!usize {
+    pub fn read(file: File, offset: u64, buffer: []u8) vfs.ReadError!usize {
         return file.handle.read(offset, buffer);
     }
 
-    pub fn write(file: File, offset: u64, buffer: []const u8) Error!usize {
+    pub fn write(file: File, offset: u64, buffer: []const u8) vfs.WriteError!usize {
         return file.handle.write(offset, buffer);
     }
 
-    pub fn readDir(file: File, pos: u64, record: *Node.DirRecord) Error!?u64 {
+    pub fn readDir(file: File, pos: u64, record: *Node.DirRecord) vfs.ReadDirError!?u64 {
         return file.handle.readDir(pos, record);
     }
 

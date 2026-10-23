@@ -16,22 +16,17 @@ pub const DirRecord = Node.DirRecord;
 pub const Path = Mount.Path;
 pub const File = Mount.File;
 
-pub const Error = error{
-    OutOfMemory,
-    NoEntry,
-    AlreadyExists,
-    Busy,
-    NotEmpty,
-    IsADir,
-    NotADir,
-    NameTooLong,
-    ReadOnly,
-    NoParent,
-    InvalidName,
-    NotSupported,
-    Io,
-    Corrupt,
-};
+pub const IoError = error{ Io, Corrupt, OutOfMemory };
+pub const FileError = IoError || error{ IsADir, NotSupported };
+pub const ReadError = FileError;
+pub const WriteError = FileError || error{ReadOnly};
+pub const LookupError = IoError || error{ NotADir, NameTooLong, InvalidName, NoEntry };
+pub const CreateError = IoError || error{ NotADir, NameTooLong, InvalidName, AlreadyExists, ReadOnly };
+pub const UnlinkError = LookupError || error{ Busy, NotEmpty, ReadOnly };
+pub const ReadDirError = IoError || error{ NotADir, NotSupported };
+pub const ResizeError = FileError || error{ReadOnly};
+pub const OpenError = IoError;
+pub const UnmountError = error{Busy};
 
 /// represents a single mounted filesystem
 pub const SuperBlock = struct {

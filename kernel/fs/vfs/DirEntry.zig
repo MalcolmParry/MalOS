@@ -1,16 +1,13 @@
 const std = @import("std");
+const vfs = @import("vfs.zig");
 const Node = @import("Node.zig");
 const DirEntry = @This();
 const alloc = @import("../../heap/gpa.zig").allocator;
 
-const vfs = @import("vfs.zig");
-const Name = vfs.Name;
-const Error = vfs.Error;
-
 /// immutable
 node: *Node,
 /// immutable
-name: Name,
+name: vfs.Name,
 
 /// immutable
 parent: ?*DirEntry,
@@ -44,7 +41,7 @@ pub fn destroy(entry: *DirEntry) void {
     alloc.destroy(entry);
 }
 
-pub fn lookupNameLocal(parent: *DirEntry, name: []const u8) Error!*DirEntry {
+pub fn lookupNameLocal(parent: *DirEntry, name: []const u8) vfs.LookupError!*DirEntry {
     const node = parent.node;
     std.debug.assert(node.kind == .dir);
     std.debug.assert(name.len != 0 and name.len <= vfs.max_name_len);
