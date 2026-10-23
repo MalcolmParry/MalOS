@@ -219,6 +219,10 @@ pub const File = struct {
         return file.handle.read(offset, buffer);
     }
 
+    pub fn write(file: File, offset: u64, buffer: []const u8) Error!usize {
+        return file.handle.write(offset, buffer);
+    }
+
     pub fn readDir(file: File, pos: u64, record: *Node.DirRecord) Error!?u64 {
         return file.handle.readDir(pos, record);
     }

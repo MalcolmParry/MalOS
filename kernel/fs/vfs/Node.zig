@@ -63,9 +63,11 @@ pub const Kind = enum {
     file,
     dir,
     block_device,
+    char_device,
 };
 
 pub const Data = union {
+    none: void,
     dir: Dir,
     file: Data.File,
     block_device: *BlockDevice,
@@ -123,7 +125,7 @@ fn destroy(node: *Node) void {
             std.debug.assert(data.entries.count() == 0);
             data.entries.deinit(alloc);
         },
-        .block_device => {},
+        .block_device, .char_device => {},
     }
 
     node.vtable.destroy(node);
@@ -208,8 +210,9 @@ pub const Handle = struct {
         if (buffer.len == 0) return 0;
 
         const node = handle.node;
-        if (node.kind != .file) return error.NotAFile;
+        if (node.kind == .dir) return error.IsADir;
         if (handle.vtable.read) |func| return func(handle, offset, buffer);
+        if (node.kind != .file) return error.NotSupported;
 
         const lock = node.lock.lock();
         defer lock.unlock();
@@ -238,6 +241,16 @@ pub const Handle = struct {
         }
 
         return bytes_read;
+    }
+
+    pub fn write(handle: *Handle, offset: u64, buffer: []const u8) Error!usize {
+        if (buffer.len == 0) return 0;
+
+        const node = handle.node;
+        if (node.kind == .dir) return error.IsADir;
+        if (handle.vtable.write) |func| return func(handle, offset, buffer);
+
+        return error.NotSupported;
     }
 
     pub fn readDir(handle: *Handle, pos: u64, record: *DirRecord) Error!?u64 {

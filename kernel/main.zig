@@ -123,10 +123,11 @@ pub fn kernelMain() !noreturn {
     std.log.info("Memory Allocated {Bi}", .{page_count * mem.page_size});
     std.log.info("{Bi:.2} used out of {Bi:.2}", .{ pmm.used_pages.load(.monotonic) * mem.page_size, pmm.total_pages * mem.page_size });
 
+    arch.interrupt.enable();
     try devfs.init();
+    try log.registerConsoleFile();
     pci.check();
 
-    arch.interrupt.enable();
     try ata_pio.detectAndRegister();
 
     try ext2Test();
@@ -248,6 +249,7 @@ fn printFileTree(parent: vfs.Path, term: std.Io.Terminal, indent: usize) !void {
             .file => .bright_white,
             .dir => .blue,
             .block_device => .bright_yellow,
+            .char_device => .bright_magenta,
         }) catch {};
 
         try term.writer.print("{s}", .{record.getName()});

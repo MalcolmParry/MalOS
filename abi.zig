@@ -1,10 +1,10 @@
 const std = @import("std");
 
 pub const Syscall = enum(usize) {
-    debug_print,
     fopen,
     fclose,
     fread,
+    fwrite,
 };
 
 pub const Status = enum(usize) {

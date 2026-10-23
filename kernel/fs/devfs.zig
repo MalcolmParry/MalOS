@@ -86,9 +86,5 @@ pub fn registerDisk(name: []const u8, bd: *BlockDevice) !void {
     try entry.name.init(name);
     errdefer entry.name.deinit();
 
-    disk_dir.node.mutex.lock();
-    defer disk_dir.node.mutex.unlock();
-
-    try disk_dir.node.data.dir.entries.putNoClobber(gpa, entry.name.get(), entry);
-    disk_dir.acquire();
+    try disk_dir.registerChild(entry);
 }

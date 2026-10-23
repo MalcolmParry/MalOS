@@ -77,6 +77,25 @@ pub fn fread(fd: abi.Fd, offset: u64, buffer: []u8) !usize {
     };
 }
 
+pub fn fwrite(fd: abi.Fd, offset: u64, buffer: []const u8) !usize {
+    const result = syscall(.{
+        @intFromEnum(abi.Syscall.fwrite),
+        @intFromEnum(fd),
+        offset,
+        @intFromPtr(buffer.ptr),
+        buffer.len,
+    });
+
+    return switch (std.enums.fromInt(abi.Status, result[0]) orelse .unknown) {
+        .success => result[1],
+        .invalid_syscall => error.InvalidSyscall,
+        .invalid_arg => error.InvalidArg,
+        .fault => error.Fault,
+        .too_long => error.TooLong,
+        .unknown => error.Unknown,
+    };
+}
+
 pub fn syscall(args: [5]usize) [2]usize {
     var ret0: usize = undefined;
     var ret1: usize = undefined;

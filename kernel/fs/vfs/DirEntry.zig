@@ -83,3 +83,12 @@ pub fn lookupNameLocal(parent: *DirEntry, name: []const u8) Error!*DirEntry {
     parent.acquire();
     return child_dentry;
 }
+
+pub fn registerChild(parent: *DirEntry, child: *DirEntry) !void {
+    parent.node.mutex.lock();
+    defer parent.node.mutex.unlock();
+
+    try parent.node.data.dir.entries.putNoClobber(alloc, child.name.get(), child);
+    child.parent = parent;
+    parent.acquire();
+}

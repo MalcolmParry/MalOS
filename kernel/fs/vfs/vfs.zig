@@ -22,7 +22,7 @@ pub const Error = error{
     AlreadyExists,
     Busy,
     NotEmpty,
-    NotAFile,
+    IsADir,
     NotADir,
     NameTooLong,
     ReadOnly,

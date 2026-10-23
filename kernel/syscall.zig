@@ -9,10 +9,6 @@ pub fn handler(args: [5]usize) [2]usize {
     const code = std.enums.fromInt(abi.Syscall, args[0]) orelse return .{ @intFromEnum(abi.Status.invalid_syscall), 0 };
 
     switch (code) {
-        .debug_print => {
-            const status = debugPrint(args);
-            return .{ @intFromEnum(status), 0 };
-        },
         .fopen => {
             const err_fd = fopen(args);
             const fd = err_fd catch |err| {
@@ -48,26 +44,19 @@ pub fn handler(args: [5]usize) [2]usize {
 
             return .{ @intFromEnum(abi.Status.success), read };
         },
+        .fwrite => {
+            const err_wrote = fwrite(args);
+            const wrote = err_wrote catch |err| {
+                const status: abi.Status = switch (err) {
+                    else => .unknown,
+                };
+
+                return .{ @intFromEnum(status), 0 };
+            };
+
+            return .{ @intFromEnum(abi.Status.success), wrote };
+        },
     }
-}
-
-fn debugPrint(args: [5]usize) abi.Status {
-    const len = args[2];
-    const src = @as([*]allowzero const u8, @ptrFromInt(args[1]))[0..len];
-    var buffer: [1024 * 4]u8 = undefined;
-
-    if (len > buffer.len) return .too_long;
-
-    const dst = buffer[0..len];
-    if (!arch.copyFromUser(dst, src)) return .fault;
-
-    const l = log.spinlock.lock();
-    defer l.unlock();
-
-    log.writer.writeAll(dst) catch return .unknown;
-    log.writer.flush() catch {};
-
-    return .success;
 }
 
 fn fopen(args: [5]usize) !abi.Fd {
@@ -130,4 +119,25 @@ fn fread(args: [5]usize) !usize {
     if (!arch.copyToUser(user_buffer[0..read], buffer[0..read])) return error.Fault;
 
     return read;
+}
+
+fn fwrite(args: [5]usize) !usize {
+    if (args[1] > abi.Fd.max) return error.BadFd;
+    const fd: abi.Fd = @enumFromInt(args[1]);
+
+    const offset = args[2];
+    var full_buffer: [1024 * 4]u8 = undefined;
+    const len = @min(args[4], full_buffer.len);
+    const user_buffer = @as([*]allowzero const u8, @ptrFromInt(args[3]))[0..len];
+    const buffer = full_buffer[0..len];
+    if (!arch.copyFromUser(buffer, user_buffer)) return error.Fault;
+
+    const task = Task.current_tid.get();
+    const fd_table = task.fd_table orelse return error.BadFd;
+    const file = fd_table.getFd(fd) orelse return error.BadFd;
+    defer file.release();
+
+    arch.interrupt.enable();
+    defer arch.interrupt.disable();
+    return file.write(offset, buffer);
 }

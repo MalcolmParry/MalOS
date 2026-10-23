@@ -3,6 +3,8 @@ const Spinlock = @import("sync/Spinlock.zig");
 const serial = @import("drivers/x86/serial.zig");
 const BootInfo = @import("BootInfo.zig");
 const Terminal = @import("tty/Terminal.zig");
+const vfs = @import("fs/vfs/vfs.zig");
+const devfs = @import("fs/devfs.zig");
 const vga_text = @import("drivers/x86/vga_text.zig");
 
 pub var spinlock: Spinlock = .init;
@@ -93,4 +95,36 @@ fn writeRaw(data: []const u8) !void {
 
     if (using_serial) serial.write(data);
     if (using_vga_text) try vga_text_writer.w.writeAll(data);
+}
+
+var console_dentry: vfs.DirEntry = .{
+    .node = &console_node,
+    .parent = null,
+    .name = .initEmbedded("console"),
+    .ref_count = .init(0),
+};
+
+var console_node: vfs.Node = .{
+    .ref_count = .init(1),
+    .data = .{ .none = {} },
+    .kind = .char_device,
+    .sb = &devfs.superblock,
+    .vtable = &.{
+        .destroy = vfs.Node.default_impls.destroyPanic,
+        .open = vfs.Node.Handle.default_impls.OpenDefault(&.{
+            .write = &vfsWrite,
+        }),
+    },
+};
+
+fn vfsWrite(_: *vfs.Node.Handle, _: u64, data: []const u8) vfs.Error!usize {
+    const l = spinlock.lock();
+    defer l.unlock();
+
+    write(data) catch return error.Io;
+    return data.len;
+}
+
+pub fn registerConsoleFile() !void {
+    try devfs.root.registerChild(&console_dentry);
 }
