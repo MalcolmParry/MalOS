@@ -68,6 +68,7 @@ pub const SuperBlock = struct {
     }
 };
 
+pub const max_path_len = 4096;
 pub const max_name_len = 255;
 pub const max_embedded_name_len = 31;
 

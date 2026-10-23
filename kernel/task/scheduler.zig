@@ -65,10 +65,13 @@ pub fn exitTask() noreturn {
     Task.current_tid = next_tid;
     arch.setKernelStackPtr(next.kernelStackTop());
     next.ext_cpu_state.load();
-    next.cpu_state.restore();
+
+    const s = next.cpu_state.?;
+    next.cpu_state = null;
+    s.restore();
 }
 
-pub fn preempt() noreturn {
+pub fn preempt(state: *align(1) arch.cpu.State) noreturn {
     _ = Task.spinlock.lock();
     Task.reapZombies();
     wakeSleeping();
@@ -78,22 +81,24 @@ pub fn preempt() noreturn {
     std.debug.assert(last.state == .running);
 
     last.state = .ready;
+    last.cpu_state = state;
     if (last_tid != idle_tid) linkReadyTask(last_tid);
 
     const next_tid = chooseTask();
     const next = next_tid.get();
     next.state = .running;
 
+    if (next_tid != last_tid) {
+        last.ext_cpu_state.save();
+        next.ext_cpu_state.load();
+    }
+
     Task.current_tid = next_tid;
     arch.setKernelStackPtr(next.kernelStackTop());
-    next.ext_cpu_state.load();
-    next.cpu_state.restore();
-}
 
-pub fn saveState(state: *align(1) arch.cpu.State) void {
-    const t = Task.current_tid.get();
-    t.ext_cpu_state.save();
-    t.cpu_state = state;
+    const s = next.cpu_state.?;
+    next.cpu_state = null;
+    s.restore();
 }
 
 pub fn schedule(next_state: Task.State) void {
@@ -114,9 +119,6 @@ pub fn scheduleLockHeld(next_state: Task.State) bool {
     const last = last_tid.get();
     assert(last.state == .running);
 
-    var last_state: arch.cpu.State = undefined;
-    last.cpu_state = &last_state;
-
     last.state = next_state;
     switch (next_state) {
         .dead, .zombie, .running => unreachable,
@@ -130,10 +132,15 @@ pub fn scheduleLockHeld(next_state: Task.State) bool {
     next.state = .running;
     if (next_tid == last_tid) return false;
 
+    last.ext_cpu_state.save();
+    next.ext_cpu_state.load();
+
     Task.current_tid = next_tid;
     arch.setKernelStackPtr(next.kernelStackTop());
-    next.ext_cpu_state.load();
-    next.cpu_state.saveAndRestore(last.cpu_state);
+
+    const s = next.cpu_state.?;
+    next.cpu_state = null;
+    s.saveAndRestore(&last.cpu_state);
     return true;
 }
 

@@ -73,9 +73,9 @@ fn debugPrint(args: [5]usize) abi.Status {
 fn fopen(args: [5]usize) !abi.Fd {
     const len = args[2];
     const user_path = @as([*]allowzero const u8, @ptrFromInt(args[1]))[0..len];
-    var path_buffer: [vfs.max_name_len]u8 = undefined;
+    var path_buffer: [vfs.max_path_len]u8 = undefined;
 
-    if (len > vfs.max_name_len) return error.NameTooLong;
+    if (len > vfs.max_path_len) return error.NameTooLong;
     const path = path_buffer[0..len];
     if (!arch.copyFromUser(path, user_path)) return error.Fault;
 

@@ -19,7 +19,7 @@ next: OptTid,
 addr_space: ?*AddressSpace,
 fd_table: ?*FileDescTable,
 kernel_stack: ?[]mem.Page,
-cpu_state: *align(1) arch.cpu.State,
+cpu_state: ?*align(1) arch.cpu.State,
 ext_cpu_state: arch.cpu.ExtendedState,
 
 pub fn kernelStackTop(t: *Task) usize {

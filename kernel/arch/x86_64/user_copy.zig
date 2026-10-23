@@ -16,13 +16,13 @@ pub fn copyFromUser(noalias dst: []u8, noalias src: []allowzero const u8) bool {
     const len = src.len;
 
     const out = asm volatile (
+        \\ lea 1f(%rip), %rdx
         \\ jmp %[memcpy_no_fault:P]
-        \\ copy_from_user_ret:
+        \\ 1:
         : [out] "={rax}" (-> usize),
         : [dst] "{rdi}" (dst_ptr),
           [src] "{rsi}" (src_ptr),
           [len] "{rcx}" (len),
-          [ret] "{rdx}" (&copy_from_user_ret),
           [memcpy_no_fault] "i" (&memcpyNoFault),
         : .{ .rdi = true, .rsi = true, .rcx = true, .rdx = true, .cc = true, .memory = true });
 
@@ -43,13 +43,13 @@ pub fn copyToUser(noalias dst: []allowzero u8, noalias src: []const u8) bool {
     const len = src.len;
 
     const out = asm volatile (
+        \\ lea 1f(%rip), %rdx
         \\ jmp %[memcpy_no_fault:P]
-        \\ copy_to_user_ret:
+        \\ 1:
         : [out] "={rax}" (-> usize),
         : [dst] "{rdi}" (dst_ptr),
           [src] "{rsi}" (src_ptr),
           [len] "{rcx}" (len),
-          [ret] "{rdx}" (&copy_to_user_ret),
           [memcpy_no_fault] "i" (&memcpyNoFault),
         : .{ .rdi = true, .rsi = true, .rcx = true, .rdx = true, .cc = true, .memory = true });
 
@@ -69,11 +69,15 @@ fn memcpyNoFault() callconv(.naked) void {
 pub fn maybeHandleFault(state: *align(1) arch.cpu.State) bool {
     if (state.rip != @intFromPtr(&memcpy_fault_ip)) return false;
 
+    const cr2: usize = asm volatile (
+        \\mov %%cr2, %[out]
+        : [out] "=r" (-> usize),
+    );
+    if (cr2 >= arch.paging.min_kernel_addr) return false;
+
     state.rax = 0;
     state.rip = state.rdx;
     return true;
 }
 
 extern const memcpy_fault_ip: anyopaque;
-extern const copy_from_user_ret: anyopaque;
-extern const copy_to_user_ret: anyopaque;

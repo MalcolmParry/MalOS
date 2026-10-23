@@ -134,7 +134,6 @@ const PageFaultFlags = packed struct(u64) {
 
 fn handler(state: *align(1) arch.cpu.State) callconv(.{ .x86_64_sysv = .{ .incoming_stack_alignment = 1 } }) noreturn {
     std.debug.assert(!arch.interrupt.isEnabled());
-    scheduler.saveState(state);
 
     if (state.int_code == 0x0e and user_copy.maybeHandleFault(state)) {
         state.restore();
@@ -168,7 +167,7 @@ fn handler(state: *align(1) arch.cpu.State) callconv(.{ .x86_64_sysv = .{ .incom
 
             const pit = @import("../../drivers/x86/pit.zig");
             _ = pit.ticks.fetchAdd(1, .monotonic);
-            scheduler.preempt();
+            scheduler.preempt(state);
         },
         0xe => {
             const flags: PageFaultFlags = @bitCast(state.error_code);
@@ -216,7 +215,7 @@ fn handler(state: *align(1) arch.cpu.State) callconv(.{ .x86_64_sysv = .{ .incom
 
             state.rax = result[0];
             state.rdi = result[1];
-            scheduler.preempt();
+            scheduler.preempt(state);
         },
         else => {
             arch.spinWait();

@@ -179,18 +179,15 @@ pub const State = extern struct {
 
     // assumes task list lock is held
     // assumes interrupts are disabled
-    pub fn saveAndRestore(new: *align(1) const State, old: *align(1) State) void {
-        const old_top = @intFromPtr(old) + @sizeOf(State);
-
+    pub fn saveAndRestore(new: *align(1) const State, old: *?*align(1) State) void {
         asm volatile (
             \\ mov %rsp, %rcx
-            \\ mov %rax, %rsp
             \\
             \\ push $0x10
             \\ push %rcx
             \\ pushfq
             \\ push $0x8
-            \\ lea 2f(%rip), %rdx
+            \\ lea 1f(%rip), %rdx
             \\ push %rdx
             \\ push $0
             \\ push $0
@@ -199,11 +196,12 @@ pub const State = extern struct {
             \\ mov %cr3, %rdx
             \\ push %rdx
             \\
+            \\ mov %rsp, (%rax)
             \\ mov %rbx, %rsp
             \\ jmp %[nakedRestore:P]
-            \\ 2:
+            \\ 1:
             :
-            : [old_top] "{rax}" (old_top),
+            : [old] "{rax}" (old),
               [new_base] "{rbx}" (new),
               [nakedRestore] "i" (&nakedRestore),
             : .{

@@ -3,14 +3,30 @@ const builtin = @import("builtin");
 const Build = std.Build;
 
 pub fn build(b: *Build) !void {
-    const optimize = b.standardOptimizeOption(.{});
-    const target = b.resolveTargetQuery(.{
+    var query: std.Target.Query = .{
         .os_tag = .freestanding,
         .abi = .none,
         .cpu_arch = .x86_64,
         .ofmt = .elf,
         .cpu_model = .{ .explicit = &std.Target.x86.cpu.penryn },
-    });
+    };
+
+    const Feature = std.Target.x86.Feature;
+    query.cpu_features_add.addFeature(@intFromEnum(Feature.soft_float));
+
+    for ([_]Feature{
+        // zig fmt: off
+        .mmx, .x87,
+        .sse, .sse2, .sse3, .ssse3, .sse4_1, .sse4_2, .sse4a,
+        .avx, .avx2, .avx512f, .f16c, .fma, .fma4, .xop,
+        .aes, .pclmul, .sha, .vaes, .vpclmulqdq, .gfni,
+        // zig fmt: on
+    }) |f| {
+        query.cpu_features_sub.addFeature(@intFromEnum(f));
+    }
+
+    const optimize = b.standardOptimizeOption(.{});
+    const target = b.resolveTargetQuery(query);
 
     try addBuildStep(b, optimize, target);
     try addRunStep(b);
@@ -52,6 +68,7 @@ fn addBuildStep(b: *Build, optimize: std.builtin.OptimizeMode, target: Build.Res
             .single_threaded = true,
             .strip = !debug_info,
             .omit_frame_pointer = !debug_info,
+            .red_zone = false,
             .imports = &.{.{
                 .name = "abi",
                 .module = abi,
@@ -60,12 +77,20 @@ fn addBuildStep(b: *Build, optimize: std.builtin.OptimizeMode, target: Build.Res
     });
     kernel_compile.bundle_compiler_rt = true;
 
+    const user_target = b.resolveTargetQuery(.{
+        .os_tag = .other,
+        .abi = .none,
+        .cpu_arch = .x86_64,
+        .ofmt = .elf,
+        .cpu_model = .{ .explicit = &std.Target.x86.cpu.penryn },
+    });
+
     const init = b.addExecutable(.{
         .name = "init",
         .use_llvm = true,
         .root_module = b.createModule(.{
             .root_source_file = b.path("user/init.zig"),
-            .target = target,
+            .target = user_target,
             .optimize = optimize,
             .pic = false,
             .strip = !debug_info,

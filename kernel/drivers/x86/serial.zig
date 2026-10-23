@@ -36,8 +36,8 @@ pub fn writeByte(x: u8) void {
 pub fn writeChar(c: u8) void {
     switch (c) {
         '\n' => {
-            writeByte('\n');
             writeByte('\r');
+            writeByte('\n');
         },
         else => writeByte(c),
     }
