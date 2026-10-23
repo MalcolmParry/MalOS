@@ -38,11 +38,12 @@ pub const os = struct {
 };
 
 pub fn kernelMain() !noreturn {
+    try log.preinit();
     arch.interrupt.init();
     log.writer.print("\x1b[H\x1b[2J\x1b[3J", .{}) catch {};
 
     var boot_info = arch.initBootInfo();
-    log.init(boot_info);
+    try log.init(boot_info);
 
     for (boot_info.availablePhysRanges()) |range| {
         std.log.info("Available: {f}\x1b[48G{Bi}", .{ mem.fmtRange(range), range.len * mem.page_size });

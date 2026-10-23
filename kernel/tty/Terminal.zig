@@ -45,8 +45,6 @@ fn print(term: *Terminal, str: []const u8) void {
             '\x08' => term.x -|= 1,
             '\r' => term.x = 0,
             '\n' => {
-                // TODO: move this into output processing layer
-                term.x = 0;
                 term.y += 1;
 
                 if (term.y >= term.tg.height) {

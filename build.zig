@@ -256,7 +256,7 @@ fn addRunStep(b: *Build) !void {
 
     switch (output_mode) {
         .serial => run.addArgs(&.{ "-serial", "mon:stdio" }),
-        .vga => run.addArgs(&.{ "-vga", "std" }),
+        .vga => run.addArgs(&.{ "-vga", "std", "-serial", "vc" }),
     }
 
     switch (disk_mode) {

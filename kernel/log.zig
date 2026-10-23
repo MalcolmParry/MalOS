@@ -6,33 +6,46 @@ const Terminal = @import("tty/Terminal.zig");
 const vga_text = @import("drivers/x86/vga_text.zig");
 
 pub var spinlock: Spinlock = .init;
-pub var writer = &temp_writer;
+pub var writer: std.Io.Writer = .{
+    .buffer = &.{},
+    .end = 0,
+    .vtable = &.{ .drain = &drain },
+};
+
 pub var term: std.Io.Terminal = .{
-    .writer = &temp_writer,
+    .writer = &writer,
     .mode = .escape_codes,
 };
 
 var temp_writer_buffer: [4096]u8 = undefined;
 var temp_writer: std.Io.Writer = .fixed(&temp_writer_buffer);
+var temp_overflow: bool = false;
 
 var vga_text_term: Terminal = .{ .tg = &vga_text.tg };
 var vga_text_writer = vga_text_term.writer(&.{});
 
-pub fn init(boot_info: BootInfo) void {
-    outer: {
-        if (boot_info.display == .vga_text) {
-            vga_text.init();
-            writer = &vga_text_writer.w;
-            term.writer = writer;
-            break :outer;
-        }
+var using_temp_writer: bool = true;
+var using_serial: bool = false;
+var using_vga_text: bool = false;
 
-        serial.init();
-        writer = &serial.writer;
-        term.writer = &serial.writer;
+pub fn preinit() !void {
+    if (serial.init()) {
+        using_serial = true;
+        serial.write(temp_writer.buffered());
     }
 
-    writer.print("{s}", .{temp_writer.buffered()}) catch @panic("failed to print");
+    if (temp_overflow) std.log.warn("temp writer buffer overflow", .{});
+}
+
+pub fn init(boot_info: BootInfo) !void {
+    if (boot_info.display == .vga_text) {
+        vga_text.init();
+        using_vga_text = true;
+        try vga_text_writer.w.writeAll(temp_writer.buffered());
+    }
+
+    using_temp_writer = false;
+    if (temp_overflow) std.log.warn("temp writer buffer overflow", .{});
 }
 
 pub fn log(
@@ -45,4 +58,39 @@ pub fn log(
     defer lock.unlock();
 
     std.log.defaultLogFileTerminal(level, scope, format, args, term) catch @panic("failed to print");
+}
+
+fn drain(_: *std.Io.Writer, data: []const []const u8, splat: usize) !usize {
+    var wrote: usize = 0;
+    for (data[0 .. data.len - 1]) |str| {
+        try write(str);
+        wrote += str.len;
+    }
+
+    const pattern = data[data.len - 1];
+    for (0..splat) |_| {
+        try write(pattern);
+        wrote += pattern.len;
+    }
+
+    return wrote;
+}
+
+fn write(data: []const u8) !void {
+    var rest = data;
+    while (std.mem.indexOfScalar(u8, rest, '\n')) |i| {
+        try writeRaw(rest[0..i]);
+        try writeRaw("\r\n");
+        rest = rest[i + 1 ..];
+    }
+    try writeRaw(rest);
+}
+
+fn writeRaw(data: []const u8) !void {
+    if (using_temp_writer) temp_writer.writeAll(data) catch {
+        temp_overflow = true;
+    };
+
+    if (using_serial) serial.write(data);
+    if (using_vga_text) try vga_text_writer.w.writeAll(data);
 }
