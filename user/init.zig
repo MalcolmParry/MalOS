@@ -2,14 +2,16 @@ const std = @import("std");
 const lib = @import("lib");
 
 pub fn main() noreturn {
+    const console = lib.syscall.fopen("/dev/console", .{ .access = .rw }) catch spinwait();
     for (0..3) |i| {
-        const fd = lib.syscall.fopen("/dev/console") catch spinwait();
-        if (@intFromEnum(fd) != i) spinwait();
+        lib.syscall.fclone(console, @enumFromInt(i), .{ .close_on_exec = false }) catch {
+            panic("failed to clone console fd\n");
+        };
     }
 
     {
         lib.writeAll(lib.stdout, 0, "hello world\n") catch {};
-        const fd = lib.syscall.fopen("/boot/grub/grub.cfg") catch {
+        const fd = lib.syscall.fopen("/boot/grub/grub.cfg", .{}) catch {
             panic("failed to open file\n");
         };
         defer lib.syscall.fclose(fd) catch {};

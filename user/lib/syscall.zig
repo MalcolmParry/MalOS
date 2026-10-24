@@ -2,13 +2,12 @@ const std = @import("std");
 const builtin = @import("builtin");
 const abi = @import("abi");
 
-pub fn fopen(path: []const u8) !abi.Fd {
+pub fn fopen(path: []const u8, flags: abi.FOpenFlags) !abi.Fd {
     const result = syscall(.{
         @intFromEnum(abi.Syscall.fopen),
         @intFromPtr(path.ptr),
         path.len,
-        0,
-        0,
+        flags.toUsize(),
     });
 
     return switch (try readStatus(result[0])) {
@@ -31,9 +30,6 @@ pub fn fclose(fd: abi.Fd) !void {
     const result = syscall(.{
         @intFromEnum(abi.Syscall.fclose),
         @intFromEnum(fd),
-        0,
-        0,
-        0,
     });
 
     return switch (try readStatus(result[0])) {
@@ -61,6 +57,7 @@ pub fn fread(fd: abi.Fd, offset: u64, buffer: []u8) !usize {
         .out_of_memory => error.OutOfMemory,
         .is_a_dir => error.IsADir,
         .not_supported => error.NotSupported,
+        .bad_access => error.BadAccess,
         else => unexpected(result[0]),
     };
 }
@@ -84,6 +81,23 @@ pub fn fwrite(fd: abi.Fd, offset: u64, buffer: []const u8) !usize {
         .is_a_dir => error.IsADir,
         .read_only => error.ReadOnly,
         .not_supported => error.NotSupported,
+        .bad_access => error.BadAccess,
+        else => unexpected(result[0]),
+    };
+}
+
+pub fn fclone(old: abi.Fd, new: abi.Fd, flags: abi.FCloneFlags) !void {
+    const result = syscall(.{
+        @intFromEnum(abi.Syscall.fclone),
+        @intFromEnum(old),
+        @intFromEnum(new),
+        flags.toUsize(),
+    });
+
+    return switch (try readStatus(result[0])) {
+        .success => {},
+        .bad_fd => error.BadFd,
+        .out_of_memory => error.OutOfMemory,
         else => unexpected(result[0]),
     };
 }
@@ -101,7 +115,12 @@ fn unexpected(status: usize) error{Unexpected} {
     return error.Unexpected;
 }
 
-pub fn syscall(args: [5]usize) [2]usize {
+pub fn syscall(args: anytype) [2]usize {
+    const args7 = args ++ @as([7 - args.len]usize, @splat(0));
+    return syscall7(args7);
+}
+
+pub fn syscall7(args: [7]usize) [2]usize {
     var ret0: usize = undefined;
     var ret1: usize = undefined;
 
@@ -113,7 +132,9 @@ pub fn syscall(args: [5]usize) [2]usize {
           [arg1] "{rdi}" (args[1]),
           [arg2] "{rsi}" (args[2]),
           [arg3] "{rdx}" (args[3]),
-          [arg4] "{r8}" (args[4]),
+          [arg4] "{r10}" (args[4]),
+          [arg5] "{r8}" (args[5]),
+          [arg6] "{r9}" (args[6]),
         : .{ .memory = true });
 
     return .{ ret0, ret1 };

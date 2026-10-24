@@ -4,6 +4,7 @@ const mem = @import("../../memory.zig");
 const arch = @import("x86_64.zig");
 const pic = @import("pic.zig");
 const scheduler = @import("../../task/scheduler.zig");
+const Task = @import("../../task/Task.zig");
 const log = @import("../../log.zig");
 const syscall = @import("../../syscall.zig");
 const user_copy = @import("user_copy.zig");
@@ -201,17 +202,20 @@ fn handler(state: *align(1) arch.cpu.State) callconv(.{ .x86_64_sysv = .{ .incom
             arch.spinWait();
         },
         0x80 => {
-            const args: [5]usize = .{
+            const args: [7]usize = .{
                 state.rax,
                 state.rdi,
                 state.rsi,
                 state.rdx,
+                state.r10,
                 state.r8,
+                state.r9,
             };
 
-            std.log.info("syscall with {any}", .{args});
+            const tid_i = @intFromEnum(Task.current_tid);
+            std.log.info("tid {} syscall with {any}", .{ tid_i, args });
             const result = syscall.handler(args);
-            std.log.info("syscall returned with {any}", .{result});
+            std.log.info("tid {} syscall returned with {any}", .{ tid_i, result });
 
             state.rax = result[0];
             state.rdi = result[1];

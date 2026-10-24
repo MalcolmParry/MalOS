@@ -17,13 +17,13 @@ pub const Path = Mount.Path;
 pub const File = Mount.File;
 
 pub const IoError = error{ Io, Corrupt, OutOfMemory };
-pub const FileError = IoError || error{ IsADir, NotSupported };
+pub const FileError = IoError || error{ IsADir, NotSupported, BadAccess };
 pub const ReadError = FileError;
 pub const WriteError = FileError || error{ReadOnly};
 pub const LookupError = IoError || error{ NotADir, NameTooLong, InvalidName, NoEntry };
 pub const CreateError = IoError || error{ NotADir, NameTooLong, InvalidName, AlreadyExists, ReadOnly };
 pub const UnlinkError = LookupError || error{ Busy, NotEmpty, ReadOnly };
-pub const ReadDirError = IoError || error{ NotADir, NotSupported };
+pub const ReadDirError = IoError || error{ NotADir, NotSupported, BadAccess };
 pub const ResizeError = FileError || error{ReadOnly};
 pub const OpenError = IoError;
 pub const UnmountError = error{Busy};
@@ -62,6 +62,20 @@ pub const SuperBlock = struct {
         sb.destroy_ptr(sb);
     }
 };
+
+pub const Access = packed struct {
+    r: bool = false,
+    w: bool = false,
+    x: bool = false,
+
+    pub const ro: Access = .{ .r = true };
+    pub const wo: Access = .{ .w = true };
+    pub const rw: Access = .{ .r = true, .w = true };
+    pub const rwx: Access = .{ .r = true, .w = true, .x = true };
+};
+
+pub const ReadFlags = packed struct {};
+pub const WriteFlags = packed struct {};
 
 pub const max_path_len = 4096;
 pub const max_name_len = 255;

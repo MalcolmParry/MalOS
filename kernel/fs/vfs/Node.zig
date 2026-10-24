@@ -39,7 +39,7 @@ pub const VTable = struct {
     /// shouldn't touch the page cache, the vfs handles that
     resize: ?*const fn (node: *Node, new_size: usize) vfs.ResizeError!void = null,
 
-    open: *const fn (node: *Node) vfs.OpenError!*Handle = &Handle.default_impls.OpenDefault(&.{}),
+    open: *const fn (node: *Node, access: vfs.Access) vfs.OpenError!*Handle = &Handle.default_impls.OpenDefault(&.{}),
 };
 
 pub const DirRecord = struct {
@@ -97,8 +97,8 @@ pub fn release(node: *Node) void {
     node.destroy();
 }
 
-pub fn open(node: *Node) vfs.OpenError!*Handle {
-    const handle = try node.vtable.open(node);
+pub fn open(node: *Node, access: vfs.Access) vfs.OpenError!*Handle {
+    const handle = try node.vtable.open(node, access);
     node.acquire();
     return handle;
 }
@@ -177,6 +177,7 @@ pub const Handle = struct {
     /// immutable
     vtable: *const Handle.VTable,
     ref_count: std.atomic.Value(u32),
+    access: vfs.Access,
 
     pub const VTable = struct {
         close: *const fn (handle: *Handle) void = &Handle.default_impls.closeDefault,
@@ -203,7 +204,12 @@ pub const Handle = struct {
         node.release();
     }
 
-    pub fn read(handle: *Handle, offset: u64, buffer: []u8) vfs.ReadError!usize {
+    pub fn read(handle: *Handle, offset: u64, buffer: []u8, flags: vfs.ReadFlags) vfs.ReadError!usize {
+        if (!handle.access.r) return error.BadAccess;
+        return handle.readIgnoreAccess(offset, buffer, flags);
+    }
+
+    pub fn readIgnoreAccess(handle: *Handle, offset: u64, buffer: []u8, _: vfs.ReadFlags) vfs.ReadError!usize {
         if (buffer.len == 0) return 0;
 
         const node = handle.node;
@@ -240,7 +246,8 @@ pub const Handle = struct {
         return bytes_read;
     }
 
-    pub fn write(handle: *Handle, offset: u64, buffer: []const u8) vfs.WriteError!usize {
+    pub fn write(handle: *Handle, offset: u64, buffer: []const u8, _: vfs.WriteFlags) vfs.WriteError!usize {
+        if (!handle.access.w) return error.BadAccess;
         if (buffer.len == 0) return 0;
 
         const node = handle.node;
@@ -251,6 +258,7 @@ pub const Handle = struct {
     }
 
     pub fn readDir(handle: *Handle, pos: u64, record: *DirRecord) vfs.ReadDirError!?u64 {
+        if (!handle.access.r) return error.BadAccess;
         if (handle.node.kind != .dir) return error.NotADir;
         return handle.vtable.read_dir(handle, pos, record);
     }
@@ -269,14 +277,15 @@ pub const Handle = struct {
     }
 
     pub const default_impls = struct {
-        pub fn OpenDefault(comptime vtable: *const Handle.VTable) fn (node: *Node) vfs.OpenError!*Handle {
+        pub fn OpenDefault(comptime vtable: *const Handle.VTable) fn (node: *Node, access: vfs.Access) vfs.OpenError!*Handle {
             return struct {
-                fn open(node: *Node) vfs.OpenError!*Handle {
+                fn open(node: *Node, access: vfs.Access) vfs.OpenError!*Handle {
                     const handle = try alloc.create(Handle);
                     handle.* = .{
                         .node = node,
                         .vtable = vtable,
                         .ref_count = .init(1),
+                        .access = access,
                     };
                     return handle;
                 }
@@ -343,7 +352,7 @@ pub const Handle = struct {
             const this: *Reader = @fieldParentPtr("interface", r);
             const dest = limit.slice(try w.writableSliceGreedy(1));
 
-            const n = this.handle.read(this.pos, dest) catch return error.ReadFailed;
+            const n = this.handle.read(this.pos, dest, .{}) catch return error.ReadFailed;
             if (n == 0) return error.EndOfStream;
             this.pos += n;
 

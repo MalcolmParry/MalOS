@@ -84,9 +84,18 @@ pub const AddressSpace = struct {
     }
 };
 
+pub const FileDesc = struct {
+    file: vfs.File,
+    flags: Flags,
+
+    pub const Flags = packed struct {
+        close_on_exec: bool,
+    };
+};
+
 pub const FileDescTable = struct {
     ref_count: std.atomic.Value(u32),
-    map: std.AutoHashMapUnmanaged(abi.Fd, vfs.File),
+    map: std.AutoHashMapUnmanaged(abi.Fd, FileDesc),
     lock: Spinlock,
     bump: u32,
 
@@ -117,7 +126,8 @@ pub const FileDescTable = struct {
 
         var iter = table.map.iterator();
         while (iter.next()) |kv| {
-            kv.value_ptr.*.release();
+            const desc = kv.value_ptr.*;
+            desc.file.release();
         }
 
         table.map.deinit(gpa.allocator);
@@ -125,8 +135,8 @@ pub const FileDescTable = struct {
     }
 
     /// takes callers reference
-    pub fn putFd(table: *FileDescTable, file: vfs.File) !abi.Fd {
-        errdefer file.release();
+    pub fn putFd(table: *FileDescTable, desc: FileDesc) !abi.Fd {
+        errdefer desc.file.release();
 
         const l = table.lock.lock();
         defer l.unlock();
@@ -137,17 +147,36 @@ pub const FileDescTable = struct {
         const kv = try table.map.getOrPut(gpa.allocator, fd);
         if (kv.found_existing) return error.TooManyFds;
 
-        kv.value_ptr.* = file;
+        kv.value_ptr.* = desc;
         return fd;
     }
 
-    pub fn getFd(table: *FileDescTable, fd: abi.Fd) ?vfs.File {
+    /// takes callers reference
+    pub fn placeFd(table: *FileDescTable, fd: abi.Fd, desc: FileDesc) !void {
+        errdefer desc.file.release();
+
+        const existing: ?vfs.File = blk: {
+            const l = table.lock.lock();
+            defer l.unlock();
+
+            const kv = try table.map.getOrPut(gpa.allocator, fd);
+            const last = kv.value_ptr.*;
+            kv.value_ptr.* = desc;
+            table.bump = @max(table.bump, @intFromEnum(fd) +| 1);
+
+            break :blk if (kv.found_existing) last.file else null;
+        };
+
+        if (existing) |f| f.release();
+    }
+
+    pub fn getFd(table: *FileDescTable, fd: abi.Fd) ?FileDesc {
         const l = table.lock.lock();
         defer l.unlock();
 
-        const file = table.map.get(fd) orelse return null;
-        file.acquire();
-        return file;
+        const desc = table.map.get(fd) orelse return null;
+        desc.file.acquire();
+        return desc;
     }
 
     pub fn removeFd(table: *FileDescTable, fd: abi.Fd) bool {
@@ -156,8 +185,9 @@ pub const FileDescTable = struct {
             defer l.unlock();
             break :blk table.map.fetchRemove(fd) orelse return false;
         };
+        const desc = kv.value;
 
-        kv.value.release();
+        desc.file.release();
         return true;
     }
 };

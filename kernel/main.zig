@@ -110,17 +110,6 @@ pub fn kernelMain() !noreturn {
     }
 
     debug.init(&boot_info);
-
-    var page_count: usize = 0;
-    while (page_count < 0x4000) {
-        const result = page_alloc.alloc(u8, 1) catch break;
-        // _ = result;
-        page_alloc.free(result);
-        page_count += 1;
-    }
-
-    std.log.info("Pages Allocated 0x{x}", .{page_count});
-    std.log.info("Memory Allocated {Bi}", .{page_count * mem.page_size});
     std.log.info("{Bi:.2} used out of {Bi:.2}", .{ pmm.used_pages.load(.monotonic) * mem.page_size, pmm.total_pages * mem.page_size });
 
     arch.interrupt.enable();
@@ -162,11 +151,11 @@ fn ext2Test() !void {
     const hello_txt = try root.lookup("hello.txt");
     defer hello_txt.release();
 
-    const file = try hello_txt.open();
+    const file = try hello_txt.open(.ro);
     defer file.release();
 
     var buffer: [1024]u8 = undefined;
-    const read = try file.read(0, &buffer);
+    const read = try file.read(0, &buffer, .{});
 
     std.log.info("{} bytes read", .{read});
     std.log.info("{s}", .{buffer[0..read]});
@@ -186,7 +175,7 @@ fn ext2Test() !void {
     const init = try root.lookup("bin/init");
     defer init.release();
 
-    const init_open = try init.open();
+    const init_open = try init.open(.ro);
     defer init_open.release();
 
     var init_buffer: [4096]u8 = undefined;
@@ -235,7 +224,7 @@ fn ext2Test() !void {
 }
 
 fn printFileTree(parent: vfs.Path, term: std.Io.Terminal, indent: usize) !void {
-    const file = try parent.open();
+    const file = try parent.open(.ro);
     defer file.release();
 
     var next_pos: u64 = 0;

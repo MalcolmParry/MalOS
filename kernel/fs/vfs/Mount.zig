@@ -201,8 +201,8 @@ pub const Path = struct {
         return current;
     }
 
-    pub fn open(path: Path) vfs.OpenError!File {
-        const handle = try path.dentry.node.open();
+    pub fn open(path: Path, access: vfs.Access) vfs.OpenError!File {
+        const handle = try path.dentry.node.open(access);
         path.acquire();
         return .{
             .handle = handle,
@@ -225,12 +225,12 @@ pub const File = struct {
         file.path.release();
     }
 
-    pub fn read(file: File, offset: u64, buffer: []u8) vfs.ReadError!usize {
-        return file.handle.read(offset, buffer);
+    pub fn read(file: File, offset: u64, buffer: []u8, flags: vfs.ReadFlags) vfs.ReadError!usize {
+        return file.handle.read(offset, buffer, flags);
     }
 
-    pub fn write(file: File, offset: u64, buffer: []const u8) vfs.WriteError!usize {
-        return file.handle.write(offset, buffer);
+    pub fn write(file: File, offset: u64, buffer: []const u8, flags: vfs.WriteFlags) vfs.WriteError!usize {
+        return file.handle.write(offset, buffer, flags);
     }
 
     pub fn readDir(file: File, pos: u64, record: *Node.DirRecord) vfs.ReadDirError!?u64 {
