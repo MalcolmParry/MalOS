@@ -70,6 +70,7 @@ pub const Access = packed struct {
 
     pub const ro: Access = .{ .r = true };
     pub const wo: Access = .{ .w = true };
+    pub const xo: Access = .{ .x = true };
     pub const rw: Access = .{ .r = true, .w = true };
     pub const rwx: Access = .{ .r = true, .w = true, .x = true };
 };

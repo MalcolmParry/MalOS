@@ -102,6 +102,15 @@ pub fn fclone(old: abi.Fd, new: abi.Fd, flags: abi.FCloneFlags) !void {
     };
 }
 
+pub fn exit(status: usize) noreturn {
+    _ = syscall(.{
+        @intFromEnum(abi.Syscall.exit),
+        status,
+    });
+
+    @panic("exit syscall returned");
+}
+
 fn readStatus(int: usize) error{Unexpected}!abi.Status {
     return std.enums.fromInt(abi.Status, int) orelse unexpected(int);
 }

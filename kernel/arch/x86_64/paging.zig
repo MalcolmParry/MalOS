@@ -42,13 +42,14 @@ pub const Entry = packed struct(u64) {
 
     /// only use if this entry isn't a leaf
     pub fn getLower(entry: Entry) *Table {
+        std.debug.assert(entry.present);
         std.debug.assert(!entry.huge);
         return @ptrFromInt(entry.address * 4096 + direct_map_base);
     }
 
-    /// dont use on a leaf
     pub fn getLowerSafe(entry: Entry) ?*Table {
         if (!entry.present) return null;
+        if (entry.huge) return null;
         return entry.getLower();
     }
 };
@@ -68,7 +69,11 @@ pub const Table = extern struct {
         std.debug.assert(@alignOf(Table) == 4096);
     }
 
-    fn physAddr(table: *Table) *mem.PhysPage {
+    pub fn use(table: *Table) void {
+        setCr3(@intFromPtr(table.physPage()));
+    }
+
+    pub fn physPage(table: *Table) *mem.PhysPage {
         return @ptrFromInt(@intFromPtr(table) - direct_map_base);
     }
 
@@ -115,6 +120,79 @@ fn getOrCreateTable(entry: *Entry) !*Table {
     };
 
     return table;
+}
+
+fn walk(l4: *Table, page_index: usize) *Table {
+    const il2 = (page_index >> 9) & 0x1ff;
+    const il3 = (page_index >> 18) & 0x1ff;
+    const il4 = (page_index >> 27) & 0x1ff;
+
+    const l3 = l4.entries[il4].getLower();
+    const l2 = l3.entries[il3].getLower();
+    const l1 = l2.entries[il2].getLower();
+    return l1;
+}
+
+fn walkOrCreate(l4: *Table, page_index: usize) !*Table {
+    const il2 = (page_index >> 9) & 0x1ff;
+    const il3 = (page_index >> 18) & 0x1ff;
+    const il4 = (page_index >> 27) & 0x1ff;
+
+    const l3 = try getOrCreateTable(&l4.entries[il4]);
+    const l2 = try getOrCreateTable(&l3.entries[il3]);
+    const l1 = try getOrCreateTable(&l2.entries[il2]);
+    return l1;
+}
+
+pub fn mapAndAllocRegion(l4: *Table, first_page: usize, page_count: usize, flags: Vmm.PageFlags, zero_pages: bool) !void {
+    std.debug.assert(!(flags.user and flags.global));
+
+    var mapped: usize = 0;
+    errdefer unmapAndFreeRegion(l4, first_page, mapped);
+
+    var l1: *Table = undefined;
+    while (mapped < page_count) : (mapped += 1) {
+        const page_index = first_page + mapped;
+        const il1 = page_index & 0x1ff;
+        if (mapped == 0 or il1 == 0)
+            l1 = try walkOrCreate(l4, page_index);
+
+        std.debug.assert(!l1.entries[il1].present);
+        const phys = try pmm.allocatePage();
+        const index: pmm.Index = .fromPtr(phys);
+        if (zero_pages) @memset(&index.toDirectMap().bytes, 0);
+
+        l1.entries[il1] = .{
+            .present = true,
+            .writable = flags.writable,
+            .user = flags.user,
+            .write_through = flags.cache_mode == .write_through,
+            .disable_cache = flags.cache_mode == .disabled,
+            .huge = false,
+            .global = flags.global,
+            .address = @intFromEnum(index),
+            .disable_execute = !flags.executable,
+        };
+    }
+}
+
+pub fn unmapAndFreeRegion(l4: *Table, first_page: usize, page_count: usize) void {
+    var unmapped: usize = 0;
+    var l1: *Table = undefined;
+    while (unmapped < page_count) : (unmapped += 1) {
+        const page_index = first_page + unmapped;
+        const il1 = page_index & 0x1ff;
+        if (unmapped == 0 or il1 == 0)
+            l1 = walk(l4, page_index);
+
+        const entry = l1.entries[il1];
+        l1.entries[il1] = .blank;
+        invalidatePage(@ptrFromInt(page_index * mem.page_size));
+
+        std.debug.assert(entry.present);
+        const index: pmm.Index = @enumFromInt(entry.address);
+        pmm.freePage(index.toPtr());
+    }
 }
 
 pub fn mapPage(table: *Table, level: Table.Level, virt: *allowzero mem.Page, phys: *mem.PhysPage, page_flags: Vmm.PageFlags) !void {
@@ -284,7 +362,7 @@ pub fn init(boot_info: *const BootInfo) *Table {
         const l2_phys: *mem.PhysPage = if (direct_page_index == 0)
             @ptrFromInt(@intFromPtr(&first_direct_map_l2) - mem.kernel_virt_base)
         else
-            l2.physAddr();
+            l2.physPage();
 
         for (&l2.entries) |*entry| {
             entry.* = .{
@@ -353,6 +431,15 @@ pub fn invalidatePages() void {
         ::: .{ .rax = true, .memory = true });
 }
 
+pub fn getCurrentTable() *Table {
+    const cr3 = asm volatile (
+        \\ movq %cr3, %[reg]
+        : [reg] "=r" (-> usize),
+    );
+
+    return @ptrFromInt(cr3 + @intFromPtr(mem.direct_map.ptr));
+}
+
 pub fn createTable() !*Table {
     const phys = try pmm.allocatePage();
     const virt = pmm.Index.fromPtr(phys).toDirectMap();
@@ -362,6 +449,29 @@ pub fn createTable() !*Table {
     @memcpy(table.entries[256..], l4_table.entries[256..]);
 
     return table;
+}
+
+pub fn destroyTable(l4: *Table) void {
+    std.debug.assert(l4 != getCurrentTable());
+
+    for (0..256) |il4| {
+        const l3 = l4.entries[il4].getLowerSafe() orelse continue;
+
+        for (0..512) |il3| {
+            const l2 = l3.entries[il3].getLowerSafe() orelse continue;
+
+            for (0..512) |il2| {
+                const l1 = l2.entries[il2].getLowerSafe() orelse continue;
+                pmm.freePage(l1.physPage());
+            }
+
+            pmm.freePage(l2.physPage());
+        }
+
+        pmm.freePage(l3.physPage());
+    }
+
+    pmm.freePage(l4.physPage());
 }
 
 // TODO: when i get multiple cores i need to change this

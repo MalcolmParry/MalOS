@@ -6,6 +6,7 @@ pub const Syscall = enum(usize) {
     fread,
     fwrite,
     fclone,
+    exit,
 };
 
 pub const Status = enum(usize) {

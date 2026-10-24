@@ -259,6 +259,23 @@ pub fn pushInitTaskFrame(info: TaskInitInfo) *align(1) State {
     return state;
 }
 
+const UserTaskInfo = struct {
+    entry: usize,
+    phys_page_table: usize,
+};
+
+pub fn getUserTaskFrame(info: UserTaskInfo) State {
+    return .{
+        .rip = info.entry,
+        .cr3 = info.phys_page_table,
+        .flags = .{ .IF = true },
+        .rbp = 0,
+        .rsp = 0,
+        .cs = 0x23,
+        .ss = 0x1b,
+    };
+}
+
 pub fn pushUserTaskFrame(info: TaskInitInfo) *align(1) State {
     const state: *State = @ptrFromInt(info.stack_top - @sizeOf(State));
 

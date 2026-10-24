@@ -273,6 +273,7 @@ pub const Handle = struct {
             },
             .handle = handle,
             .pos = 0,
+            .ignore_access = false,
         };
     }
 
@@ -335,6 +336,7 @@ pub const Handle = struct {
         interface: std.Io.Reader,
         handle: *Handle,
         pos: u64,
+        ignore_access: bool,
 
         pub fn logicalPos(r: *const Reader) u64 {
             return r.pos - r.interface.bufferedLen();
@@ -352,7 +354,12 @@ pub const Handle = struct {
             const this: *Reader = @fieldParentPtr("interface", r);
             const dest = limit.slice(try w.writableSliceGreedy(1));
 
-            const n = this.handle.read(this.pos, dest, .{}) catch return error.ReadFailed;
+            const n_err = if (this.ignore_access)
+                this.handle.readIgnoreAccess(this.pos, dest, .{})
+            else
+                this.handle.read(this.pos, dest, .{});
+
+            const n = n_err catch return error.ReadFailed;
             if (n == 0) return error.EndOfStream;
             this.pos += n;
 

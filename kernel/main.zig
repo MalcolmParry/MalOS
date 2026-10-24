@@ -8,8 +8,10 @@ const std = @import("std");
 const builtin = @import("builtin");
 const scheduler = @import("task/scheduler.zig");
 const Task = @import("task/Task.zig");
+const AddressSpace = @import("task/AddressSpace.zig");
 const log = @import("log.zig");
 const gpa = @import("heap/gpa.zig");
+const elf_loader = @import("elf_loader.zig");
 
 const vfs = @import("fs/vfs/vfs.zig");
 const Ramfs = @import("fs/Ramfs.zig");
@@ -172,55 +174,36 @@ fn ext2Test() !void {
     try printFileTree(root, log.term, 1);
     log.writer.flush() catch {};
 
-    const init = try root.lookup("bin/init");
-    defer init.release();
-
-    const init_open = try init.open(.ro);
-    defer init_open.release();
-
-    var init_buffer: [4096]u8 = undefined;
-    var init_reader = init_open.reader(&init_buffer);
-
-    const init_header = try std.elf.Header.read(&init_reader.interface);
-    if (!init_header.is_64) return error.NotSupported;
-
-    const init_table = try arch.paging.createTable();
-
-    for (0..init_header.phnum) |i| {
-        init_reader.seekTo(init_header.phoff + i * init_header.phentsize);
-        const ph = try init_reader.interface.takeStruct(std.elf.Elf64.Phdr, init_header.endian);
-        if (ph.type != .LOAD) continue;
-        if (ph.filesz > ph.memsz) return error.BadElf;
-
-        const seg_end = std.math.add(u64, ph.vaddr, ph.memsz) catch return error.BadElf;
-        if (seg_end > arch.paging.max_user_addr) return error.BadElf;
-
-        var page = std.mem.alignBackward(u64, ph.vaddr, mem.page_size);
-        while (page < seg_end) : (page += mem.page_size) {
-            const phys = try pmm.allocatePage();
-            const direct = pmm.Index.fromPtr(phys).toDirectMap();
-            @memset(&direct.bytes, 0);
-
-            const start = @max(page, ph.vaddr);
-            const end = @min(page + mem.page_size, ph.vaddr + ph.filesz);
-            if (start < end) {
-                init_reader.seekTo(ph.offset + (start - ph.vaddr));
-                try init_reader.interface.readSliceAll(direct.bytes[start - page ..][0 .. end - start]);
-            }
-
-            try arch.paging.mapPage(init_table, .l4, @ptrFromInt(page), phys, .{
-                .global = false,
-                .cache_mode = .full,
-                .user = true,
-                .writable = ph.flags.W,
-                .executable = ph.flags.X,
-            });
-        }
-    }
-
-    if (init_header.entry > arch.paging.max_user_addr) return error.BadElf;
-    _ = try Task.spawnUserTask(init_header.entry, init_table, try .create());
+    _ = try Task.spawnKernelTask(init, .{});
     scheduler.sleepNs(std.time.ns_per_s * 2000000000);
+}
+
+fn init() !void {
+    const task = Task.current_tid.get();
+    task.fd_table = try .create();
+    task.addr_space = try .create();
+    const as = task.addr_space.?;
+    as.table.use();
+
+    const result = blk: {
+        const root = vfs.root.?.acquireRootPath();
+        defer root.release();
+
+        const path = try root.lookup("/bin/init");
+        defer path.release();
+
+        const file = try path.open(.xo);
+        defer file.release();
+
+        break :blk try elf_loader.load(as, file);
+    };
+
+    var state = arch.cpu.getUserTaskFrame(.{
+        .entry = result.entry,
+        .phys_page_table = @intFromPtr(as.table.physPage()),
+    });
+
+    scheduler.preempt(&state);
 }
 
 fn printFileTree(parent: vfs.Path, term: std.Io.Terminal, indent: usize) !void {

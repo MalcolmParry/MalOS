@@ -4,6 +4,7 @@ const log = @import("log.zig");
 const abi = @import("abi");
 const vfs = @import("fs/vfs/vfs.zig");
 const Task = @import("task/Task.zig");
+const scheduler = @import("task/scheduler.zig");
 
 const Handler = fn (args: [7]usize) Error!usize;
 const Error = vfs.LookupError || vfs.OpenError || vfs.ReadError || vfs.WriteError || error{
@@ -44,6 +45,7 @@ pub fn handler(args: [7]usize) [2]usize {
         .fread => &fread,
         .fwrite => &fwrite,
         .fclone => &fclone,
+        .exit => &exit,
     };
 
     const result = inner_handler(args) catch |err| {
@@ -153,4 +155,11 @@ fn fclone(args: [7]usize) !usize {
 
     try fd_table.placeFd(new_fd, new_desc);
     return 0;
+}
+
+fn exit(args: [7]usize) !usize {
+    const status = args[1];
+    _ = status;
+
+    scheduler.exitTask();
 }

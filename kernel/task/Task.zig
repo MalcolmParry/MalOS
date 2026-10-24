@@ -8,6 +8,7 @@ const scheduler = @import("scheduler.zig");
 const debug = @import("../debug.zig");
 const vfs = @import("../fs/vfs/vfs.zig");
 const abi = @import("abi");
+const AddressSpace = @import("AddressSpace.zig");
 const Task = @This();
 const assert = std.debug.assert;
 
@@ -58,29 +59,6 @@ pub const OptTid = enum(u32) {
     pub fn unwrap(x: OptTid) ?Tid {
         if (x == .none) return null;
         return @enumFromInt(@intFromEnum(x));
-    }
-};
-
-pub const Entry = fn (arg: usize) callconv(arch.cpu.task_callconv) noreturn;
-
-pub const AddressSpace = struct {
-    table: *arch.paging.Table,
-    ref_count: std.atomic.Value(u32),
-
-    pub fn acquire(as: *AddressSpace) void {
-        const prev = as.ref_count.fetchAdd(1, .monotonic);
-        std.debug.assert(prev != 0);
-    }
-
-    pub fn release(as: *AddressSpace) void {
-        const prev = as.ref_count.fetchSub(1, .acq_rel);
-        std.debug.assert(prev != 0);
-        if (prev == 1) as.destroy();
-    }
-
-    pub fn destroy(as: *AddressSpace) void {
-        _ = as;
-        @panic("not implemented");
     }
 };
 
@@ -200,6 +178,7 @@ var task_bump: Tid.BackingInt = 0;
 pub var first_dead: OptTid = .none;
 pub var first_zombie: OptTid = .none;
 
+pub const Entry = fn (arg: usize) callconv(arch.cpu.task_callconv) noreturn;
 fn WrapTaskFunc(func: anytype) Task.Entry {
     return struct {
         const Func = @TypeOf(func);
@@ -387,6 +366,8 @@ pub fn reapZombies() void {
         first_zombie = t.next;
 
         if (t.kernel_stack) |stack| PageAllocator.global.free(stack);
+        if (t.fd_table) |fd_table| fd_table.release();
+        if (t.addr_space) |addr_space| addr_space.release();
         freeTask(tid);
     }
 }
