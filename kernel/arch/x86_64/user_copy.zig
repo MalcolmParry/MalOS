@@ -4,6 +4,8 @@ const assert = std.debug.assert;
 
 /// returns true if successful
 pub fn copyFromUser(noalias dst: []u8, noalias src: []allowzero const u8) bool {
+    if (dst.len == 0) return true;
+
     arch.interrupt.assertDisabled();
     assert(@intFromPtr(dst.ptr) >= arch.paging.min_kernel_addr);
     assert(dst.len == src.len);
@@ -31,6 +33,8 @@ pub fn copyFromUser(noalias dst: []u8, noalias src: []allowzero const u8) bool {
 
 /// returns true if successful
 pub fn copyToUser(noalias dst: []allowzero u8, noalias src: []const u8) bool {
+    if (dst.len == 0) return true;
+
     arch.interrupt.assertDisabled();
     assert(@intFromPtr(src.ptr) >= arch.paging.min_kernel_addr);
     assert(dst.len == src.len);

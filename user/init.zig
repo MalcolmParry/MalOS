@@ -10,6 +10,15 @@ pub fn main() noreturn {
     }
 
     {
+        const h0, const h1 = lib.syscall.channelCreatePair() catch panic("failed to create channel pair");
+        lib.syscall.channelSend(h0, "msg from channel\n", &.{}) catch panic("failed to send over channel");
+
+        var buffer: [128]u8 = undefined;
+        const bytes, _ = lib.syscall.channelReceive(h1, &buffer, &.{}) catch panic("failed to receive over channel");
+        lib.writeAll(lib.stdout, 0, buffer[0..bytes]) catch {};
+    }
+
+    {
         lib.writeAll(lib.stdout, 0, "hello world\n") catch {};
         const handle = lib.syscall.fopen("/boot/grub/grub.cfg", .{}) catch {
             panic("failed to open file\n");

@@ -4,6 +4,10 @@ pub const Syscall = enum(usize) {
     handle_close,
     handle_clone,
 
+    channel_create_pair,
+    channel_send,
+    channel_receive,
+
     fopen,
     fread,
     fwrite,
@@ -31,6 +35,8 @@ pub const Status = enum(usize) {
     bad_handle,
     bad_handle_kind,
     bad_access,
+    peer_closed,
+    too_big,
 };
 
 pub const Handle = enum(u32) {

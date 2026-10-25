@@ -30,6 +30,64 @@ pub fn handleClone(old: abi.Handle, new: abi.Handle) !void {
     };
 }
 
+pub fn channelCreatePair() !struct { abi.Handle, abi.Handle } {
+    const result = syscall(.{@intFromEnum(abi.Syscall.channel_create_pair)});
+
+    return switch (try readStatus(result[0])) {
+        .success => .{
+            @enumFromInt(result[1]),
+            @enumFromInt(result[2]),
+        },
+        .out_of_memory => error.OutOfMemory,
+        .too_many_handles => error.TooManyHandles,
+        else => unexpected(result[0]),
+    };
+}
+
+pub fn channelSend(channel: abi.Handle, bytes: []const u8, handles: []const abi.Handle) !void {
+    const result = syscall(.{
+        @intFromEnum(abi.Syscall.channel_send),
+        @intFromEnum(channel),
+        @intFromPtr(bytes.ptr),
+        bytes.len,
+        @intFromPtr(handles.ptr),
+        handles.len,
+    });
+
+    return switch (try readStatus(result[0])) {
+        .success => {},
+        .out_of_memory => error.OutOfMemory,
+        .bad_handle => error.BadHandle,
+        .bad_handle_kind => error.BadHandleKind,
+        .too_big => error.TooBig,
+        .peer_closed => error.PeerClosed,
+        .fault => error.Fault,
+        else => unexpected(result[0]),
+    };
+}
+
+pub fn channelReceive(channel: abi.Handle, bytes: []u8, handles: []abi.Handle) !struct { usize, usize } {
+    const result = syscall(.{
+        @intFromEnum(abi.Syscall.channel_receive),
+        @intFromEnum(channel),
+        @intFromPtr(bytes.ptr),
+        bytes.len,
+        @intFromPtr(handles.ptr),
+        handles.len,
+    });
+
+    return switch (try readStatus(result[0])) {
+        .success => .{ result[1], result[2] },
+        .bad_handle => error.BadHandle,
+        .bad_handle_kind => error.BadHandleKind,
+        .too_big => error.TooBig,
+        .too_many_handles => error.TooManyHandles,
+        .out_of_memory => error.OutOfMemory,
+        .fault => error.Fault,
+        else => unexpected(result[0]),
+    };
+}
+
 pub fn fopen(path: []const u8, flags: abi.FOpenFlags) !abi.Handle {
     const result = syscall(.{
         @intFromEnum(abi.Syscall.fopen),

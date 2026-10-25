@@ -8,6 +8,7 @@ const scheduler = @import("scheduler.zig");
 const debug = @import("../debug.zig");
 const vfs = @import("../fs/vfs/vfs.zig");
 const abi = @import("abi");
+const Channel = @import("../ipc/Channel.zig");
 const AddressSpace = @import("AddressSpace.zig");
 const Task = @This();
 const assert = std.debug.assert;
@@ -64,16 +65,19 @@ pub const OptTid = enum(u32) {
 
 pub const HandleDesc = union(enum) {
     file: vfs.File,
+    channel: Channel.Desc,
 
     pub fn acquire(desc: HandleDesc) void {
         switch (desc) {
             .file => |f| f.acquire(),
+            .channel => |d| d.acquire(),
         }
     }
 
     pub fn release(desc: HandleDesc) void {
         switch (desc) {
             .file => |f| f.release(),
+            .channel => |d| d.release(),
         }
     }
 };
@@ -112,7 +116,7 @@ pub const HandleTable = struct {
         var iter = table.map.iterator();
         while (iter.next()) |kv| {
             const desc = kv.value_ptr.*;
-            desc.file.release();
+            desc.release();
         }
 
         table.map.deinit(gpa.allocator);

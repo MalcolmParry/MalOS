@@ -3,7 +3,9 @@ const arch = @import("arch/arch.zig").current;
 const log = @import("log.zig");
 const abi = @import("abi");
 const vfs = @import("fs/vfs/vfs.zig");
+const gpa = @import("heap/gpa.zig").allocator;
 const Task = @import("task/Task.zig");
+const Channel = @import("ipc/Channel.zig");
 const scheduler = @import("task/scheduler.zig");
 
 const Handler = fn (args: [7]usize) Error![3]usize;
@@ -14,6 +16,8 @@ const Error = vfs.LookupError || vfs.OpenError || vfs.ReadError || vfs.WriteErro
     BadHandle,
     BadArg,
     BadHandleKind,
+    TooBig,
+    PeerClosed,
 };
 
 fn errorToStatus(err: Error) abi.Status {
@@ -35,6 +39,8 @@ fn errorToStatus(err: Error) abi.Status {
         Error.BadHandleKind => .bad_handle_kind,
         Error.BadArg => .bad_arg,
         Error.BadAccess => .bad_access,
+        Error.TooBig => .too_big,
+        Error.PeerClosed => .peer_closed,
     };
 }
 
@@ -44,6 +50,10 @@ pub fn handler(args: [7]usize) [4]usize {
     const inner_handler: *const Handler = switch (code) {
         .handle_close => &handleClose,
         .handle_clone => &handleClone,
+
+        .channel_create_pair => &channelCreatePair,
+        .channel_send => &channelSend,
+        .channel_receive => &channelReceive,
 
         .fopen => &fopen,
         .fread => &fread,
@@ -77,6 +87,123 @@ fn handleClone(args: [7]usize) ![3]usize {
 
     try table.place(new, old_desc);
     return @splat(0);
+}
+
+fn channelCreatePair(_: [7]usize) ![3]usize {
+    const task = Task.current_tid.get();
+    const table = task.handle_table orelse return error.TooManyHandles;
+
+    const pair = try Channel.Pair.create();
+    const d0: Channel.Desc = .{ .pair = pair, .end = 0 };
+    const d1: Channel.Desc = .{ .pair = pair, .end = 1 };
+
+    const h0 = table.put(.{ .channel = d0 }) catch |err| {
+        d1.release();
+        return err;
+    };
+
+    const h1 = table.put(.{ .channel = d1 }) catch |err| {
+        _ = table.remove(h0);
+        return err;
+    };
+
+    return .{ @intFromEnum(h0), @intFromEnum(h1), 0 };
+}
+
+fn channelSend(args: [7]usize) ![3]usize {
+    const task = Task.current_tid.get();
+    const table = task.handle_table orelse return error.BadHandle;
+    const channel_handle: abi.Handle = try .fromUsize(args[1]);
+    const channel_hdesc = table.get(channel_handle) orelse return error.BadHandle;
+    defer channel_hdesc.release();
+
+    if (channel_hdesc != .channel) return error.BadHandleKind;
+    const channel = channel_hdesc.channel;
+
+    const byte_count = args[3];
+    const handle_count = args[5];
+    if (byte_count > Channel.max_bytes) return error.TooBig;
+    if (handle_count > Channel.max_handles) return error.TooBig;
+
+    const user_bytes = @as([*]allowzero const u8, @ptrFromInt(args[2]))[0..byte_count];
+    const user_handles = @as([*]allowzero align(1) const abi.Handle, @ptrFromInt(args[4]))[0..handle_count];
+
+    const msg = try gpa.create(Channel.Message);
+    errdefer gpa.destroy(msg);
+
+    const bytes = try gpa.alloc(u8, byte_count);
+    errdefer gpa.free(bytes);
+
+    var handle_buffer: [Channel.max_handles]abi.Handle = undefined;
+    const handles = handle_buffer[0..handle_count];
+
+    if (!arch.copyFromUser(bytes, user_bytes)) return error.Fault;
+    if (!arch.copyFromUser(std.mem.sliceAsBytes(handles), std.mem.sliceAsBytes(user_handles))) return error.Fault;
+
+    const descs = try gpa.alloc(Task.HandleDesc, handle_count);
+    errdefer gpa.free(descs);
+
+    var descs_loaded: usize = 0;
+    errdefer for (descs[0..descs_loaded]) |d| d.release();
+
+    for (handles, descs) |h, *desc| {
+        desc.* = table.get(h) orelse return error.BadHandle;
+        descs_loaded += 1;
+    }
+
+    msg.* = .{
+        .next = null,
+        .destroy_ptr = &msgDestroy,
+        .bytes = bytes,
+        .handles = descs,
+    };
+
+    try channel.send(msg);
+    return @splat(0);
+}
+
+fn msgDestroy(msg: *Channel.Message) void {
+    gpa.free(msg.bytes);
+    gpa.free(msg.handles);
+    gpa.destroy(msg);
+}
+
+fn channelReceive(args: [7]usize) ![3]usize {
+    const task = Task.current_tid.get();
+    const table = task.handle_table orelse return error.BadHandle;
+    const channel_handle: abi.Handle = try .fromUsize(args[1]);
+    const channel_hdesc = table.get(channel_handle) orelse return error.BadHandle;
+    defer channel_hdesc.release();
+
+    if (channel_hdesc != .channel) return error.BadHandleKind;
+    const channel = channel_hdesc.channel;
+
+    var handle_buffer: [Channel.max_handles]abi.Handle = undefined;
+    // TODO: block
+    // TODO: return byte and handle count on error.TooBig
+    // TODO: put the message back if there was an error
+    const msg = try channel.receive(args[3], args[5]) orelse return @splat(0);
+    defer msg.destroyNoReleaseHandles();
+    const handles = handle_buffer[0..msg.handles.len];
+
+    var handles_filled: usize = 0;
+    errdefer {
+        for (handles[0..handles_filled]) |h| _ = table.remove(h);
+        for (msg.handles[handles_filled..]) |d| d.release();
+    }
+
+    for (msg.handles, handles) |desc, *h| {
+        h.* = try table.put(desc);
+        handles_filled += 1;
+    }
+
+    const user_bytes = @as([*]allowzero u8, @ptrFromInt(args[2]))[0..msg.bytes.len];
+    const user_handles = @as([*]allowzero align(1) abi.Handle, @ptrFromInt(args[4]))[0..msg.handles.len];
+
+    if (!arch.copyToUser(user_bytes, msg.bytes)) return error.Fault;
+    if (!arch.copyToUser(std.mem.sliceAsBytes(user_handles), std.mem.sliceAsBytes(handles))) return error.Fault;
+
+    return .{ msg.bytes.len, msg.handles.len, 0 };
 }
 
 fn fopen(args: [7]usize) ![3]usize {
