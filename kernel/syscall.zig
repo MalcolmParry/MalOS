@@ -6,20 +6,21 @@ const vfs = @import("fs/vfs/vfs.zig");
 const Task = @import("task/Task.zig");
 const scheduler = @import("task/scheduler.zig");
 
-const Handler = fn (args: [7]usize) Error!usize;
+const Handler = fn (args: [7]usize) Error![3]usize;
 const Error = vfs.LookupError || vfs.OpenError || vfs.ReadError || vfs.WriteError || error{
     PathTooLong,
     Fault,
-    TooManyFds,
-    BadFd,
+    TooManyHandles,
+    BadHandle,
     BadArg,
+    BadHandleKind,
 };
 
 fn errorToStatus(err: Error) abi.Status {
     return switch (err) {
         Error.Fault => .fault,
         Error.PathTooLong => .path_too_long,
-        Error.TooManyFds => .too_many_fds,
+        Error.TooManyHandles => .too_many_handles,
         Error.Io => .io,
         Error.Corrupt => .corrupt,
         Error.OutOfMemory => .out_of_memory,
@@ -30,32 +31,55 @@ fn errorToStatus(err: Error) abi.Status {
         Error.NoEntry => .no_entry,
         Error.ReadOnly => .read_only,
         Error.NotSupported => .not_supported,
-        Error.BadFd => .bad_fd,
+        Error.BadHandle => .bad_handle,
+        Error.BadHandleKind => .bad_handle_kind,
         Error.BadArg => .bad_arg,
         Error.BadAccess => .bad_access,
     };
 }
 
-pub fn handler(args: [7]usize) [2]usize {
-    const code = std.enums.fromInt(abi.Syscall, args[0]) orelse return .{ @intFromEnum(abi.Status.bad_syscall), 0 };
+pub fn handler(args: [7]usize) [4]usize {
+    const code = std.enums.fromInt(abi.Syscall, args[0]) orelse return .{ @intFromEnum(abi.Status.bad_syscall), 0, 0, 0 };
 
     const inner_handler: *const Handler = switch (code) {
+        .handle_close => &handleClose,
+        .handle_clone => &handleClone,
+
         .fopen => &fopen,
-        .fclose => &fclose,
         .fread => &fread,
         .fwrite => &fwrite,
-        .fclone => &fclone,
         .exit => &exit,
     };
 
     const result = inner_handler(args) catch |err| {
-        return .{ @intFromEnum(errorToStatus(err)), 0 };
+        return .{ @intFromEnum(errorToStatus(err)), 0, 0, 0 };
     };
 
-    return .{ @intFromEnum(abi.Status.success), result };
+    return [1]usize{@intFromEnum(abi.Status.success)} ++ result;
 }
 
-fn fopen(args: [7]usize) !usize {
+fn handleClose(args: [7]usize) ![3]usize {
+    const handle: abi.Handle = try .fromUsize(args[1]);
+
+    const task = Task.current_tid.get();
+    const table = task.handle_table orelse return error.BadHandle;
+    if (!table.remove(handle)) return error.BadHandle;
+    return @splat(0);
+}
+
+fn handleClone(args: [7]usize) ![3]usize {
+    const old: abi.Handle = try .fromUsize(args[1]);
+    const new: abi.Handle = try .fromUsize(args[2]);
+
+    const task = Task.current_tid.get();
+    const table = task.handle_table orelse return error.BadHandle;
+    const old_desc = table.get(old) orelse return error.BadHandle;
+
+    try table.place(new, old_desc);
+    return @splat(0);
+}
+
+fn fopen(args: [7]usize) ![3]usize {
     const flags: abi.FOpenFlags = try .fromUsize(args[3]);
     const len = args[2];
     const user_path = @as([*]allowzero const u8, @ptrFromInt(args[1]))[0..len];
@@ -76,27 +100,15 @@ fn fopen(args: [7]usize) !usize {
     defer vfs_path.release();
 
     const task = Task.current_tid.get();
-    const fd_table = task.fd_table orelse return error.TooManyFds;
+    const table = task.handle_table orelse return error.TooManyHandles;
     const file = try vfs_path.open(.{ .r = flags.access.r, .w = flags.access.w, .x = flags.access.x });
-    const fd = try fd_table.putFd(.{
-        .file = file,
-        .flags = .{ .close_on_exec = flags.close_on_exec },
-    });
+    const handle = try table.put(.{ .file = file });
 
-    return @intFromEnum(fd);
+    return .{ @intFromEnum(handle), 0, 0 };
 }
 
-fn fclose(args: [7]usize) !usize {
-    const fd: abi.Fd = try .fromUsize(args[1]);
-
-    const task = Task.current_tid.get();
-    const fd_table = task.fd_table orelse return error.BadFd;
-    if (!fd_table.removeFd(fd)) return error.BadFd;
-    return 0;
-}
-
-fn fread(args: [7]usize) !usize {
-    const fd: abi.Fd = try .fromUsize(args[1]);
+fn fread(args: [7]usize) ![3]usize {
+    const handle: abi.Handle = try .fromUsize(args[1]);
 
     const offset = args[2];
     var full_buffer: [1024 * 4]u8 = undefined;
@@ -105,9 +117,10 @@ fn fread(args: [7]usize) !usize {
     const buffer = full_buffer[0..len];
 
     const task = Task.current_tid.get();
-    const fd_table = task.fd_table orelse return error.BadFd;
-    const desc = fd_table.getFd(fd) orelse return error.BadFd;
-    defer desc.file.release();
+    const table = task.handle_table orelse return error.BadHandle;
+    const desc = table.get(handle) orelse return error.BadHandle;
+    defer desc.release();
+    if (desc != .file) return error.BadHandleKind;
 
     const read = blk: {
         arch.interrupt.enable();
@@ -117,11 +130,11 @@ fn fread(args: [7]usize) !usize {
 
     if (!arch.copyToUser(user_buffer[0..read], buffer[0..read])) return error.Fault;
 
-    return read;
+    return .{ read, 0, 0 };
 }
 
-fn fwrite(args: [7]usize) !usize {
-    const fd: abi.Fd = try .fromUsize(args[1]);
+fn fwrite(args: [7]usize) ![3]usize {
+    const handle: abi.Handle = try .fromUsize(args[1]);
 
     const offset = args[2];
     var full_buffer: [1024 * 4]u8 = undefined;
@@ -131,33 +144,18 @@ fn fwrite(args: [7]usize) !usize {
     if (!arch.copyFromUser(buffer, user_buffer)) return error.Fault;
 
     const task = Task.current_tid.get();
-    const fd_table = task.fd_table orelse return error.BadFd;
-    const desc = fd_table.getFd(fd) orelse return error.BadFd;
-    defer desc.file.release();
+    const table = task.handle_table orelse return error.BadHandle;
+    const desc = table.get(handle) orelse return error.BadHandle;
+    defer desc.release();
+    if (desc != .file) return error.BadHandleKind;
 
     arch.interrupt.enable();
     defer arch.interrupt.disable();
-    return desc.file.write(offset, buffer, .{});
+    const wrote = try desc.file.write(offset, buffer, .{});
+    return .{ wrote, 0, 0 };
 }
 
-fn fclone(args: [7]usize) !usize {
-    const old_fd: abi.Fd = try .fromUsize(args[1]);
-    const new_fd: abi.Fd = try .fromUsize(args[2]);
-    const flags: abi.FCloneFlags = try .fromUsize(args[3]);
-
-    const task = Task.current_tid.get();
-    const fd_table = task.fd_table orelse return error.BadFd;
-    const old_desc = fd_table.getFd(old_fd) orelse return error.BadFd;
-    const new_desc: Task.FileDesc = .{
-        .file = old_desc.file,
-        .flags = .{ .close_on_exec = flags.close_on_exec },
-    };
-
-    try fd_table.placeFd(new_fd, new_desc);
-    return 0;
-}
-
-fn exit(args: [7]usize) !usize {
+fn exit(args: [7]usize) ![3]usize {
     const status = args[1];
     _ = status;
 

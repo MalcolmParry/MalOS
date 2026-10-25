@@ -180,7 +180,7 @@ fn ext2Test() !void {
 
 fn init() !void {
     const task = Task.current_tid.get();
-    task.fd_table = try .create();
+    task.handle_table = try .create();
     task.addr_space = try .create();
     const as = task.addr_space.?;
     as.table.use();

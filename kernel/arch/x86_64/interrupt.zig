@@ -182,7 +182,7 @@ fn handler(state: *align(1) arch.cpu.State) callconv(.{ .x86_64_sysv = .{ .incom
             const indices = arch.paging.getIndicesFromVirtAddr(cr2);
             std.log.err("page table indices: {any}", .{indices});
 
-            const l4: *arch.paging.Table = @ptrFromInt(state.cr3 + arch.kernel_virt_base);
+            const l4 = arch.paging.getCurrentTable();
             if (l4.entries[indices[3]].getLowerSafe()) |l3| {
                 std.log.err("l3 addr 0x{x}", .{@intFromPtr(l3)});
 
@@ -219,6 +219,8 @@ fn handler(state: *align(1) arch.cpu.State) callconv(.{ .x86_64_sysv = .{ .incom
 
             state.rax = result[0];
             state.rdi = result[1];
+            state.rsi = result[2];
+            state.rdx = result[3];
             scheduler.preempt(state);
         },
         else => {

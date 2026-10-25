@@ -4,20 +4,20 @@ const lib = @import("lib");
 pub fn main() noreturn {
     const console = lib.syscall.fopen("/dev/console", .{ .access = .rw }) catch lib.syscall.exit(1);
     for (0..3) |i| {
-        lib.syscall.fclone(console, @enumFromInt(i), .{ .close_on_exec = false }) catch {
+        lib.syscall.handleClone(console, @enumFromInt(i)) catch {
             panic("failed to clone console fd\n");
         };
     }
 
     {
         lib.writeAll(lib.stdout, 0, "hello world\n") catch {};
-        const fd = lib.syscall.fopen("/boot/grub/grub.cfg", .{}) catch {
+        const handle = lib.syscall.fopen("/boot/grub/grub.cfg", .{}) catch {
             panic("failed to open file\n");
         };
-        defer lib.syscall.fclose(fd) catch {};
+        defer lib.syscall.handleClose(handle) catch {};
 
         var buffer: [4096]u8 = undefined;
-        const read = lib.syscall.fread(fd, 0, &buffer) catch {
+        const read = lib.syscall.fread(handle, 0, &buffer) catch {
             panic("failed to read file\n");
         };
 

@@ -18,7 +18,7 @@ next: OptTid,
 
 /// null if this uses the global kernel table
 addr_space: ?*AddressSpace,
-fd_table: ?*FileDescTable,
+handle_table: ?*HandleTable,
 kernel_stack: ?[]mem.Page,
 cpu_state: ?*align(1) arch.cpu.State,
 ext_cpu_state: arch.cpu.ExtendedState,
@@ -62,34 +62,41 @@ pub const OptTid = enum(u32) {
     }
 };
 
-pub const FileDesc = struct {
+pub const HandleDesc = union(enum) {
     file: vfs.File,
-    flags: Flags,
 
-    pub const Flags = packed struct {
-        close_on_exec: bool,
-    };
+    pub fn acquire(desc: HandleDesc) void {
+        switch (desc) {
+            .file => |f| f.acquire(),
+        }
+    }
+
+    pub fn release(desc: HandleDesc) void {
+        switch (desc) {
+            .file => |f| f.release(),
+        }
+    }
 };
 
-pub const FileDescTable = struct {
+pub const HandleTable = struct {
     ref_count: std.atomic.Value(u32),
-    map: std.AutoHashMapUnmanaged(abi.Fd, FileDesc),
+    map: std.AutoHashMapUnmanaged(abi.Handle, HandleDesc),
     lock: Spinlock,
     bump: u32,
 
-    pub fn acquire(table: *FileDescTable) void {
+    pub fn acquire(table: *HandleTable) void {
         const prev = table.ref_count.fetchAdd(1, .monotonic);
         assert(prev != 0);
     }
 
-    pub fn release(table: *FileDescTable) void {
+    pub fn release(table: *HandleTable) void {
         const prev = table.ref_count.fetchSub(1, .acq_rel);
         assert(prev != 0);
         if (prev == 1) table.destroy();
     }
 
-    pub fn create() !*FileDescTable {
-        const table = try gpa.allocator.create(FileDescTable);
+    pub fn create() !*HandleTable {
+        const table = try gpa.allocator.create(HandleTable);
         table.* = .{
             .ref_count = .init(1),
             .map = .empty,
@@ -99,7 +106,7 @@ pub const FileDescTable = struct {
         return table;
     }
 
-    pub fn destroy(table: *FileDescTable) void {
+    pub fn destroy(table: *HandleTable) void {
         assert(table.ref_count.load(.monotonic) == 0);
 
         var iter = table.map.iterator();
@@ -113,59 +120,59 @@ pub const FileDescTable = struct {
     }
 
     /// takes callers reference
-    pub fn putFd(table: *FileDescTable, desc: FileDesc) !abi.Fd {
-        errdefer desc.file.release();
+    pub fn put(table: *HandleTable, desc: HandleDesc) !abi.Handle {
+        errdefer desc.release();
 
         const l = table.lock.lock();
         defer l.unlock();
 
-        const fd: abi.Fd = @enumFromInt(table.bump);
+        const handle: abi.Handle = @enumFromInt(table.bump);
         table.bump +|= 1;
 
-        const kv = try table.map.getOrPut(gpa.allocator, fd);
-        if (kv.found_existing) return error.TooManyFds;
+        const kv = try table.map.getOrPut(gpa.allocator, handle);
+        if (kv.found_existing) return error.TooManyHandles;
 
         kv.value_ptr.* = desc;
-        return fd;
+        return handle;
     }
 
     /// takes callers reference
-    pub fn placeFd(table: *FileDescTable, fd: abi.Fd, desc: FileDesc) !void {
-        errdefer desc.file.release();
+    pub fn place(table: *HandleTable, handle: abi.Handle, desc: HandleDesc) !void {
+        errdefer desc.release();
 
-        const existing: ?vfs.File = blk: {
+        const existing: ?HandleDesc = blk: {
             const l = table.lock.lock();
             defer l.unlock();
 
-            const kv = try table.map.getOrPut(gpa.allocator, fd);
+            const kv = try table.map.getOrPut(gpa.allocator, handle);
             const last = kv.value_ptr.*;
             kv.value_ptr.* = desc;
-            table.bump = @max(table.bump, @intFromEnum(fd) +| 1);
+            table.bump = @max(table.bump, @intFromEnum(handle) +| 1);
 
-            break :blk if (kv.found_existing) last.file else null;
+            break :blk if (kv.found_existing) last else null;
         };
 
-        if (existing) |f| f.release();
+        if (existing) |d| d.release();
     }
 
-    pub fn getFd(table: *FileDescTable, fd: abi.Fd) ?FileDesc {
+    pub fn get(table: *HandleTable, handle: abi.Handle) ?HandleDesc {
         const l = table.lock.lock();
         defer l.unlock();
 
-        const desc = table.map.get(fd) orelse return null;
-        desc.file.acquire();
+        const desc = table.map.get(handle) orelse return null;
+        desc.acquire();
         return desc;
     }
 
-    pub fn removeFd(table: *FileDescTable, fd: abi.Fd) bool {
+    pub fn remove(table: *HandleTable, handle: abi.Handle) bool {
         const kv = blk: {
             const l = table.lock.lock();
             defer l.unlock();
-            break :blk table.map.fetchRemove(fd) orelse return false;
+            break :blk table.map.fetchRemove(handle) orelse return false;
         };
         const desc = kv.value;
 
-        desc.file.release();
+        desc.release();
         return true;
     }
 };
@@ -251,52 +258,7 @@ pub fn spawnKernelTaskRaw(func: ?*const Task.Entry, arg: usize, stack: []mem.Pag
         .prev = .none,
 
         .addr_space = null,
-        .fd_table = null,
-        .kernel_stack = stack,
-        .ext_cpu_state = .zero,
-        .cpu_state = state,
-    };
-
-    scheduler.makeReady(tid);
-    return tid;
-}
-
-/// takes ownership of the callers reference to fd_table
-pub fn spawnUserTask(func: u64, table: *arch.paging.Table, fd_table: *FileDescTable) !Tid {
-    errdefer fd_table.release();
-
-    const stack_size = 32 * 1024;
-    const stack = try PageAllocator.global.alloc(stack_size / mem.page_size, .{
-        .cache_mode = .full,
-        .global = true,
-        .executable = false,
-        .user = false,
-        .writable = true,
-    });
-    errdefer PageAllocator.global.free(stack);
-
-    const lock = spinlock.lock();
-    defer lock.unlock();
-
-    const tid = try allocTask();
-    errdefer freeTask(tid);
-    const t = tid.get();
-
-    const state = arch.cpu.pushUserTaskFrame(.{
-        .entry = func,
-        .arg = 0,
-        .stack_top = @intFromPtr(stack.ptr + stack.len),
-        .phys_page_table = @intFromPtr(table) - @intFromPtr(mem.direct_map.ptr),
-    });
-
-    t.* = .{
-        .state = .ready,
-        .next = .none,
-        .prev = .none,
-
-        // TODO: fix this
-        .addr_space = null,
-        .fd_table = fd_table,
+        .handle_table = null,
         .kernel_stack = stack,
         .ext_cpu_state = .zero,
         .cpu_state = state,
@@ -332,7 +294,7 @@ pub fn allocTask() !Tid {
         .prev = .none,
         .next = .none,
         .addr_space = undefined,
-        .fd_table = undefined,
+        .handle_table = undefined,
         .cpu_state = undefined,
         .ext_cpu_state = undefined,
         .kernel_stack = undefined,
@@ -366,7 +328,7 @@ pub fn reapZombies() void {
         first_zombie = t.next;
 
         if (t.kernel_stack) |stack| PageAllocator.global.free(stack);
-        if (t.fd_table) |fd_table| fd_table.release();
+        if (t.handle_table) |table| table.release();
         if (t.addr_space) |addr_space| addr_space.release();
         freeTask(tid);
     }
