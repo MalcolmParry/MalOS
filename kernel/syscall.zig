@@ -5,7 +5,7 @@ const abi = @import("abi");
 const vfs = @import("fs/vfs/vfs.zig");
 const gpa = @import("heap/gpa.zig").allocator;
 const Task = @import("task/Task.zig");
-const Channel = @import("ipc/Channel.zig");
+const Channel = @import("object/Channel.zig");
 const scheduler = @import("task/scheduler.zig");
 
 const Handler = fn (args: [7]usize) Error![3]usize;
@@ -94,15 +94,15 @@ fn channelCreatePair(_: [7]usize) ![3]usize {
     const table = task.handle_table orelse return error.TooManyHandles;
 
     const pair = try Channel.Pair.create();
-    const d0: Channel.Desc = .{ .pair = pair, .end = 0 };
-    const d1: Channel.Desc = .{ .pair = pair, .end = 1 };
+    const d0: Task.HandleDesc = .{ .object = &pair.end0.obj };
+    const d1: Task.HandleDesc = .{ .object = &pair.end1.obj };
 
-    const h0 = table.put(.{ .channel = d0 }) catch |err| {
+    const h0 = table.put(d0) catch |err| {
         d1.release();
         return err;
     };
 
-    const h1 = table.put(.{ .channel = d1 }) catch |err| {
+    const h1 = table.put(d1) catch |err| {
         _ = table.remove(h0);
         return err;
     };
@@ -117,8 +117,8 @@ fn channelSend(args: [7]usize) ![3]usize {
     const channel_hdesc = table.get(channel_handle) orelse return error.BadHandle;
     defer channel_hdesc.release();
 
-    if (channel_hdesc != .channel) return error.BadHandleKind;
-    const channel = channel_hdesc.channel;
+    if (channel_hdesc != .object) return error.BadHandleKind;
+    const channel = channel_hdesc.object.getChannel() orelse return error.BadHandleKind;
 
     const byte_count = args[3];
     const handle_count = args[5];
@@ -149,6 +149,10 @@ fn channelSend(args: [7]usize) ![3]usize {
     for (handles, descs) |h, *desc| {
         desc.* = table.get(h) orelse return error.BadHandle;
         descs_loaded += 1;
+
+        if (desc.* == .object) if (desc.object.getChannel()) |c| {
+            if (c.getPair() == channel.getPair()) return error.BadArg;
+        };
     }
 
     msg.* = .{
@@ -175,8 +179,8 @@ fn channelReceive(args: [7]usize) ![3]usize {
     const channel_hdesc = table.get(channel_handle) orelse return error.BadHandle;
     defer channel_hdesc.release();
 
-    if (channel_hdesc != .channel) return error.BadHandleKind;
-    const channel = channel_hdesc.channel;
+    if (channel_hdesc != .object) return error.BadHandleKind;
+    const channel = channel_hdesc.object.getChannel() orelse return error.BadHandleKind;
 
     var handle_buffer: [Channel.max_handles]abi.Handle = undefined;
     // TODO: block

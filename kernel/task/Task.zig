@@ -8,7 +8,7 @@ const scheduler = @import("scheduler.zig");
 const debug = @import("../debug.zig");
 const vfs = @import("../fs/vfs/vfs.zig");
 const abi = @import("abi");
-const Channel = @import("../ipc/Channel.zig");
+const Object = @import("../object/Object.zig");
 const AddressSpace = @import("AddressSpace.zig");
 const Task = @This();
 const assert = std.debug.assert;
@@ -65,19 +65,19 @@ pub const OptTid = enum(u32) {
 
 pub const HandleDesc = union(enum) {
     file: vfs.File,
-    channel: Channel.Desc,
+    object: *Object,
 
     pub fn acquire(desc: HandleDesc) void {
         switch (desc) {
             .file => |f| f.acquire(),
-            .channel => |d| d.acquire(),
+            .object => |o| o.acquire(),
         }
     }
 
     pub fn release(desc: HandleDesc) void {
         switch (desc) {
             .file => |f| f.release(),
-            .channel => |d| d.release(),
+            .object => |o| o.release(),
         }
     }
 };
