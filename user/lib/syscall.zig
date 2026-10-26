@@ -88,6 +88,58 @@ pub fn channelReceive(channel: abi.Handle, bytes: []u8, handles: []abi.Handle) !
     };
 }
 
+pub fn socketCreatePair() !struct { abi.Handle, abi.Handle } {
+    const result = syscall(.{@intFromEnum(abi.Syscall.socket_create_pair)});
+
+    return switch (try readStatus(result[0])) {
+        .success => .{
+            @enumFromInt(result[1]),
+            @enumFromInt(result[2]),
+        },
+        .out_of_memory => error.OutOfMemory,
+        .too_many_handles => error.TooManyHandles,
+        else => unexpected(result[0]),
+    };
+}
+
+pub fn socketSend(sock: abi.Handle, data: []const u8) !usize {
+    const result = syscall(.{
+        @intFromEnum(abi.Syscall.socket_send),
+        @intFromEnum(sock),
+        @intFromPtr(data.ptr),
+        data.len,
+    });
+
+    return switch (try readStatus(result[0])) {
+        .success => result[1],
+        .is_full => error.IsFull,
+        .fault => error.Fault,
+        .bad_handle => error.BadHandle,
+        .bad_handle_kind => error.BadHandleKind,
+        .peer_closed => error.PeerClosed,
+        else => unexpected(result[0]),
+    };
+}
+
+pub fn socketReceive(sock: abi.Handle, buffer: []u8) !usize {
+    const result = syscall(.{
+        @intFromEnum(abi.Syscall.socket_receive),
+        @intFromEnum(sock),
+        @intFromPtr(buffer.ptr),
+        buffer.len,
+    });
+
+    return switch (try readStatus(result[0])) {
+        .success => result[1],
+        .is_empty => error.IsEmpty,
+        .fault => error.Fault,
+        .bad_handle => error.BadHandle,
+        .bad_handle_kind => error.BadHandleKind,
+        .peer_closed => error.PeerClosed,
+        else => unexpected(result[0]),
+    };
+}
+
 pub fn fopen(path: []const u8, flags: abi.FOpenFlags) !abi.Handle {
     const result = syscall(.{
         @intFromEnum(abi.Syscall.fopen),

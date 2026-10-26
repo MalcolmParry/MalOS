@@ -6,6 +6,7 @@ const vfs = @import("fs/vfs/vfs.zig");
 const gpa = @import("heap/gpa.zig").allocator;
 const Task = @import("task/Task.zig");
 const Channel = @import("object/Channel.zig");
+const Socket = @import("object/Socket.zig");
 const scheduler = @import("task/scheduler.zig");
 
 const Handler = fn (args: [7]usize) Error![3]usize;
@@ -18,6 +19,8 @@ const Error = vfs.LookupError || vfs.OpenError || vfs.ReadError || vfs.WriteErro
     BadHandleKind,
     TooBig,
     PeerClosed,
+    IsFull,
+    IsEmpty,
 };
 
 fn errorToStatus(err: Error) abi.Status {
@@ -41,6 +44,8 @@ fn errorToStatus(err: Error) abi.Status {
         Error.BadAccess => .bad_access,
         Error.TooBig => .too_big,
         Error.PeerClosed => .peer_closed,
+        Error.IsFull => .is_full,
+        Error.IsEmpty => .is_empty,
     };
 }
 
@@ -54,6 +59,10 @@ pub fn handler(args: [7]usize) [4]usize {
         .channel_create_pair => &channelCreatePair,
         .channel_send => &channelSend,
         .channel_receive => &channelReceive,
+
+        .socket_create_pair => &socketCreatePair,
+        .socket_send => &socketSend,
+        .socket_receive => &socketReceive,
 
         .fopen => &fopen,
         .fread => &fread,
@@ -87,6 +96,67 @@ fn handleClone(args: [7]usize) ![3]usize {
 
     try table.place(new, old_desc);
     return @splat(0);
+}
+
+fn socketCreatePair(_: [7]usize) ![3]usize {
+    const task = Task.current_tid.get();
+    const table = task.handle_table orelse return error.TooManyHandles;
+
+    const pair = try Socket.Pair.create();
+    const d0: Task.HandleDesc = .{ .object = &pair.end0.obj };
+    const d1: Task.HandleDesc = .{ .object = &pair.end1.obj };
+
+    const h0 = table.put(d0) catch |err| {
+        d1.release();
+        return err;
+    };
+
+    const h1 = table.put(d1) catch |err| {
+        _ = table.remove(h0);
+        return err;
+    };
+
+    return .{ @intFromEnum(h0), @intFromEnum(h1), 0 };
+}
+
+fn socketSend(args: [7]usize) ![3]usize {
+    const task = Task.current_tid.get();
+    const table = task.handle_table orelse return error.BadHandle;
+    const socket_handle: abi.Handle = try .fromUsize(args[1]);
+    const socket_hdesc = table.get(socket_handle) orelse return error.BadHandle;
+    defer socket_hdesc.release();
+
+    if (socket_hdesc != .object) return error.BadHandleKind;
+    const socket = socket_hdesc.object.getSocket() orelse return error.BadHandleKind;
+
+    var buffer: [1024 * 4]u8 = undefined;
+    const len = @min(buffer.len, args[3]);
+    const user_data = @as([*]allowzero const u8, @ptrFromInt(args[2]))[0..len];
+    const data = buffer[0..len];
+    if (!arch.copyFromUser(data, user_data)) return error.Fault;
+
+    const sent = try socket.send(data);
+    return .{ sent, 0, 0 };
+}
+
+fn socketReceive(args: [7]usize) ![3]usize {
+    const task = Task.current_tid.get();
+    const table = task.handle_table orelse return error.BadHandle;
+    const socket_handle: abi.Handle = try .fromUsize(args[1]);
+    const socket_hdesc = table.get(socket_handle) orelse return error.BadHandle;
+    defer socket_hdesc.release();
+
+    if (socket_hdesc != .object) return error.BadHandleKind;
+    const socket = socket_hdesc.object.getSocket() orelse return error.BadHandleKind;
+
+    var full_buffer: [1024 * 4]u8 = undefined;
+    const buffer = full_buffer[0..@min(args[3], full_buffer.len)];
+
+    const read = try socket.receive(buffer);
+    const user_buffer = @as([*]allowzero u8, @ptrFromInt(args[2]))[0..read];
+    // TODO: dont consume bytes on fault
+    if (!arch.copyToUser(user_buffer, buffer[0..read])) return error.Fault;
+    return .{ read, 0, 0 };
 }
 
 fn channelCreatePair(_: [7]usize) ![3]usize {

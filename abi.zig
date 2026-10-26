@@ -8,6 +8,10 @@ pub const Syscall = enum(usize) {
     channel_send,
     channel_receive,
 
+    socket_create_pair,
+    socket_send,
+    socket_receive,
+
     fopen,
     fread,
     fwrite,
@@ -37,6 +41,8 @@ pub const Status = enum(usize) {
     bad_access,
     peer_closed,
     too_big,
+    is_full,
+    is_empty,
 };
 
 pub const Handle = enum(u32) {

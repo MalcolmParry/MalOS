@@ -19,6 +19,27 @@ pub fn main() noreturn {
     }
 
     {
+        const h0, const h1 = lib.syscall.socketCreatePair() catch panic("failed to create socket pair");
+
+        var msg_to_send: []const u8 = "message from socket\n";
+        while (msg_to_send.len != 0) {
+            const sent = lib.syscall.socketSend(h0, msg_to_send) catch panic("failed to send");
+            msg_to_send = msg_to_send[sent..];
+        }
+
+        var buffer: [256]u8 = undefined;
+        var read: usize = 0;
+        while (read < buffer.len) {
+            read += lib.syscall.socketReceive(h1, buffer[read..]) catch |err| switch (err) {
+                error.IsEmpty => break,
+                else => panic("failed to receive"),
+            };
+        }
+
+        lib.writeAll(lib.stdout, 0, buffer[0..read]) catch {};
+    }
+
+    {
         lib.writeAll(lib.stdout, 0, "hello world\n") catch {};
         const handle = lib.syscall.fopen("/boot/grub/grub.cfg", .{}) catch {
             panic("failed to open file\n");
