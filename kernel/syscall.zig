@@ -64,6 +64,8 @@ pub fn handler(args: [7]usize) [4]usize {
         .socket_send => &socketSend,
         .socket_receive => &socketReceive,
 
+        .klog_write => &klogWrite,
+
         .fopen => &fopen,
         .fread => &fread,
         .fwrite => &fwrite,
@@ -77,7 +79,7 @@ pub fn handler(args: [7]usize) [4]usize {
     return [1]usize{@intFromEnum(abi.Status.success)} ++ result;
 }
 
-fn handleClose(args: [7]usize) ![3]usize {
+fn handleClose(args: [7]usize) abi.HandleCloseError![3]usize {
     const handle: abi.Handle = try .fromUsize(args[1]);
 
     const task = Task.current_tid.get();
@@ -86,7 +88,7 @@ fn handleClose(args: [7]usize) ![3]usize {
     return @splat(0);
 }
 
-fn handleClone(args: [7]usize) ![3]usize {
+fn handleClone(args: [7]usize) abi.HandleCloneError![3]usize {
     const old: abi.Handle = try .fromUsize(args[1]);
     const new: abi.Handle = try .fromUsize(args[2]);
 
@@ -98,7 +100,7 @@ fn handleClone(args: [7]usize) ![3]usize {
     return @splat(0);
 }
 
-fn socketCreatePair(_: [7]usize) ![3]usize {
+fn socketCreatePair(_: [7]usize) abi.SocketCreatePairError![3]usize {
     const task = Task.current_tid.get();
     const table = task.handle_table orelse return error.TooManyHandles;
 
@@ -119,7 +121,7 @@ fn socketCreatePair(_: [7]usize) ![3]usize {
     return .{ @intFromEnum(h0), @intFromEnum(h1), 0 };
 }
 
-fn socketSend(args: [7]usize) ![3]usize {
+fn socketSend(args: [7]usize) abi.SocketSendError![3]usize {
     const task = Task.current_tid.get();
     const table = task.handle_table orelse return error.BadHandle;
     const socket_handle: abi.Handle = try .fromUsize(args[1]);
@@ -139,7 +141,7 @@ fn socketSend(args: [7]usize) ![3]usize {
     return .{ sent, 0, 0 };
 }
 
-fn socketReceive(args: [7]usize) ![3]usize {
+fn socketReceive(args: [7]usize) abi.SocketReceiveError![3]usize {
     const task = Task.current_tid.get();
     const table = task.handle_table orelse return error.BadHandle;
     const socket_handle: abi.Handle = try .fromUsize(args[1]);
@@ -159,7 +161,7 @@ fn socketReceive(args: [7]usize) ![3]usize {
     return .{ read, 0, 0 };
 }
 
-fn channelCreatePair(_: [7]usize) ![3]usize {
+fn channelCreatePair(_: [7]usize) abi.ChannelCreatePairError![3]usize {
     const task = Task.current_tid.get();
     const table = task.handle_table orelse return error.TooManyHandles;
 
@@ -180,7 +182,7 @@ fn channelCreatePair(_: [7]usize) ![3]usize {
     return .{ @intFromEnum(h0), @intFromEnum(h1), 0 };
 }
 
-fn channelSend(args: [7]usize) ![3]usize {
+fn channelSend(args: [7]usize) abi.ChannelSendError![3]usize {
     const task = Task.current_tid.get();
     const table = task.handle_table orelse return error.BadHandle;
     const channel_handle: abi.Handle = try .fromUsize(args[1]);
@@ -242,7 +244,7 @@ fn msgDestroy(msg: *Channel.Message) void {
     gpa.destroy(msg);
 }
 
-fn channelReceive(args: [7]usize) ![3]usize {
+fn channelReceive(args: [7]usize) abi.ChannelReceiveError![3]usize {
     const task = Task.current_tid.get();
     const table = task.handle_table orelse return error.BadHandle;
     const channel_handle: abi.Handle = try .fromUsize(args[1]);
@@ -278,6 +280,27 @@ fn channelReceive(args: [7]usize) ![3]usize {
     if (!arch.copyToUser(std.mem.sliceAsBytes(user_handles), std.mem.sliceAsBytes(handles))) return error.Fault;
 
     return .{ msg.bytes.len, msg.handles.len, 0 };
+}
+
+fn klogWrite(args: [7]usize) abi.KLogWriteError![3]usize {
+    const task = Task.current_tid.get();
+    const table = task.handle_table orelse return error.BadHandle;
+    const handle: abi.Handle = try .fromUsize(args[1]);
+    const desc = table.get(handle) orelse return error.BadHandle;
+    defer desc.release();
+
+    if (desc != .object) return error.BadHandleKind;
+    if (desc.object.kind != .klog) return error.BadHandleKind;
+
+    var buffer: [4096]u8 = undefined;
+    const len = @min(buffer.len, args[3]);
+    const user_data = @as([*]allowzero const u8, @ptrFromInt(args[2]))[0..len];
+    const data = buffer[0..len];
+    if (!arch.copyFromUser(data, user_data)) return error.Fault;
+
+    log.writer.writeAll(data) catch {};
+
+    return @splat(0);
 }
 
 fn fopen(args: [7]usize) ![3]usize {

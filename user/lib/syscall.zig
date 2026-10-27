@@ -140,6 +140,23 @@ pub fn socketReceive(sock: abi.Handle, buffer: []u8) !usize {
     };
 }
 
+pub fn klogWrite(klog: abi.Handle, data: []allowzero const u8) !void {
+    const result = syscall(.{
+        @intFromEnum(abi.Syscall.klog_write),
+        @intFromEnum(klog),
+        @intFromPtr(data.ptr),
+        data.len,
+    });
+
+    return switch (try readStatus(result[0])) {
+        .success => {},
+        .fault => error.Fault,
+        .bad_handle => error.BadHandle,
+        .bad_handle_kind => error.BadHandleKind,
+        else => unexpected(result[0]),
+    };
+}
+
 pub fn fopen(path: []const u8, flags: abi.FOpenFlags) !abi.Handle {
     const result = syscall(.{
         @intFromEnum(abi.Syscall.fopen),

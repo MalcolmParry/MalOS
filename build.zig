@@ -95,10 +95,10 @@ fn addBuildStep(b: *Build, optimize: std.builtin.OptimizeMode, target: Build.Res
             .pic = false,
             .strip = !debug_info,
             .omit_frame_pointer = !debug_info,
-            .imports = &.{.{
-                .name = "lib",
-                .module = lib,
-            }},
+            .imports = &.{
+                .{ .name = "lib", .module = lib },
+                .{ .name = "abi", .module = abi },
+            },
         }),
     });
 

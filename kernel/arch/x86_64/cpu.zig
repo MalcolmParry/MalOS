@@ -262,6 +262,7 @@ pub fn pushInitTaskFrame(info: TaskInitInfo) *align(1) State {
 const UserTaskInfo = struct {
     entry: usize,
     phys_page_table: usize,
+    args: [6]usize,
 };
 
 pub fn getUserTaskFrame(info: UserTaskInfo) State {
@@ -273,6 +274,12 @@ pub fn getUserTaskFrame(info: UserTaskInfo) State {
         .rsp = 0,
         .cs = 0x23,
         .ss = 0x1b,
+        .rdi = info.args[0],
+        .rsi = info.args[1],
+        .rdx = info.args[2],
+        .rcx = info.args[3],
+        .r8 = info.args[4],
+        .r9 = info.args[5],
     };
 }
 

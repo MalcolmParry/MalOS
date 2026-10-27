@@ -15,6 +15,6 @@ pub fn _start() callconv(.naked) noreturn {
     );
 }
 
-fn callMain() callconv(.{ .x86_64_sysv = .{} }) noreturn {
-    root.main();
+fn callMain(klog_h: usize) callconv(.{ .x86_64_sysv = .{} }) noreturn {
+    root.main(@enumFromInt(klog_h));
 }

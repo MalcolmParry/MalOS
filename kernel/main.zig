@@ -184,6 +184,7 @@ fn init() !void {
     task.addr_space = try .create();
     const as = task.addr_space.?;
     as.table.use();
+    const klog_h = try task.handle_table.?.put(.{ .object = &log.log_obj });
 
     const result = blk: {
         const root = vfs.root.?.acquireRootPath();
@@ -201,6 +202,7 @@ fn init() !void {
     var state = arch.cpu.getUserTaskFrame(.{
         .entry = result.entry,
         .phys_page_table = @intFromPtr(as.table.physPage()),
+        .args = .{ @intFromEnum(klog_h), 0, 0, 0, 0, 0 },
     });
 
     scheduler.preempt(&state);

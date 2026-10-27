@@ -7,6 +7,7 @@ const scheduler = @import("../../task/scheduler.zig");
 const Task = @import("../../task/Task.zig");
 const log = @import("../../log.zig");
 const syscall = @import("../../syscall.zig");
+const abi = @import("abi");
 const user_copy = @import("user_copy.zig");
 
 const debug = switch (builtin.mode) {
@@ -213,9 +214,27 @@ fn handler(state: *align(1) arch.cpu.State) callconv(.{ .x86_64_sysv = .{ .incom
             };
 
             const tid_i = @intFromEnum(Task.current_tid);
-            std.log.info("tid {} syscall with {any}", .{ tid_i, args });
+            std.log.info("tid {} syscall {{\x1b[94m.{s}\x1b[m (#{}), {}, {}, {}, {}, {}, {}}}", .{
+                tid_i,
+                if (std.enums.fromInt(abi.Syscall, args[0])) |x| @tagName(x) else "invalid",
+                args[0],
+                args[1],
+                args[2],
+                args[3],
+                args[4],
+                args[5],
+                args[6],
+            });
+
             const result = syscall.handler(args);
-            std.log.info("tid {} syscall returned with {any}", .{ tid_i, result });
+            std.log.info("tid {} syscall ret = {{\x1b[92m.{s}\x1b[m (#{}), {}, {}, {}}}", .{
+                tid_i,
+                @tagName(@as(abi.Status, @enumFromInt(result[0]))),
+                result[0],
+                result[1],
+                result[2],
+                result[3],
+            });
 
             state.rax = result[0];
             state.rdi = result[1];

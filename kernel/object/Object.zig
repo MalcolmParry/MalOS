@@ -9,6 +9,7 @@ ref_count: std.atomic.Value(u32),
 pub const Kind = enum {
     channel,
     socket,
+    klog,
 };
 
 pub fn acquire(obj: *Object) void {
@@ -30,6 +31,7 @@ pub fn release(obj: *Object) void {
             const socket = obj.getSocket() orelse unreachable;
             socket.destroyEnd();
         },
+        .klog => {},
     }
 }
 

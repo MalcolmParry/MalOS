@@ -3,6 +3,7 @@ const Spinlock = @import("sync/Spinlock.zig");
 const serial = @import("drivers/x86/serial.zig");
 const BootInfo = @import("BootInfo.zig");
 const Terminal = @import("tty/Terminal.zig");
+const Object = @import("object/Object.zig");
 const vfs = @import("fs/vfs/vfs.zig");
 const devfs = @import("fs/devfs.zig");
 const vga_text = @import("drivers/x86/vga_text.zig");
@@ -29,6 +30,8 @@ var vga_text_writer = vga_text_term.writer(&.{});
 var using_temp_writer: bool = true;
 var using_serial: bool = false;
 var using_vga_text: bool = false;
+
+pub var log_obj: Object = .{ .kind = .klog, .ref_count = .init(1) };
 
 pub fn preinit() !void {
     if (serial.init()) {

@@ -1,25 +1,33 @@
 const std = @import("std");
 const lib = @import("lib");
+const abi = @import("abi");
 
-pub fn main() noreturn {
-    const console = lib.syscall.fopen("/dev/console", .{ .access = .rw }) catch lib.syscall.exit(1);
-    for (0..3) |i| {
-        lib.syscall.handleClone(console, @enumFromInt(i)) catch {
-            panic("failed to clone console fd\n");
-        };
-    }
+var klog: abi.Handle = undefined;
+
+pub fn main(klog_: abi.Handle) noreturn {
+    klog = klog_;
+    print("hello world\n");
 
     {
         const h0, const h1 = lib.syscall.channelCreatePair() catch panic("failed to create channel pair");
+        defer {
+            lib.syscall.handleClose(h0) catch panic("failed to close handle");
+            lib.syscall.handleClose(h1) catch panic("failed to close handle");
+        }
+
         lib.syscall.channelSend(h0, "msg from channel\n", &.{}) catch panic("failed to send over channel");
 
         var buffer: [128]u8 = undefined;
         const bytes, _ = lib.syscall.channelReceive(h1, &buffer, &.{}) catch panic("failed to receive over channel");
-        lib.writeAll(lib.stdout, 0, buffer[0..bytes]) catch {};
+        print(buffer[0..bytes]);
     }
 
     {
         const h0, const h1 = lib.syscall.socketCreatePair() catch panic("failed to create socket pair");
+        defer {
+            lib.syscall.handleClose(h0) catch panic("failed to close handle");
+            lib.syscall.handleClose(h1) catch panic("failed to close handle");
+        }
 
         var msg_to_send: []const u8 = "message from socket\n";
         while (msg_to_send.len != 0) {
@@ -36,11 +44,10 @@ pub fn main() noreturn {
             };
         }
 
-        lib.writeAll(lib.stdout, 0, buffer[0..read]) catch {};
+        print(buffer[0..read]);
     }
 
     {
-        lib.writeAll(lib.stdout, 0, "hello world\n") catch {};
         const handle = lib.syscall.fopen("/boot/grub/grub.cfg", .{}) catch {
             panic("failed to open file\n");
         };
@@ -51,14 +58,18 @@ pub fn main() noreturn {
             panic("failed to read file\n");
         };
 
-        lib.writeAll(lib.stdout, 0, buffer[0..read]) catch {};
+        print(buffer[0..read]);
     }
 
     lib.syscall.exit(0);
 }
 
+fn print(msg: []const u8) void {
+    lib.syscall.klogWrite(klog, msg) catch {};
+}
+
 fn panic(msg: []const u8) noreturn {
-    lib.writeAll(lib.stderr, 0, msg) catch {};
+    print(msg);
     lib.syscall.exit(1);
 }
 

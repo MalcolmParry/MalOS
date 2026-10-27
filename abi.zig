@@ -12,6 +12,8 @@ pub const Syscall = enum(usize) {
     socket_send,
     socket_receive,
 
+    klog_write,
+
     fopen,
     fread,
     fwrite,
@@ -79,3 +81,16 @@ pub const FOpenFlags = packed struct {
         return @bitCast(@as(Backing, @intCast(int)));
     }
 };
+
+pub const HandleCloseError = error{BadHandle};
+pub const HandleCloneError = error{ BadHandle, OutOfMemory };
+
+pub const SocketCreatePairError = error{ TooManyHandles, OutOfMemory };
+pub const SocketSendError = error{ BadHandle, BadHandleKind, Fault, PeerClosed, IsFull };
+pub const SocketReceiveError = error{ BadHandle, BadHandleKind, Fault, PeerClosed, IsEmpty };
+
+pub const ChannelCreatePairError = error{ TooManyHandles, OutOfMemory };
+pub const ChannelSendError = error{ BadHandle, BadHandleKind, Fault, PeerClosed, TooBig, OutOfMemory, BadArg };
+pub const ChannelReceiveError = error{ BadHandle, BadHandleKind, Fault, PeerClosed, TooBig, OutOfMemory, TooManyHandles };
+
+pub const KLogWriteError = error{ BadHandle, BadHandleKind, Fault };
