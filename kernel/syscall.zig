@@ -22,6 +22,7 @@ const Error = error{
     PeerClosed,
     IsFull,
     IsEmpty,
+    NoRight,
 };
 
 fn errorToStatus(err: Error) abi.Status {
@@ -36,6 +37,7 @@ fn errorToStatus(err: Error) abi.Status {
         Error.PeerClosed => .peer_closed,
         Error.IsFull => .is_full,
         Error.IsEmpty => .is_empty,
+        Error.NoRight => .no_right,
     };
 }
 
@@ -44,7 +46,7 @@ pub fn handler(args: [7]usize) [4]usize {
 
     const inner_handler: *const Handler = switch (code) {
         .handle_close => &handleClose,
-        .handle_clone => &handleClone,
+        .handle_duplicate => &handleDuplicate,
 
         .channel_create_pair => &channelCreatePair,
         .channel_send => &channelSend,
@@ -66,58 +68,86 @@ pub fn handler(args: [7]usize) [4]usize {
     return [1]usize{@intFromEnum(abi.Status.success)} ++ result;
 }
 
-fn getObj(handle_usize: usize) !*Object {
-    const h: abi.Handle = try .fromUsize(handle_usize);
+fn getTable() *Task.HandleTable {
     const task = Task.current_tid.get();
-    const table = task.handle_table orelse return error.BadHandle;
-    const desc = table.get(h) orelse return error.BadHandle;
+    return task.handle_table.?;
+}
+
+fn getObj(handle_usize: usize, required_rights: abi.Rights) !*Object {
+    const h: abi.Handle = try .fromUsize(handle_usize);
+    const table = getTable();
+    const l = table.lock.lock();
+    defer l.unlock();
+
+    const desc = table.getLocked(h) orelse return error.BadHandle;
+    if (!desc.rights.hasAll(required_rights)) return error.NoRight;
+
+    desc.obj.acquire();
     return desc.obj;
 }
 
 fn handleClose(args: [7]usize) abi.HandleCloseError![3]usize {
     const handle: abi.Handle = try .fromUsize(args[1]);
 
-    const task = Task.current_tid.get();
-    const table = task.handle_table orelse return error.BadHandle;
-    if (!table.remove(handle)) return error.BadHandle;
+    const old = blk: {
+        const table = getTable();
+        const l = table.lock.lock();
+        defer l.unlock();
+
+        break :blk table.fetchRemoveLocked(handle) orelse return error.BadHandle;
+    };
+
+    old.obj.release();
     return @splat(0);
 }
 
-fn handleClone(args: [7]usize) abi.HandleCloneError![3]usize {
+fn handleDuplicate(args: [7]usize) abi.HandleDuplicateError![3]usize {
     const old: abi.Handle = try .fromUsize(args[1]);
-    const new: abi.Handle = try .fromUsize(args[2]);
+    const rights: abi.Rights = try .fromUsize(args[2]);
 
-    const task = Task.current_tid.get();
-    const table = task.handle_table orelse return error.BadHandle;
-    const old_desc = table.get(old) orelse return error.BadHandle;
+    const table = getTable();
+    const l = table.lock.lock();
+    defer l.unlock();
 
-    try table.place(new, old_desc);
-    return @splat(0);
+    const old_desc = table.getLocked(old) orelse return error.BadHandle;
+    if (!old_desc.rights.duplicate) return error.NoRight;
+    if (!old_desc.rights.hasAll(rights)) return error.NoRight;
+
+    const new = try table.putLocked(.{ .obj = old_desc.obj, .rights = rights });
+    old_desc.obj.acquire();
+    return .{ @intFromEnum(new), 0, 0 };
 }
 
 fn socketCreatePair(_: [7]usize) abi.SocketCreatePairError![3]usize {
-    const task = Task.current_tid.get();
-    const table = task.handle_table orelse return error.TooManyHandles;
+    const rights: abi.Rights = .{
+        .duplicate = true,
+        .transfer = true,
+        .read = true,
+        .write = true,
+    };
 
     const pair = try Socket.Pair.create();
-    const d0: Task.HandleDesc = .{ .obj = &pair.end0.obj };
-    const d1: Task.HandleDesc = .{ .obj = &pair.end1.obj };
+    errdefer {
+        pair.end0.obj.release();
+        pair.end1.obj.release();
+    }
 
-    const h0 = table.put(d0) catch |err| {
-        d1.obj.release();
-        return err;
-    };
+    const d0: Task.HandleDesc = .{ .obj = &pair.end0.obj, .rights = rights };
+    const d1: Task.HandleDesc = .{ .obj = &pair.end1.obj, .rights = rights };
 
-    const h1 = table.put(d1) catch |err| {
-        _ = table.remove(h0);
-        return err;
-    };
+    const table = getTable();
+    const l = table.lock.lock();
+    defer l.unlock();
+
+    const h0 = try table.putLocked(d0);
+    errdefer std.debug.assert(table.fetchRemoveLocked(h0) != null);
+    const h1 = try table.putLocked(d1);
 
     return .{ @intFromEnum(h0), @intFromEnum(h1), 0 };
 }
 
 fn socketSend(args: [7]usize) abi.SocketSendError![3]usize {
-    const obj = try getObj(args[1]);
+    const obj = try getObj(args[1], .{ .write = true });
     defer obj.release();
     const sock = obj.getSocket() orelse return error.BadHandleKind;
 
@@ -132,7 +162,7 @@ fn socketSend(args: [7]usize) abi.SocketSendError![3]usize {
 }
 
 fn socketReceive(args: [7]usize) abi.SocketReceiveError![3]usize {
-    const obj = try getObj(args[1]);
+    const obj = try getObj(args[1], .{ .read = true });
     defer obj.release();
     const sock = obj.getSocket() orelse return error.BadHandleKind;
 
@@ -147,30 +177,34 @@ fn socketReceive(args: [7]usize) abi.SocketReceiveError![3]usize {
 }
 
 fn channelCreatePair(_: [7]usize) abi.ChannelCreatePairError![3]usize {
-    const task = Task.current_tid.get();
-    const table = task.handle_table orelse return error.TooManyHandles;
+    const rights: abi.Rights = .{
+        .transfer = true,
+        .read = true,
+        .write = true,
+    };
 
     const pair = try Channel.Pair.create();
-    const d0: Task.HandleDesc = .{ .obj = &pair.end0.obj };
-    const d1: Task.HandleDesc = .{ .obj = &pair.end1.obj };
+    errdefer {
+        pair.end0.obj.release();
+        pair.end1.obj.release();
+    }
 
-    const h0 = table.put(d0) catch |err| {
-        d1.obj.release();
-        return err;
-    };
+    const d0: Task.HandleDesc = .{ .obj = &pair.end0.obj, .rights = rights };
+    const d1: Task.HandleDesc = .{ .obj = &pair.end1.obj, .rights = rights };
 
-    const h1 = table.put(d1) catch |err| {
-        _ = table.remove(h0);
-        return err;
-    };
+    const table = getTable();
+    const l = table.lock.lock();
+    defer l.unlock();
+
+    const h0 = try table.putLocked(d0);
+    errdefer std.debug.assert(table.fetchRemoveLocked(h0) != null);
+    const h1 = try table.putLocked(d1);
 
     return .{ @intFromEnum(h0), @intFromEnum(h1), 0 };
 }
 
 fn channelSend(args: [7]usize) abi.ChannelSendError![3]usize {
-    const task = Task.current_tid.get();
-    const table = task.handle_table orelse return error.BadHandle;
-    const obj = try getObj(args[1]);
+    const obj = try getObj(args[1], .{ .write = true });
     defer obj.release();
     const channel = obj.getChannel() orelse return error.BadHandleKind;
 
@@ -197,13 +231,15 @@ fn channelSend(args: [7]usize) abi.ChannelSendError![3]usize {
     const descs = try gpa.alloc(Task.HandleDesc, handle_count);
     errdefer gpa.free(descs);
 
-    var descs_loaded: usize = 0;
-    errdefer for (descs[0..descs_loaded]) |d| d.obj.release();
+    const table = getTable();
+    const l = table.lock.lock();
+    defer l.unlock();
 
-    for (handles, descs) |h, *desc| {
-        desc.* = table.get(h) orelse return error.BadHandle;
-        descs_loaded += 1;
+    for (handles, descs, 0..) |h, *desc, i| {
+        for (handles[0..i]) |prev| if (prev == h) return error.BadArg;
+        desc.* = table.getLocked(h) orelse return error.BadHandle;
 
+        if (!desc.rights.transfer) return error.NoRight;
         if (desc.obj.getChannel()) |c| {
             if (c.getPair() == channel.getPair()) return error.BadArg;
         }
@@ -217,6 +253,7 @@ fn channelSend(args: [7]usize) abi.ChannelSendError![3]usize {
     };
 
     try channel.send(msg);
+    for (handles) |h| std.debug.assert(table.fetchRemoveLocked(h) != null);
     return @splat(0);
 }
 
@@ -227,29 +264,42 @@ fn msgDestroy(msg: *Channel.Message) void {
 }
 
 fn channelReceive(args: [7]usize) abi.ChannelReceiveError![3]usize {
-    const task = Task.current_tid.get();
-    const table = task.handle_table orelse return error.BadHandle;
-    const obj = try getObj(args[1]);
+    const obj = try getObj(args[1], .{ .read = true });
     defer obj.release();
     const channel = obj.getChannel() orelse return error.BadHandleKind;
 
     var handle_buffer: [Channel.max_handles]abi.Handle = undefined;
-    // TODO: block
     // TODO: return byte and handle count on error.TooBig
     // TODO: put the message back if there was an error
     const msg = try channel.receive(args[3], args[5]) orelse return @splat(0);
     defer msg.destroyNoReleaseHandles();
     const handles = handle_buffer[0..msg.handles.len];
 
-    var handles_filled: usize = 0;
-    errdefer {
-        for (handles[0..handles_filled]) |h| _ = table.remove(h);
-        for (msg.handles[handles_filled..]) |d| d.obj.release();
+    const table = getTable();
+    {
+        const l = table.lock.lock();
+        defer l.unlock();
+
+        var handles_filled: usize = 0;
+        errdefer {
+            for (handles[0..handles_filled]) |h| std.debug.assert(table.fetchRemoveLocked(h) != null);
+            for (msg.handles) |d| d.obj.release();
+        }
+
+        for (msg.handles, handles) |desc, *h| {
+            h.* = try table.putLocked(desc);
+            handles_filled += 1;
+        }
     }
 
-    for (msg.handles, handles) |desc, *h| {
-        h.* = try table.put(desc);
-        handles_filled += 1;
+    errdefer {
+        const l = table.lock.lock();
+        defer l.unlock();
+
+        for (handles) |h| {
+            const desc = table.fetchRemoveLocked(h) orelse continue;
+            desc.obj.release();
+        }
     }
 
     const user_bytes = @as([*]allowzero u8, @ptrFromInt(args[2]))[0..msg.bytes.len];
@@ -262,7 +312,7 @@ fn channelReceive(args: [7]usize) abi.ChannelReceiveError![3]usize {
 }
 
 fn klogWrite(args: [7]usize) abi.KLogWriteError![3]usize {
-    const obj = try getObj(args[1]);
+    const obj = try getObj(args[1], .{ .write = true });
     defer obj.release();
     if (obj.kind != .klog) return error.BadHandleKind;
 

@@ -65,6 +65,7 @@ pub const OptTid = enum(u32) {
 
 pub const HandleDesc = struct {
     obj: *Object,
+    rights: abi.Rights,
 };
 
 pub const HandleTable = struct {
@@ -108,13 +109,11 @@ pub const HandleTable = struct {
         gpa.allocator.destroy(table);
     }
 
-    /// takes callers reference
-    pub fn put(table: *HandleTable, desc: HandleDesc) !abi.Handle {
-        errdefer desc.obj.release();
+    pub fn getLocked(table: *HandleTable, handle: abi.Handle) ?HandleDesc {
+        return table.map.get(handle);
+    }
 
-        const l = table.lock.lock();
-        defer l.unlock();
-
+    pub fn putLocked(table: *HandleTable, desc: HandleDesc) !abi.Handle {
         const handle: abi.Handle = @enumFromInt(table.bump);
         table.bump +|= 1;
 
@@ -125,44 +124,9 @@ pub const HandleTable = struct {
         return handle;
     }
 
-    /// takes callers reference
-    pub fn place(table: *HandleTable, handle: abi.Handle, desc: HandleDesc) !void {
-        errdefer desc.obj.release();
-
-        const existing: ?HandleDesc = blk: {
-            const l = table.lock.lock();
-            defer l.unlock();
-
-            const kv = try table.map.getOrPut(gpa.allocator, handle);
-            const last = kv.value_ptr.*;
-            kv.value_ptr.* = desc;
-            table.bump = @max(table.bump, @intFromEnum(handle) +| 1);
-
-            break :blk if (kv.found_existing) last else null;
-        };
-
-        if (existing) |d| d.obj.release();
-    }
-
-    pub fn get(table: *HandleTable, handle: abi.Handle) ?HandleDesc {
-        const l = table.lock.lock();
-        defer l.unlock();
-
-        const desc = table.map.get(handle) orelse return null;
-        desc.obj.acquire();
-        return desc;
-    }
-
-    pub fn remove(table: *HandleTable, handle: abi.Handle) bool {
-        const kv = blk: {
-            const l = table.lock.lock();
-            defer l.unlock();
-            break :blk table.map.fetchRemove(handle) orelse return false;
-        };
-        const desc = kv.value;
-
-        desc.obj.release();
-        return true;
+    pub fn fetchRemoveLocked(table: *HandleTable, handle: abi.Handle) ?HandleDesc {
+        const kv = table.map.fetchRemove(handle) orelse return null;
+        return kv.value;
     }
 };
 

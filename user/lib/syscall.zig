@@ -15,17 +15,19 @@ pub fn handleClose(handle: abi.Handle) !void {
     };
 }
 
-pub fn handleClone(old: abi.Handle, new: abi.Handle) !void {
+pub fn handleDuplicate(handle: abi.Handle, rights: abi.Rights) !abi.Handle {
     const result = syscall(.{
-        @intFromEnum(abi.Syscall.handle_clone),
-        @intFromEnum(old),
-        @intFromEnum(new),
+        @intFromEnum(abi.Syscall.handle_duplicate),
+        @intFromEnum(handle),
+        rights.toUsize(),
     });
 
     return switch (try readStatus(result[0])) {
-        .success => {},
+        .success => @enumFromInt(result[1]),
         .bad_handle => error.BadHandle,
         .out_of_memory => error.OutOfMemory,
+        .too_many_handles => error.TooManyHandles,
+        .no_right => error.NoRight,
         else => unexpected(result[0]),
     };
 }
@@ -62,6 +64,7 @@ pub fn channelSend(channel: abi.Handle, bytes: []const u8, handles: []const abi.
         .too_big => error.TooBig,
         .peer_closed => error.PeerClosed,
         .fault => error.Fault,
+        .no_right => error.NoRight,
         else => unexpected(result[0]),
     };
 }
@@ -84,6 +87,7 @@ pub fn channelReceive(channel: abi.Handle, bytes: []u8, handles: []abi.Handle) !
         .too_many_handles => error.TooManyHandles,
         .out_of_memory => error.OutOfMemory,
         .fault => error.Fault,
+        .no_right => error.NoRight,
         else => unexpected(result[0]),
     };
 }
@@ -117,6 +121,7 @@ pub fn socketSend(sock: abi.Handle, data: []const u8) !usize {
         .bad_handle => error.BadHandle,
         .bad_handle_kind => error.BadHandleKind,
         .peer_closed => error.PeerClosed,
+        .no_right => error.NoRight,
         else => unexpected(result[0]),
     };
 }
@@ -136,6 +141,7 @@ pub fn socketReceive(sock: abi.Handle, buffer: []u8) !usize {
         .bad_handle => error.BadHandle,
         .bad_handle_kind => error.BadHandleKind,
         .peer_closed => error.PeerClosed,
+        .no_right => error.NoRight,
         else => unexpected(result[0]),
     };
 }
@@ -153,6 +159,7 @@ pub fn klogWrite(klog: abi.Handle, data: []allowzero const u8) !void {
         .fault => error.Fault,
         .bad_handle => error.BadHandle,
         .bad_handle_kind => error.BadHandleKind,
+        .no_right => error.NoRight,
         else => unexpected(result[0]),
     };
 }
