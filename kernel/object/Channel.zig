@@ -65,7 +65,7 @@ pub const Message = struct {
     handles: []const Task.HandleDesc,
 
     pub fn destroy(msg: *Message) void {
-        for (msg.handles) |d| d.release();
+        for (msg.handles) |d| d.obj.release();
         msg.destroy_ptr(msg);
     }
 

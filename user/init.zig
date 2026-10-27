@@ -22,6 +22,8 @@ pub fn main(klog_: abi.Handle) noreturn {
         print(buffer[0..bytes]);
     }
 
+    // out(0x3f8, @as(u8, 'u'));
+
     {
         const h0, const h1 = lib.syscall.socketCreatePair() catch panic("failed to create socket pair");
         defer {
@@ -36,28 +38,7 @@ pub fn main(klog_: abi.Handle) noreturn {
         }
 
         var buffer: [256]u8 = undefined;
-        var read: usize = 0;
-        while (read < buffer.len) {
-            read += lib.syscall.socketReceive(h1, buffer[read..]) catch |err| switch (err) {
-                error.IsEmpty => break,
-                else => panic("failed to receive"),
-            };
-        }
-
-        print(buffer[0..read]);
-    }
-
-    {
-        const handle = lib.syscall.fopen("/boot/grub/grub.cfg", .{}) catch {
-            panic("failed to open file\n");
-        };
-        defer lib.syscall.handleClose(handle) catch {};
-
-        var buffer: [4096]u8 = undefined;
-        const read = lib.syscall.fread(handle, 0, &buffer) catch {
-            panic("failed to read file\n");
-        };
-
+        const read = lib.syscall.socketReceive(h1, &buffer) catch panic("failed to read from socket");
         print(buffer[0..read]);
     }
 
@@ -71,6 +52,27 @@ fn print(msg: []const u8) void {
 fn panic(msg: []const u8) noreturn {
     print(msg);
     lib.syscall.exit(1);
+}
+
+pub fn out(port: u16, data: anytype) void {
+    switch (@bitSizeOf(@TypeOf(data))) {
+        8 => asm volatile ("outb %[data], %[port]"
+            :
+            : [port] "{dx}" (port),
+              [data] "{al}" (data),
+        ),
+        16 => asm volatile ("outw %[data], %[port]"
+            :
+            : [port] "{dx}" (port),
+              [data] "{ax}" (data),
+        ),
+        32 => asm volatile ("outl %[data], %[port]"
+            :
+            : [port] "{dx}" (port),
+              [data] "{eax}" (data),
+        ),
+        else => @compileError("bit size of type must be 8, 16, or 32. found " ++ @typeName(@TypeOf(data))),
+    }
 }
 
 comptime {

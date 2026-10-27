@@ -5,13 +5,14 @@ const abi = @import("abi");
 const vfs = @import("fs/vfs/vfs.zig");
 const gpa = @import("heap/gpa.zig").allocator;
 const Task = @import("task/Task.zig");
+const Object = @import("object/Object.zig");
 const Channel = @import("object/Channel.zig");
 const Socket = @import("object/Socket.zig");
 const scheduler = @import("task/scheduler.zig");
 
 const Handler = fn (args: [7]usize) Error![3]usize;
-const Error = vfs.LookupError || vfs.OpenError || vfs.ReadError || vfs.WriteError || error{
-    PathTooLong,
+const Error = error{
+    OutOfMemory,
     Fault,
     TooManyHandles,
     BadHandle,
@@ -26,22 +27,11 @@ const Error = vfs.LookupError || vfs.OpenError || vfs.ReadError || vfs.WriteErro
 fn errorToStatus(err: Error) abi.Status {
     return switch (err) {
         Error.Fault => .fault,
-        Error.PathTooLong => .path_too_long,
         Error.TooManyHandles => .too_many_handles,
-        Error.Io => .io,
-        Error.Corrupt => .corrupt,
         Error.OutOfMemory => .out_of_memory,
-        Error.InvalidName => .invalid_name,
-        Error.NotADir => .not_a_dir,
-        Error.IsADir => .is_a_dir,
-        Error.NameTooLong => .name_too_long,
-        Error.NoEntry => .no_entry,
-        Error.ReadOnly => .read_only,
-        Error.NotSupported => .not_supported,
         Error.BadHandle => .bad_handle,
         Error.BadHandleKind => .bad_handle_kind,
         Error.BadArg => .bad_arg,
-        Error.BadAccess => .bad_access,
         Error.TooBig => .too_big,
         Error.PeerClosed => .peer_closed,
         Error.IsFull => .is_full,
@@ -66,9 +56,6 @@ pub fn handler(args: [7]usize) [4]usize {
 
         .klog_write => &klogWrite,
 
-        .fopen => &fopen,
-        .fread => &fread,
-        .fwrite => &fwrite,
         .exit => &exit,
     };
 
@@ -77,6 +64,14 @@ pub fn handler(args: [7]usize) [4]usize {
     };
 
     return [1]usize{@intFromEnum(abi.Status.success)} ++ result;
+}
+
+fn getObj(handle_usize: usize) !*Object {
+    const h: abi.Handle = try .fromUsize(handle_usize);
+    const task = Task.current_tid.get();
+    const table = task.handle_table orelse return error.BadHandle;
+    const desc = table.get(h) orelse return error.BadHandle;
+    return desc.obj;
 }
 
 fn handleClose(args: [7]usize) abi.HandleCloseError![3]usize {
@@ -105,11 +100,11 @@ fn socketCreatePair(_: [7]usize) abi.SocketCreatePairError![3]usize {
     const table = task.handle_table orelse return error.TooManyHandles;
 
     const pair = try Socket.Pair.create();
-    const d0: Task.HandleDesc = .{ .object = &pair.end0.obj };
-    const d1: Task.HandleDesc = .{ .object = &pair.end1.obj };
+    const d0: Task.HandleDesc = .{ .obj = &pair.end0.obj };
+    const d1: Task.HandleDesc = .{ .obj = &pair.end1.obj };
 
     const h0 = table.put(d0) catch |err| {
-        d1.release();
+        d1.obj.release();
         return err;
     };
 
@@ -122,14 +117,9 @@ fn socketCreatePair(_: [7]usize) abi.SocketCreatePairError![3]usize {
 }
 
 fn socketSend(args: [7]usize) abi.SocketSendError![3]usize {
-    const task = Task.current_tid.get();
-    const table = task.handle_table orelse return error.BadHandle;
-    const socket_handle: abi.Handle = try .fromUsize(args[1]);
-    const socket_hdesc = table.get(socket_handle) orelse return error.BadHandle;
-    defer socket_hdesc.release();
-
-    if (socket_hdesc != .object) return error.BadHandleKind;
-    const socket = socket_hdesc.object.getSocket() orelse return error.BadHandleKind;
+    const obj = try getObj(args[1]);
+    defer obj.release();
+    const sock = obj.getSocket() orelse return error.BadHandleKind;
 
     var buffer: [1024 * 4]u8 = undefined;
     const len = @min(buffer.len, args[3]);
@@ -137,24 +127,19 @@ fn socketSend(args: [7]usize) abi.SocketSendError![3]usize {
     const data = buffer[0..len];
     if (!arch.copyFromUser(data, user_data)) return error.Fault;
 
-    const sent = try socket.send(data);
+    const sent = try sock.send(data);
     return .{ sent, 0, 0 };
 }
 
 fn socketReceive(args: [7]usize) abi.SocketReceiveError![3]usize {
-    const task = Task.current_tid.get();
-    const table = task.handle_table orelse return error.BadHandle;
-    const socket_handle: abi.Handle = try .fromUsize(args[1]);
-    const socket_hdesc = table.get(socket_handle) orelse return error.BadHandle;
-    defer socket_hdesc.release();
-
-    if (socket_hdesc != .object) return error.BadHandleKind;
-    const socket = socket_hdesc.object.getSocket() orelse return error.BadHandleKind;
+    const obj = try getObj(args[1]);
+    defer obj.release();
+    const sock = obj.getSocket() orelse return error.BadHandleKind;
 
     var full_buffer: [1024 * 4]u8 = undefined;
     const buffer = full_buffer[0..@min(args[3], full_buffer.len)];
 
-    const read = try socket.receive(buffer);
+    const read = try sock.receive(buffer);
     const user_buffer = @as([*]allowzero u8, @ptrFromInt(args[2]))[0..read];
     // TODO: dont consume bytes on fault
     if (!arch.copyToUser(user_buffer, buffer[0..read])) return error.Fault;
@@ -166,11 +151,11 @@ fn channelCreatePair(_: [7]usize) abi.ChannelCreatePairError![3]usize {
     const table = task.handle_table orelse return error.TooManyHandles;
 
     const pair = try Channel.Pair.create();
-    const d0: Task.HandleDesc = .{ .object = &pair.end0.obj };
-    const d1: Task.HandleDesc = .{ .object = &pair.end1.obj };
+    const d0: Task.HandleDesc = .{ .obj = &pair.end0.obj };
+    const d1: Task.HandleDesc = .{ .obj = &pair.end1.obj };
 
     const h0 = table.put(d0) catch |err| {
-        d1.release();
+        d1.obj.release();
         return err;
     };
 
@@ -185,12 +170,9 @@ fn channelCreatePair(_: [7]usize) abi.ChannelCreatePairError![3]usize {
 fn channelSend(args: [7]usize) abi.ChannelSendError![3]usize {
     const task = Task.current_tid.get();
     const table = task.handle_table orelse return error.BadHandle;
-    const channel_handle: abi.Handle = try .fromUsize(args[1]);
-    const channel_hdesc = table.get(channel_handle) orelse return error.BadHandle;
-    defer channel_hdesc.release();
-
-    if (channel_hdesc != .object) return error.BadHandleKind;
-    const channel = channel_hdesc.object.getChannel() orelse return error.BadHandleKind;
+    const obj = try getObj(args[1]);
+    defer obj.release();
+    const channel = obj.getChannel() orelse return error.BadHandleKind;
 
     const byte_count = args[3];
     const handle_count = args[5];
@@ -216,15 +198,15 @@ fn channelSend(args: [7]usize) abi.ChannelSendError![3]usize {
     errdefer gpa.free(descs);
 
     var descs_loaded: usize = 0;
-    errdefer for (descs[0..descs_loaded]) |d| d.release();
+    errdefer for (descs[0..descs_loaded]) |d| d.obj.release();
 
     for (handles, descs) |h, *desc| {
         desc.* = table.get(h) orelse return error.BadHandle;
         descs_loaded += 1;
 
-        if (desc.* == .object) if (desc.object.getChannel()) |c| {
+        if (desc.obj.getChannel()) |c| {
             if (c.getPair() == channel.getPair()) return error.BadArg;
-        };
+        }
     }
 
     msg.* = .{
@@ -247,12 +229,9 @@ fn msgDestroy(msg: *Channel.Message) void {
 fn channelReceive(args: [7]usize) abi.ChannelReceiveError![3]usize {
     const task = Task.current_tid.get();
     const table = task.handle_table orelse return error.BadHandle;
-    const channel_handle: abi.Handle = try .fromUsize(args[1]);
-    const channel_hdesc = table.get(channel_handle) orelse return error.BadHandle;
-    defer channel_hdesc.release();
-
-    if (channel_hdesc != .object) return error.BadHandleKind;
-    const channel = channel_hdesc.object.getChannel() orelse return error.BadHandleKind;
+    const obj = try getObj(args[1]);
+    defer obj.release();
+    const channel = obj.getChannel() orelse return error.BadHandleKind;
 
     var handle_buffer: [Channel.max_handles]abi.Handle = undefined;
     // TODO: block
@@ -265,7 +244,7 @@ fn channelReceive(args: [7]usize) abi.ChannelReceiveError![3]usize {
     var handles_filled: usize = 0;
     errdefer {
         for (handles[0..handles_filled]) |h| _ = table.remove(h);
-        for (msg.handles[handles_filled..]) |d| d.release();
+        for (msg.handles[handles_filled..]) |d| d.obj.release();
     }
 
     for (msg.handles, handles) |desc, *h| {
@@ -283,14 +262,9 @@ fn channelReceive(args: [7]usize) abi.ChannelReceiveError![3]usize {
 }
 
 fn klogWrite(args: [7]usize) abi.KLogWriteError![3]usize {
-    const task = Task.current_tid.get();
-    const table = task.handle_table orelse return error.BadHandle;
-    const handle: abi.Handle = try .fromUsize(args[1]);
-    const desc = table.get(handle) orelse return error.BadHandle;
-    defer desc.release();
-
-    if (desc != .object) return error.BadHandleKind;
-    if (desc.object.kind != .klog) return error.BadHandleKind;
+    const obj = try getObj(args[1]);
+    defer obj.release();
+    if (obj.kind != .klog) return error.BadHandleKind;
 
     var buffer: [4096]u8 = undefined;
     const len = @min(buffer.len, args[3]);
@@ -301,82 +275,6 @@ fn klogWrite(args: [7]usize) abi.KLogWriteError![3]usize {
     log.writer.writeAll(data) catch {};
 
     return @splat(0);
-}
-
-fn fopen(args: [7]usize) ![3]usize {
-    const flags: abi.FOpenFlags = try .fromUsize(args[3]);
-    const len = args[2];
-    const user_path = @as([*]allowzero const u8, @ptrFromInt(args[1]))[0..len];
-    var path_buffer: [vfs.max_path_len]u8 = undefined;
-
-    if (len > vfs.max_path_len) return error.PathTooLong;
-    const path = path_buffer[0..len];
-    if (!arch.copyFromUser(path, user_path)) return error.Fault;
-
-    arch.interrupt.enable();
-    defer arch.interrupt.disable();
-
-    // TODO: add cwd
-    const vfs_root = vfs.root.?.acquireRootPath();
-    defer vfs_root.release();
-
-    const vfs_path = try vfs_root.lookup(path);
-    defer vfs_path.release();
-
-    const task = Task.current_tid.get();
-    const table = task.handle_table orelse return error.TooManyHandles;
-    const file = try vfs_path.open(.{ .r = flags.access.r, .w = flags.access.w, .x = flags.access.x });
-    const handle = try table.put(.{ .file = file });
-
-    return .{ @intFromEnum(handle), 0, 0 };
-}
-
-fn fread(args: [7]usize) ![3]usize {
-    const handle: abi.Handle = try .fromUsize(args[1]);
-
-    const offset = args[2];
-    var full_buffer: [1024 * 4]u8 = undefined;
-    const len = @min(args[4], full_buffer.len);
-    const user_buffer = @as([*]allowzero u8, @ptrFromInt(args[3]))[0..len];
-    const buffer = full_buffer[0..len];
-
-    const task = Task.current_tid.get();
-    const table = task.handle_table orelse return error.BadHandle;
-    const desc = table.get(handle) orelse return error.BadHandle;
-    defer desc.release();
-    if (desc != .file) return error.BadHandleKind;
-
-    const read = blk: {
-        arch.interrupt.enable();
-        defer arch.interrupt.disable();
-        break :blk try desc.file.read(offset, buffer, .{});
-    };
-
-    if (!arch.copyToUser(user_buffer[0..read], buffer[0..read])) return error.Fault;
-
-    return .{ read, 0, 0 };
-}
-
-fn fwrite(args: [7]usize) ![3]usize {
-    const handle: abi.Handle = try .fromUsize(args[1]);
-
-    const offset = args[2];
-    var full_buffer: [1024 * 4]u8 = undefined;
-    const len = @min(args[4], full_buffer.len);
-    const user_buffer = @as([*]allowzero const u8, @ptrFromInt(args[3]))[0..len];
-    const buffer = full_buffer[0..len];
-    if (!arch.copyFromUser(buffer, user_buffer)) return error.Fault;
-
-    const task = Task.current_tid.get();
-    const table = task.handle_table orelse return error.BadHandle;
-    const desc = table.get(handle) orelse return error.BadHandle;
-    defer desc.release();
-    if (desc != .file) return error.BadHandleKind;
-
-    arch.interrupt.enable();
-    defer arch.interrupt.disable();
-    const wrote = try desc.file.write(offset, buffer, .{});
-    return .{ wrote, 0, 0 };
 }
 
 fn exit(args: [7]usize) ![3]usize {

@@ -137,70 +137,14 @@ const PageFaultFlags = packed struct(u64) {
 fn handler(state: *align(1) arch.cpu.State) callconv(.{ .x86_64_sysv = .{ .incoming_stack_alignment = 1 } }) noreturn {
     std.debug.assert(!arch.interrupt.isEnabled());
 
-    if (state.int_code == 0x0e and user_copy.maybeHandleFault(state)) {
-        state.restore();
-    }
-
     switch (state.int_code) {
-        0...31 => blk: {
-            if (state.rbp < arch.paging.min_kernel_addr or state.rip < arch.paging.min_kernel_addr) {
-                std.log.err("userspace exception at 0x{x}", .{state.rip});
-                break :blk;
-            }
-
-            var ctx: std.debug.cpu_context.Native = undefined;
-            ctx.gprs.set(.rip, state.rip);
-            ctx.gprs.set(.rbp, state.rbp);
-            ctx.gprs.set(.rsp, state.rsp);
-
-            std.debug.writeCurrentStackTrace(.{
-                .context = &ctx,
-                .allow_unsafe_unwind = true,
-            }, log.term) catch {};
-
-            state.dump(log.term.writer) catch {};
-        },
-        else => {},
-    }
-
-    switch (state.int_code) {
+        0...31 => handleException(state),
         0x20 => {
             pic.eoi();
 
             const pit = @import("../../drivers/x86/pit.zig");
             _ = pit.ticks.fetchAdd(1, .monotonic);
             scheduler.preempt(state);
-        },
-        0xe => {
-            const flags: PageFaultFlags = @bitCast(state.error_code);
-            const cr2: usize = asm volatile (
-                \\mov %%cr2, %[out]
-                : [out] "=r" (-> usize),
-            );
-
-            std.log.err("page fault at 0x{x}\n{}", .{ cr2, flags });
-
-            const indices = arch.paging.getIndicesFromVirtAddr(cr2);
-            std.log.err("page table indices: {any}", .{indices});
-
-            const l4 = arch.paging.getCurrentTable();
-            if (l4.entries[indices[3]].getLowerSafe()) |l3| {
-                std.log.err("l3 addr 0x{x}", .{@intFromPtr(l3)});
-
-                if (l3.entries[indices[2]].getLowerSafe()) |l2| {
-                    std.log.err("l2 addr 0x{x}", .{@intFromPtr(l2)});
-
-                    if (l2.entries[indices[1]].getLowerSafe()) |l1| {
-                        std.log.err("l1 addr 0x{x}, {x}", .{ @intFromPtr(l1), l2.entries[indices[1]].address });
-
-                        const entry = l1.entries[indices[0]];
-                        std.log.err("present: {}", .{entry.present});
-                        std.log.err("phys addr: 0x{x}", .{@as(usize, entry.address) * 4096});
-                    }
-                }
-            }
-
-            arch.spinWait();
         },
         0x80 => {
             const args: [7]usize = .{
@@ -246,6 +190,54 @@ fn handler(state: *align(1) arch.cpu.State) callconv(.{ .x86_64_sysv = .{ .incom
             arch.spinWait();
         },
     }
+}
+
+fn handleException(state: *align(1) arch.cpu.State) noreturn {
+    if (state.int_code == 0x0e and user_copy.maybeHandleFault(state)) {
+        state.restore();
+    }
+
+    var ctx: std.debug.cpu_context.Native = undefined;
+    ctx.gprs.set(.rip, state.rip);
+    ctx.gprs.set(.rbp, state.rbp);
+    ctx.gprs.set(.rsp, state.rsp);
+
+    std.debug.writeCurrentStackTrace(.{
+        .context = &ctx,
+        .allow_unsafe_unwind = true,
+    }, log.term) catch {};
+
+    state.dump(log.term.writer) catch {};
+
+    const flags: PageFaultFlags = @bitCast(state.error_code);
+    const cr2: usize = asm volatile (
+        \\mov %%cr2, %[out]
+        : [out] "=r" (-> usize),
+    );
+
+    std.log.err("page fault at 0x{x}\n{}", .{ cr2, flags });
+
+    const indices = arch.paging.getIndicesFromVirtAddr(cr2);
+    std.log.err("page table indices: {any}", .{indices});
+
+    const l4 = arch.paging.getCurrentTable();
+    if (l4.entries[indices[3]].getLowerSafe()) |l3| {
+        std.log.err("l3 addr 0x{x}", .{@intFromPtr(l3)});
+
+        if (l3.entries[indices[2]].getLowerSafe()) |l2| {
+            std.log.err("l2 addr 0x{x}", .{@intFromPtr(l2)});
+
+            if (l2.entries[indices[1]].getLowerSafe()) |l1| {
+                std.log.err("l1 addr 0x{x}, {x}", .{ @intFromPtr(l1), l2.entries[indices[1]].address });
+
+                const entry = l1.entries[indices[0]];
+                std.log.err("present: {}", .{entry.present});
+                std.log.err("phys addr: 0x{x}", .{@as(usize, entry.address) * 4096});
+            }
+        }
+    }
+
+    arch.spinWait();
 }
 
 fn commonStub() callconv(.naked) void {

@@ -184,7 +184,7 @@ fn init() !void {
     task.addr_space = try .create();
     const as = task.addr_space.?;
     as.table.use();
-    const klog_h = try task.handle_table.?.put(.{ .object = &log.log_obj });
+    const klog_h = try task.handle_table.?.put(.{ .obj = &log.log_obj });
 
     const result = blk: {
         const root = vfs.root.?.acquireRootPath();

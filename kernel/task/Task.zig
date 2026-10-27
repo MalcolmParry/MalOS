@@ -63,23 +63,8 @@ pub const OptTid = enum(u32) {
     }
 };
 
-pub const HandleDesc = union(enum) {
-    file: vfs.File,
-    object: *Object,
-
-    pub fn acquire(desc: HandleDesc) void {
-        switch (desc) {
-            .file => |f| f.acquire(),
-            .object => |o| o.acquire(),
-        }
-    }
-
-    pub fn release(desc: HandleDesc) void {
-        switch (desc) {
-            .file => |f| f.release(),
-            .object => |o| o.release(),
-        }
-    }
+pub const HandleDesc = struct {
+    obj: *Object,
 };
 
 pub const HandleTable = struct {
@@ -116,7 +101,7 @@ pub const HandleTable = struct {
         var iter = table.map.iterator();
         while (iter.next()) |kv| {
             const desc = kv.value_ptr.*;
-            desc.release();
+            desc.obj.release();
         }
 
         table.map.deinit(gpa.allocator);
@@ -125,7 +110,7 @@ pub const HandleTable = struct {
 
     /// takes callers reference
     pub fn put(table: *HandleTable, desc: HandleDesc) !abi.Handle {
-        errdefer desc.release();
+        errdefer desc.obj.release();
 
         const l = table.lock.lock();
         defer l.unlock();
@@ -142,7 +127,7 @@ pub const HandleTable = struct {
 
     /// takes callers reference
     pub fn place(table: *HandleTable, handle: abi.Handle, desc: HandleDesc) !void {
-        errdefer desc.release();
+        errdefer desc.obj.release();
 
         const existing: ?HandleDesc = blk: {
             const l = table.lock.lock();
@@ -156,7 +141,7 @@ pub const HandleTable = struct {
             break :blk if (kv.found_existing) last else null;
         };
 
-        if (existing) |d| d.release();
+        if (existing) |d| d.obj.release();
     }
 
     pub fn get(table: *HandleTable, handle: abi.Handle) ?HandleDesc {
@@ -164,7 +149,7 @@ pub const HandleTable = struct {
         defer l.unlock();
 
         const desc = table.map.get(handle) orelse return null;
-        desc.acquire();
+        desc.obj.acquire();
         return desc;
     }
 
@@ -176,7 +161,7 @@ pub const HandleTable = struct {
         };
         const desc = kv.value;
 
-        desc.release();
+        desc.obj.release();
         return true;
     }
 };
