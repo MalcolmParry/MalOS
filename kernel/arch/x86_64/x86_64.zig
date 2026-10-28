@@ -14,7 +14,6 @@ pub const initBootInfo = multiboot.initBootInfo;
 
 pub const halt = cpu.halt;
 pub const spinWait = cpu.spinWait;
-pub const setKernelStackPtr = gdt.setKernelStackPtr;
 
 pub const in = cpu.in;
 pub const out = cpu.out;

@@ -112,6 +112,17 @@ pub fn freePage(page: *mem.PhysPage) void {
     _ = used_pages.fetchSub(1, .monotonic);
 }
 
+var zero_page_virt: mem.Page = .{ .bytes = @splat(0) };
+var one_page_virt: mem.Page = .{ .bytes = @splat(0xff) };
+
+pub fn zeroPage() Index {
+    return @enumFromInt((@intFromPtr(&zero_page_virt) - mem.kernel_virt_base) / mem.page_size);
+}
+
+pub fn onePage() Index {
+    return @enumFromInt((@intFromPtr(&one_page_virt) - mem.kernel_virt_base) / mem.page_size);
+}
+
 pub const Index = enum(u32) {
     _,
 

@@ -213,8 +213,9 @@ pub fn spawnKernelTaskRaw(func: ?*const Task.Entry, arg: usize, stack: []mem.Pag
         .handle_table = null,
         .kernel_stack = stack,
         .cpu_state = state,
-        .arch_specific = .{},
+        .arch_specific = undefined,
     };
+    t.arch_specific.init();
 
     scheduler.makeReady(tid);
     return tid;
@@ -282,6 +283,7 @@ pub fn reapZombies() void {
         if (t.kernel_stack) |stack| PageAllocator.global.free(stack);
         if (t.handle_table) |table| table.release();
         if (t.addr_space) |addr_space| addr_space.release();
+        t.arch_specific.deinit();
         freeTask(tid);
     }
 }

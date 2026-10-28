@@ -29,8 +29,9 @@ pub fn init() void {
         // null bc i dont want this to get deallocated when the boot task exits
         .kernel_stack = null,
         .cpu_state = undefined,
-        .arch_specific = .{},
+        .arch_specific = undefined,
     };
+    t.arch_specific.init();
     Task.current_tid = tid;
 }
 

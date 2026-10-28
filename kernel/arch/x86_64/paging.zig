@@ -325,7 +325,7 @@ fn enableExecuteDisable() void {
     arch.cpu.writeMsr(msr, old | (1 << 11));
 }
 
-pub fn init(boot_info: *const BootInfo) *Table {
+pub fn init(boot_info: *const BootInfo) void {
     enableExecuteDisable();
     gdt.init();
 
@@ -423,7 +423,17 @@ pub fn init(boot_info: *const BootInfo) *Table {
 
     invalidatePages();
 
-    return &l4_table;
+    {
+        const page_index = @intFromPtr(&gdt.tss_and_io_map.io_map0) / mem.page_size;
+        const l1 = walk(&l4_table, page_index);
+        gdt.io_map_entry0 = &l1.entries[page_index & 0x1ff];
+    }
+
+    {
+        const page_index = @intFromPtr(&gdt.tss_and_io_map.io_map1) / mem.page_size;
+        const l1 = walk(&l4_table, page_index);
+        gdt.io_map_entry1 = &l1.entries[page_index & 0x1ff];
+    }
 }
 
 pub fn invalidatePages() void {

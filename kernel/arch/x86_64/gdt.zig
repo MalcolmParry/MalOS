@@ -1,27 +1,44 @@
+const std = @import("std");
+const mem = @import("../../memory.zig");
+const arch = @import("x86_64.zig");
+const pmm = @import("../../pmm.zig");
+
 const Ptr = packed struct {
     size_bytes: u16,
     ptr: u64,
 };
 
-const Tss = packed struct {
+const Tss = extern struct {
     reserved0: u32 = 0,
-    rsp0: u64 = 0,
-    rsp1: u64 = 0,
-    rsp2: u64 = 0,
-    reserved1: u64 = 0,
-    ist1: u64 = 0,
-    ist2: u64 = 0,
-    ist3: u64 = 0,
-    ist4: u64 = 0,
-    ist5: u64 = 0,
-    ist6: u64 = 0,
-    ist7: u64 = 0,
-    reserved2: u48 = 0,
-    iomap_base: u16 = @sizeOf(Tss),
+    rsp0: u64 align(4) = 0,
+    rsp1: u64 align(4) = 0,
+    rsp2: u64 align(4) = 0,
+    reserved1: [8]u8 = @splat(0),
+    ist1: u64 align(4) = 0,
+    ist2: u64 align(4) = 0,
+    ist3: u64 align(4) = 0,
+    ist4: u64 align(4) = 0,
+    ist5: u64 align(4) = 0,
+    ist6: u64 align(4) = 0,
+    ist7: u64 align(4) = 0,
+    reserved2: [10]u8 = @splat(0),
+    iomap_base: u16 = @offsetOf(TssAndIoMap, "io_map0") - @offsetOf(TssAndIoMap, "tss"),
+
+    comptime {
+        std.debug.assert(@sizeOf(Tss) == 0x68);
+    }
+};
+
+const TssAndIoMap = extern struct {
+    padding: [4096 - @sizeOf(Tss)]u8 = undefined,
+    tss: Tss = .{},
+    io_map0: mem.Page = .{ .bytes = @splat(0xff) },
+    io_map1: mem.Page = .{ .bytes = @splat(0xff) },
+    io_map_end: u8 = 0xff,
 };
 
 var gdt: [7]Desc = undefined;
-var tss: Tss = undefined;
+pub var tss_and_io_map: TssAndIoMap = .{};
 const Desc = u64;
 const executable_bit: Desc = 1 << 43;
 const code_or_data_bit: Desc = 1 << 44;
@@ -31,8 +48,9 @@ const read_write_bit: Desc = 1 << 41;
 const dpl3_bits: Desc = 3 << 45;
 
 pub fn init() void {
-    const tss_base: u64 = @intFromPtr(&tss);
-    const tss_limit: u64 = @sizeOf(Tss) - 1;
+    const tss = &tss_and_io_map.tss;
+    const tss_base: u64 = @intFromPtr(tss);
+    const tss_limit: u64 = @offsetOf(TssAndIoMap, "io_map_end") - @offsetOf(TssAndIoMap, "tss");
 
     gdt = .{
         // null desc
@@ -55,8 +73,6 @@ pub fn init() void {
             (((tss_base >> 24) & 0xff) << 56),
         (tss_base >> 32) & 0xffff_ffff,
     };
-
-    tss = .{};
 
     const gdtr: Ptr = .{
         .ptr = @intFromPtr(&gdt),
@@ -89,6 +105,40 @@ pub fn init() void {
         ::: .{ .ax = true });
 }
 
+pub var io_map_entry0: *arch.paging.Entry = undefined;
+pub var io_map_entry1: *arch.paging.Entry = undefined;
+
 pub fn setKernelStackPtr(sp: usize) void {
-    tss.rsp0 = sp;
+    tss_and_io_map.tss.rsp0 = sp;
+}
+
+pub fn setIoMap(p0: pmm.Index, p1: pmm.Index) void {
+    io_map_entry0.* = .{
+        .writable = false,
+        .user = false,
+        .global = true,
+        .address = @intFromEnum(p0),
+        .disable_cache = false,
+        .disable_execute = true,
+        .huge = false,
+        .present = true,
+        .write_through = false,
+        .accessed = false,
+    };
+
+    io_map_entry1.* = .{
+        .writable = false,
+        .user = false,
+        .global = true,
+        .address = @intFromEnum(p1),
+        .disable_cache = false,
+        .disable_execute = true,
+        .huge = false,
+        .present = true,
+        .write_through = false,
+        .accessed = false,
+    };
+
+    arch.paging.invalidatePage(&tss_and_io_map.io_map0);
+    arch.paging.invalidatePage(&tss_and_io_map.io_map1);
 }

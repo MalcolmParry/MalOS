@@ -57,9 +57,9 @@ pub fn kernelMain() !noreturn {
 
     pmm.tempInit(&boot_info);
 
-    const page_table = arch.paging.init(&boot_info);
+    arch.paging.init(&boot_info);
     PageAllocator.global = .{
-        .table = page_table,
+        .table = arch.paging.getGlobalKernelTable(),
         .vmm = try Vmm.init(arch.paging.heap_range),
         .default_flags = .{
             .writable = true,
@@ -212,6 +212,8 @@ fn init() !void {
         .args = .{ @intFromEnum(klog_h), 0, 0, 0, 0, 0 },
     });
 
+    task.arch_specific.giveAllPermissions();
+    arch.cpu.prepareTaskSwitch(task, null);
     scheduler.preempt(&state);
 }
 
