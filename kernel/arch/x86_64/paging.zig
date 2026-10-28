@@ -70,7 +70,9 @@ pub const Table = extern struct {
     }
 
     pub fn use(table: *Table) void {
-        setCr3(@intFromPtr(table.physPage()));
+        const new: u64 = @intFromPtr(table.physPage());
+        const old = getCr3();
+        if (new != old) setCr3(new);
     }
 
     pub fn physPage(table: *Table) *mem.PhysPage {
@@ -474,6 +476,10 @@ pub fn destroyTable(l4: *Table) void {
     pmm.freePage(l4.physPage());
 }
 
+pub fn getGlobalKernelTable() *Table {
+    return @ptrFromInt(@intFromPtr(&l4_table) - mem.kernel_virt_base + direct_map_base);
+}
+
 // TODO: when i get multiple cores i need to change this
 /// only applies to this core
 pub fn invalidatePage(page: *mem.Page) void {
@@ -482,6 +488,13 @@ pub fn invalidatePage(page: *mem.Page) void {
         :
         : [addr] "r" (page),
         : .{ .memory = true });
+}
+
+fn getCr3() u64 {
+    return asm volatile (
+        \\ movq %cr3, %[addr]
+        : [addr] "=r" (-> u64),
+    );
 }
 
 fn setCr3(phys_addr: u64) void {

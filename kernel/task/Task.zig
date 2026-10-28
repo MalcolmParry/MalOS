@@ -22,7 +22,7 @@ addr_space: ?*AddressSpace,
 handle_table: ?*HandleTable,
 kernel_stack: ?[]mem.Page,
 cpu_state: ?*align(1) arch.cpu.State,
-ext_cpu_state: arch.cpu.ExtendedState,
+arch_specific: arch.cpu.PerTask,
 
 pub fn kernelStackTop(t: *Task) usize {
     return if (t.kernel_stack) |x| @intFromPtr(x.ptr + x.len) else 0;
@@ -202,7 +202,6 @@ pub fn spawnKernelTaskRaw(func: ?*const Task.Entry, arg: usize, stack: []mem.Pag
         .entry = @intFromPtr(func),
         .arg = arg,
         .stack_top = @intFromPtr(stack.ptr + stack.len),
-        .phys_page_table = @intFromPtr(&arch.paging.l4_table) - mem.kernel_virt_base,
     });
 
     t.* = .{
@@ -213,8 +212,8 @@ pub fn spawnKernelTaskRaw(func: ?*const Task.Entry, arg: usize, stack: []mem.Pag
         .addr_space = null,
         .handle_table = null,
         .kernel_stack = stack,
-        .ext_cpu_state = .zero,
         .cpu_state = state,
+        .arch_specific = .{},
     };
 
     scheduler.makeReady(tid);
@@ -249,8 +248,8 @@ pub fn allocTask() !Tid {
         .addr_space = undefined,
         .handle_table = undefined,
         .cpu_state = undefined,
-        .ext_cpu_state = undefined,
         .kernel_stack = undefined,
+        .arch_specific = undefined,
     };
 
     return tid;

@@ -209,30 +209,32 @@ fn handleException(state: *align(1) arch.cpu.State) noreturn {
 
     state.dump(log.term.writer) catch {};
 
-    const flags: PageFaultFlags = @bitCast(state.error_code);
-    const cr2: usize = asm volatile (
-        \\mov %%cr2, %[out]
-        : [out] "=r" (-> usize),
-    );
+    if (state.int_code == 0x0e) {
+        const flags: PageFaultFlags = @bitCast(state.error_code);
+        const cr2: usize = asm volatile (
+            \\mov %%cr2, %[out]
+            : [out] "=r" (-> usize),
+        );
 
-    std.log.err("page fault at 0x{x}\n{}", .{ cr2, flags });
+        std.log.err("page fault at 0x{x}\n{}", .{ cr2, flags });
 
-    const indices = arch.paging.getIndicesFromVirtAddr(cr2);
-    std.log.err("page table indices: {any}", .{indices});
+        const indices = arch.paging.getIndicesFromVirtAddr(cr2);
+        std.log.err("page table indices: {any}", .{indices});
 
-    const l4 = arch.paging.getCurrentTable();
-    if (l4.entries[indices[3]].getLowerSafe()) |l3| {
-        std.log.err("l3 addr 0x{x}", .{@intFromPtr(l3)});
+        const l4 = arch.paging.getCurrentTable();
+        if (l4.entries[indices[3]].getLowerSafe()) |l3| {
+            std.log.err("l3 addr 0x{x}", .{@intFromPtr(l3)});
 
-        if (l3.entries[indices[2]].getLowerSafe()) |l2| {
-            std.log.err("l2 addr 0x{x}", .{@intFromPtr(l2)});
+            if (l3.entries[indices[2]].getLowerSafe()) |l2| {
+                std.log.err("l2 addr 0x{x}", .{@intFromPtr(l2)});
 
-            if (l2.entries[indices[1]].getLowerSafe()) |l1| {
-                std.log.err("l1 addr 0x{x}, {x}", .{ @intFromPtr(l1), l2.entries[indices[1]].address });
+                if (l2.entries[indices[1]].getLowerSafe()) |l1| {
+                    std.log.err("l1 addr 0x{x}, {x}", .{ @intFromPtr(l1), l2.entries[indices[1]].address });
 
-                const entry = l1.entries[indices[0]];
-                std.log.err("present: {}", .{entry.present});
-                std.log.err("phys addr: 0x{x}", .{@as(usize, entry.address) * 4096});
+                    const entry = l1.entries[indices[0]];
+                    std.log.err("present: {}", .{entry.present});
+                    std.log.err("phys addr: 0x{x}", .{@as(usize, entry.address) * 4096});
+                }
             }
         }
     }
@@ -257,8 +259,6 @@ fn commonStub() callconv(.naked) void {
         \\ pushq %rbx
         \\ pushq %rax
         \\ pushq %rbp
-        \\ mov %cr3, %rax
-        \\ pushq %rax
         \\
         \\ xor %ax, %ax
         \\ mov %ax, %ss

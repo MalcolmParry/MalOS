@@ -29,7 +29,7 @@ pub fn init() void {
         // null bc i dont want this to get deallocated when the boot task exits
         .kernel_stack = null,
         .cpu_state = undefined,
-        .ext_cpu_state = .zero,
+        .arch_specific = .{},
     };
     Task.current_tid = tid;
 }
@@ -63,8 +63,7 @@ pub fn exitTask() noreturn {
     next.state = .running;
 
     Task.current_tid = next_tid;
-    arch.setKernelStackPtr(next.kernelStackTop());
-    next.ext_cpu_state.load();
+    arch.cpu.prepareTaskSwitch(next, null);
 
     const s = next.cpu_state.?;
     next.cpu_state = null;
@@ -88,13 +87,10 @@ pub fn preempt(state: *align(1) arch.cpu.State) noreturn {
     const next = next_tid.get();
     next.state = .running;
 
-    if (next_tid != last_tid) {
-        last.ext_cpu_state.save();
-        next.ext_cpu_state.load();
-    }
-
     Task.current_tid = next_tid;
-    arch.setKernelStackPtr(next.kernelStackTop());
+    if (next_tid != last_tid) {
+        arch.cpu.prepareTaskSwitch(next, last);
+    }
 
     const s = next.cpu_state.?;
     next.cpu_state = null;
@@ -132,11 +128,8 @@ pub fn scheduleLockHeld(next_state: Task.State) bool {
     next.state = .running;
     if (next_tid == last_tid) return false;
 
-    last.ext_cpu_state.save();
-    next.ext_cpu_state.load();
-
     Task.current_tid = next_tid;
-    arch.setKernelStackPtr(next.kernelStackTop());
+    arch.cpu.prepareTaskSwitch(next, last);
 
     const s = next.cpu_state.?;
     next.cpu_state = null;

@@ -22,7 +22,7 @@ pub fn main(klog_: abi.Handle) noreturn {
         print(buffer[0..bytes]);
     }
 
-    // out(0x3f8, @as(u8, 'u'));
+    // for ("direct writing to serial in userspace\n") |c| out(0x3f8, c);
 
     {
         const h0, const h1 = lib.syscall.socketCreatePair() catch panic("failed to create socket pair");

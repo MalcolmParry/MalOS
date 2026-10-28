@@ -209,7 +209,6 @@ fn init() !void {
 
     var state = arch.cpu.getUserTaskFrame(.{
         .entry = result.entry,
-        .phys_page_table = @intFromPtr(as.table.physPage()),
         .args = .{ @intFromEnum(klog_h), 0, 0, 0, 0, 0 },
     });
 

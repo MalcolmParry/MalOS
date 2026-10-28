@@ -3,29 +3,29 @@ const arch = @import("x86_64.zig");
 const Task = @import("../../task/Task.zig");
 const mem = @import("../../memory.zig");
 
-pub const ExtendedState = struct {
-    fxsave: [512]u8 align(16),
+pub const Fxsave = struct {
+    data: [512]u8 align(16),
 
     pub const zero = blk: {
-        var s: ExtendedState = .{ .fxsave = @splat(0) };
-        std.mem.writeInt(u16, s.fxsave[0..2], 0x037f, .little);
-        std.mem.writeInt(u32, s.fxsave[24..28], 0x1f80, .little);
+        var s: Fxsave = .{ .data = @splat(0) };
+        std.mem.writeInt(u16, s.data[0..2], 0x037f, .little);
+        std.mem.writeInt(u32, s.data[24..28], 0x1f80, .little);
         break :blk s;
     };
 
-    pub inline fn save(state: *ExtendedState) void {
+    pub inline fn save(state: *Fxsave) void {
         asm volatile (
             \\fxsave (%[addr])
             :
-            : [addr] "r" (&state.fxsave),
+            : [addr] "r" (&state.data),
             : .{ .memory = true });
     }
 
-    pub inline fn load(state: *const ExtendedState) void {
+    pub inline fn load(state: *const Fxsave) void {
         asm volatile (
             \\fxrstor (%[addr])
             :
-            : [addr] "r" (&state.fxsave),
+            : [addr] "r" (&state.data),
             : .{
               // zig fmt: off
               .xmm0  = true, .xmm1  = true, .xmm2  = true, .xmm3  = true,
@@ -63,8 +63,21 @@ pub const exception_names = [_][]const u8{
     "control protection",
 };
 
+pub const PerTask = struct {
+    simd_state: Fxsave = .zero,
+};
+
+pub fn prepareTaskSwitch(new: *Task, maybe_old: ?*Task) void {
+    arch.setKernelStackPtr(new.kernelStackTop());
+    const page_table = if (new.addr_space) |a| a.table else arch.paging.getGlobalKernelTable();
+    page_table.use();
+
+    if (maybe_old) |old|
+        old.arch_specific.simd_state.save();
+    new.arch_specific.simd_state.load();
+}
+
 pub const State = extern struct {
-    cr3: u64,
     rbp: u64,
 
     rax: u64 = 0,
@@ -101,7 +114,7 @@ pub const State = extern struct {
             \\rdx {x:0>16}  rsi {x:0>16}  rdi {x:0>16}
             \\r8  {x:0>16}  r9  {x:0>16}  r10 {x:0>16}
             \\r11 {x:0>16}  r12 {x:0>16}  r13 {x:0>16}
-            \\r14 {x:0>16}  r15 {x:0>16}  cr3 {x:0>16}
+            \\r14 {x:0>16}  r15 {x:0>16}
             \\cs {x:0>2} ss {x:0>2} rflags {x:0>8} [
         , .{
             // zig fmt: off
@@ -111,7 +124,7 @@ pub const State = extern struct {
             s.rdx, s.rsi, s.rdi,
             s.r8,  s.r9,  s.r10,
             s.r11, s.r12, s.r13,
-            s.r14, s.r15, s.cr3,
+            s.r14, s.r15,
             s.cs,  s.ss,  @as(u64, @bitCast(s.flags)),
             // zig fmt: on
         });
@@ -134,13 +147,6 @@ pub const State = extern struct {
     fn nakedRestore() callconv(.naked) noreturn {
         asm volatile (
             \\ movb $0, %[lock:P](%rip)
-            \\
-            \\ pop %rax
-            \\ mov %cr3, %rbx
-            \\ cmp %rax, %rbx
-            \\ je 1f
-            \\ mov %rax, %cr3
-            \\ 1:
             \\
             \\ popq %rbp
             \\ popq %rax
@@ -193,8 +199,6 @@ pub const State = extern struct {
             \\ push $0
             \\ subq $112, %rsp
             \\ push %rbp
-            \\ mov %cr3, %rdx
-            \\ push %rdx
             \\
             \\ mov %rsp, (%rax)
             \\ mov %rbx, %rsp
@@ -237,7 +241,6 @@ pub const task_callconv: std.builtin.CallingConvention = .{ .x86_64_sysv = .{} }
 const TaskInitInfo = struct {
     entry: usize,
     stack_top: usize,
-    phys_page_table: usize,
     arg: usize,
 };
 
@@ -248,7 +251,6 @@ pub fn pushInitTaskFrame(info: TaskInitInfo) *align(1) State {
 
     const state: *State = @ptrFromInt(sp - @sizeOf(State));
     state.* = .{
-        .cr3 = info.phys_page_table,
         .rbp = 0,
         .rip = info.entry,
         .flags = .{ .IF = true },
@@ -261,14 +263,12 @@ pub fn pushInitTaskFrame(info: TaskInitInfo) *align(1) State {
 
 const UserTaskInfo = struct {
     entry: usize,
-    phys_page_table: usize,
     args: [6]usize,
 };
 
 pub fn getUserTaskFrame(info: UserTaskInfo) State {
     return .{
         .rip = info.entry,
-        .cr3 = info.phys_page_table,
         .flags = .{ .IF = true },
         .rbp = 0,
         .rsp = 0,
@@ -281,23 +281,6 @@ pub fn getUserTaskFrame(info: UserTaskInfo) State {
         .r8 = info.args[4],
         .r9 = info.args[5],
     };
-}
-
-pub fn pushUserTaskFrame(info: TaskInitInfo) *align(1) State {
-    const state: *State = @ptrFromInt(info.stack_top - @sizeOf(State));
-
-    state.* = .{
-        .cr3 = info.phys_page_table,
-        .rbp = 0,
-        .rip = info.entry,
-        .flags = .{ .IF = true },
-        .rsp = 0,
-        .rdi = info.arg,
-        .cs = 0x23,
-        .ss = 0x1b,
-    };
-
-    return state;
 }
 
 pub const Flags = packed struct(u64) {
@@ -333,17 +316,6 @@ pub fn spinWait() noreturn {
     while (true) {
         halt();
     }
-}
-
-pub fn int(x: u8) void {
-    asm volatile ("int %[x]"
-        :
-        : [x] "N" (x),
-    );
-}
-
-pub fn syscall() void {
-    asm volatile ("int $0x80" ::: .{ .rax = true });
 }
 
 pub fn out(port: u16, data: anytype) void {
