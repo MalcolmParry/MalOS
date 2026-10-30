@@ -159,7 +159,7 @@ fn WrapTaskFunc(func: anytype) Task.Entry {
                     scheduler.exitTask();
                 },
                 .error_union => |eu| {
-                    if (eu.payload != void)
+                    if (eu.payload != void and eu.payload != noreturn)
                         @compileError("bad return value for task function");
 
                     @call(.auto, func, args) catch |err| debug.dumpErrorAndPanic(err);

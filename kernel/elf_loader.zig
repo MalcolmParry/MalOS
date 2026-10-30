@@ -9,21 +9,18 @@ const Result = struct {
 };
 
 /// as must be loaded
-pub fn load(as: *AddressSpace, elf: vfs.File) !Result {
-    if (!elf.handle.access.x) return error.BadAccess;
-    var buffer: [4096]u8 = undefined;
-    var reader = elf.reader(&buffer);
-    reader.ignore_access = true;
+pub fn load(as: *AddressSpace, elf: []const u8) !Result {
+    var reader: std.Io.Reader = .fixed(elf);
 
-    const header = try std.elf.Header.read(&reader.interface);
+    const header = try std.elf.Header.read(&reader);
     if (!header.is_64) return error.NotSupported;
     if (header.machine != .X86_64) return error.NotSupported;
     if (header.type != .EXEC) return error.NotSupported;
     if (header.entry > arch.paging.max_user_addr) return error.BadElf;
 
     for (0..header.phnum) |i| {
-        reader.seekTo(header.phoff + i * header.phentsize);
-        const ph = try reader.interface.takeStruct(std.elf.Elf64.Phdr, header.endian);
+        reader.seek = header.phoff + i * header.phentsize;
+        const ph = try reader.takeStruct(std.elf.Elf64.Phdr, header.endian);
         if (ph.type != .LOAD) continue;
         if (ph.filesz > ph.memsz) return error.BadElf;
         if (ph.memsz == 0) continue;
@@ -43,8 +40,7 @@ pub fn load(as: *AddressSpace, elf: vfs.File) !Result {
         });
 
         const mapping = @as([*]u8, @ptrFromInt(ph.vaddr))[0..ph.filesz];
-        reader.seekTo(ph.offset);
-        try reader.interface.readSliceAll(mapping);
+        @memcpy(mapping, elf[ph.offset..][0..mapping.len]);
 
         // TODO: remap as with proper permissions
     }

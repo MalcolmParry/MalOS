@@ -57,6 +57,10 @@ fn addBuildStep(b: *Build, optimize: std.builtin.OptimizeMode, target: Build.Res
         }},
     });
 
+    const shared = b.createModule(.{
+        .root_source_file = b.path("shared/shared.zig"),
+    });
+
     const kernel_compile = b.addObject(.{
         .name = "kernel.elf",
         .use_llvm = true,
@@ -69,10 +73,10 @@ fn addBuildStep(b: *Build, optimize: std.builtin.OptimizeMode, target: Build.Res
             .strip = !debug_info,
             .omit_frame_pointer = !debug_info,
             .red_zone = false,
-            .imports = &.{.{
-                .name = "abi",
-                .module = abi,
-            }},
+            .imports = &.{
+                .{ .name = "abi", .module = abi },
+                .{ .name = "shared", .module = shared },
+            },
         }),
     });
     kernel_compile.bundle_compiler_rt = true;
@@ -101,6 +105,30 @@ fn addBuildStep(b: *Build, optimize: std.builtin.OptimizeMode, target: Build.Res
             },
         }),
     });
+
+    const initrd_dir = b.addWriteFiles();
+    _ = initrd_dir.addCopyFile(init.getEmittedBin(), "init");
+
+    const initrd_tar = b.addSystemCommand(&.{
+        "tar",
+        "--format=ustar",
+        "--sort=name",
+        "--mtime=@0",
+        "--owner=0",
+        "--group=0",
+        "--numeric-owner",
+        "-cf",
+    });
+    const initrd = initrd_tar.addOutputFileArg("initrd.tar");
+    initrd_tar.addArg("-C");
+    initrd_tar.addDirectoryArg(initrd_dir.getDirectory());
+    initrd_tar.addArg(".");
+
+    b.getInstallStep().dependOn(&b.addInstallDirectory(.{
+        .source_dir = initrd_dir.getDirectory(),
+        .install_dir = .{ .custom = "" },
+        .install_subdir = "initrd",
+    }).step);
 
     const options = b.addOptions();
     options.addOption([]const u8, "build_root", b.build_root.path.?);
@@ -159,10 +187,16 @@ fn addBuildStep(b: *Build, optimize: std.builtin.OptimizeMode, target: Build.Res
     const root = b.addWriteFiles();
     _ = root.addCopyDirectory(b.path("build/x86_64/disk/"), "", .{});
     _ = root.addCopyFile(kernel, "boot/kernel.elf");
-    _ = root.addCopyFile(init.getEmittedBin(), "bin/init");
+    _ = root.addCopyFile(initrd, "boot/initrd.tar");
     if (debug_info)
         _ = root.addCopyFile(src_tar, "boot/kernel_src.tar");
     root.step.dependOn(&multiboot_check.step);
+
+    b.getInstallStep().dependOn(&b.addInstallDirectory(.{
+        .source_dir = root.getDirectory(),
+        .install_dir = .{ .custom = "" },
+        .install_subdir = "root",
+    }).step);
 
     const mk_fs_img = b.addSystemCommand(&.{ "mkfs.ext2", "-q", "-d" });
     mk_fs_img.addDirectoryArg(root.getDirectory());

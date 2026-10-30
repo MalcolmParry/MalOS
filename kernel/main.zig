@@ -12,16 +12,9 @@ const AddressSpace = @import("task/AddressSpace.zig");
 const log = @import("log.zig");
 const gpa = @import("heap/gpa.zig");
 const elf_loader = @import("elf_loader.zig");
+const ustar = @import("shared").ustar;
 
-const vfs = @import("fs/vfs/vfs.zig");
-const Ramfs = @import("fs/Ramfs.zig");
-const Ext2 = @import("fs/Ext2.zig");
-const BlockDevice = @import("block/BlockDevice.zig");
-
-const ata_pio = @import("drivers/x86/ata_pio.zig");
 const pit = @import("drivers/x86/pit.zig");
-const devfs = @import("fs/devfs.zig");
-const pci = @import("drivers/pci.zig");
 
 pub const debug = @import("debug.zig");
 pub const panic = std.debug.FullPanic(debug.panic);
@@ -114,71 +107,16 @@ pub fn kernelMain() !noreturn {
     debug.init(&boot_info);
     std.log.info("{Bi:.2} used out of {Bi:.2}", .{ pmm.used_pages.load(.monotonic) * mem.page_size, pmm.total_pages * mem.page_size });
 
-    arch.interrupt.enable();
-    try devfs.init();
-    try log.registerConsoleFile();
-    pci.check();
+    const initrd = blk: for (boot_info.modules()) |*mod| {
+        if (!std.mem.eql(u8, mod.name(), "initrd")) continue;
+        break :blk mod.data.?;
+    } else @panic("initrd not found");
 
-    try ata_pio.detectAndRegister();
-
-    try ext2Test();
-
-    // arch.spinWait();
-    try scheduler.testing.run();
+    _ = try Task.spawnKernelTask(init, .{initrd});
     scheduler.exitTask();
 }
 
-fn ext2Test() !void {
-    const alloc = gpa.allocator;
-
-    const devfs_mount = try devfs.mount();
-    defer devfs_mount.unmount() catch |err| debug.dumpErrorAndPanic(err);
-
-    const devfs_root = devfs_mount.acquireRootPath();
-    defer devfs_root.release();
-
-    try printFileTree(devfs_root, log.term, 0);
-
-    const drive = try devfs_root.lookup("disk/ata0p0");
-    defer drive.release();
-
-    const root_mount = try Ext2.create(alloc, drive);
-    defer root_mount.unmount() catch |err| debug.dumpErrorAndPanic(err);
-    vfs.root = root_mount;
-    defer vfs.root = null;
-
-    const root = root_mount.acquireRootPath();
-    defer root.release();
-
-    const hello_txt = try root.lookup("hello.txt");
-    defer hello_txt.release();
-
-    const file = try hello_txt.open(.ro);
-    defer file.release();
-
-    var buffer: [1024]u8 = undefined;
-    const read = try file.read(0, &buffer, .{});
-
-    std.log.info("{} bytes read", .{read});
-    std.log.info("{s}", .{buffer[0..read]});
-
-    const dev_target = try root.lookup("dev");
-    defer dev_target.release();
-    try devfs_mount.mountOnto(dev_target);
-    defer devfs_mount.makeOrphan();
-
-    log.term.setColor(.blue) catch {};
-    try log.term.writer.print("/", .{});
-    log.term.setColor(.reset) catch {};
-    try log.term.writer.print("\n", .{});
-    try printFileTree(root, log.term, 1);
-    log.writer.flush() catch {};
-
-    _ = try Task.spawnKernelTask(init, .{});
-    scheduler.sleepNs(std.time.ns_per_s * 2000000000);
-}
-
-fn init() !void {
+fn init(initrd: []const u8) !noreturn {
     const task = Task.current_tid.get();
     task.handle_table = try .create();
     task.addr_space = try .create();
@@ -194,18 +132,8 @@ fn init() !void {
         },
     });
 
-    const result = blk: {
-        const root = vfs.root.?.acquireRootPath();
-        defer root.release();
-
-        const path = try root.lookup("/bin/init");
-        defer path.release();
-
-        const file = try path.open(.xo);
-        defer file.release();
-
-        break :blk try elf_loader.load(as, file);
-    };
+    const init_elf = try ustar.lookup(initrd, "init") orelse return error.InitNotFound;
+    const result = try elf_loader.load(as, init_elf);
 
     var state = arch.cpu.getUserTaskFrame(.{
         .entry = result.entry,
@@ -215,35 +143,4 @@ fn init() !void {
     task.arch_specific.giveAllPermissions();
     arch.cpu.prepareTaskSwitch(task, null);
     scheduler.preempt(&state);
-}
-
-fn printFileTree(parent: vfs.Path, term: std.Io.Terminal, indent: usize) !void {
-    const file = try parent.open(.ro);
-    defer file.release();
-
-    var next_pos: u64 = 0;
-    var record: vfs.DirRecord = undefined;
-    while (true) {
-        next_pos = (try file.readDir(next_pos, &record)) orelse break;
-
-        for (0..indent) |_| try term.writer.print("    ", .{});
-
-        term.setColor(switch (record.kind) {
-            .file => .bright_white,
-            .dir => .blue,
-            .block_device => .bright_yellow,
-            .char_device => .bright_magenta,
-        }) catch {};
-
-        try term.writer.print("{s}", .{record.getName()});
-        term.setColor(.reset) catch {};
-        try term.writer.print("\n", .{});
-
-        if (record.kind == .dir) {
-            const child = try parent.lookup(record.getName());
-            defer child.release();
-
-            try printFileTree(child, term, indent + 1);
-        }
-    }
 }
