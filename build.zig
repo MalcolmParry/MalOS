@@ -133,6 +133,7 @@ fn addBuildStep(b: *Build, optimize: std.builtin.OptimizeMode, target: Build.Res
     const options = b.addOptions();
     options.addOption([]const u8, "build_root", b.build_root.path.?);
     options.addOption(bool, "single_core", true);
+    options.addOption(bool, "strace", b.option(bool, "strace", "") orelse false);
     kernel_compile.root_module.addOptions("options", options);
 
     const link = b.addSystemCommand(&.{
