@@ -1,21 +1,30 @@
+const std = @import("std");
 const abi = @import("abi");
-
-pub const stdin: abi.Handle = @enumFromInt(0);
-pub const stdout: abi.Handle = @enumFromInt(1);
-pub const stderr: abi.Handle = @enumFromInt(2);
 
 pub const syscall = @import("syscall.zig");
 
-pub fn writeAll(handle: abi.Handle, offset: u64, data: []const u8) error{Failed}!void {
-    var cur = offset;
-    var rest = data;
+pub var klog: abi.Handle = undefined;
 
-    while (rest.len != 0) {
-        const wrote = syscall.fwrite(handle, cur, rest) catch return error.Failed;
-        if (wrote == 0) return error.Failed;
-        cur += wrote;
-        rest = rest[wrote..];
-    }
+pub fn log(
+    comptime level: std.log.Level,
+    comptime scope: @EnumLiteral(),
+    comptime format: []const u8,
+    args: anytype,
+) void {
+    var buffer: [1024]u8 = undefined;
+    var writer: std.Io.Writer = .fixed(&buffer);
+    const term: std.Io.Terminal = .{ .writer = &writer, .mode = .escape_codes };
+
+    std.log.defaultLogFileTerminal(level, scope, format, args, term) catch {};
+    syscall.klogWrite(klog, writer.buffered()) catch {};
+}
+
+pub fn panic(str: []const u8, ret_addr: ?usize) noreturn {
+    @branchHint(.cold);
+    _ = ret_addr;
+
+    std.log.err("panic: {s}", .{str});
+    syscall.exit(1);
 }
 
 comptime {

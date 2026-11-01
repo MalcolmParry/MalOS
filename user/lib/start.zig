@@ -1,3 +1,5 @@
+const std = @import("std");
+const lib = @import("lib.zig");
 const root = @import("root");
 
 var stack: [32 * 1024]u8 align(4096) = undefined;
@@ -16,5 +18,30 @@ pub fn _start() callconv(.naked) noreturn {
 }
 
 fn callMain(klog_h: usize) callconv(.{ .x86_64_sysv = .{} }) noreturn {
-    root.main(@enumFromInt(klog_h));
+    lib.klog = @enumFromInt(klog_h);
+
+    const Ret = @typeInfo(@TypeOf(root.main)).@"fn".return_type.?;
+    switch (@typeInfo(Ret)) {
+        .noreturn => {
+            root.main();
+        },
+        .void => {
+            root.main();
+            lib.syscall.exit(0);
+        },
+        .error_union => |eu| {
+            switch (eu.payload) {
+                void, noreturn => {},
+                else => @compileError("bad return type"),
+            }
+
+            root.main() catch |err| {
+                std.log.err("main returned with {}", .{err});
+                lib.syscall.exit(1);
+            };
+
+            lib.syscall.exit(0);
+        },
+        else => @compileError("bad return type"),
+    }
 }
