@@ -1,6 +1,7 @@
 const std = @import("std");
 const Channel = @import("Channel.zig");
 const Socket = @import("Socket.zig");
+const Vmo = @import("Vmo.zig");
 const Object = @This();
 
 kind: Kind,
@@ -9,6 +10,7 @@ ref_count: std.atomic.Value(u32),
 pub const Kind = enum {
     channel,
     socket,
+    vmo,
     klog,
 };
 
@@ -31,6 +33,10 @@ pub fn release(obj: *Object) void {
             const socket = obj.getSocket() orelse unreachable;
             socket.destroyEnd();
         },
+        .vmo => {
+            const vmo = obj.getVmo() orelse unreachable;
+            vmo.destroy();
+        },
         .klog => {},
     }
 }
@@ -42,5 +48,10 @@ pub fn getChannel(obj: *Object) ?*Channel {
 
 pub fn getSocket(obj: *Object) ?*Socket {
     if (obj.kind != .socket) return null;
+    return @alignCast(@fieldParentPtr("obj", obj));
+}
+
+pub fn getVmo(obj: *Object) ?*Vmo {
+    if (obj.kind != .vmo) return null;
     return @alignCast(@fieldParentPtr("obj", obj));
 }

@@ -13,6 +13,7 @@ const log = @import("log.zig");
 const gpa = @import("heap/gpa.zig");
 const elf_loader = @import("elf_loader.zig");
 const ustar = @import("shared").ustar;
+const Vmo = @import("object/Vmo.zig");
 
 const pit = @import("drivers/x86/pit.zig");
 
@@ -35,7 +36,6 @@ pub const os = struct {
 pub fn kernelMain() !noreturn {
     try log.preinit();
     arch.interrupt.init();
-    log.writer.print("\x1b[H\x1b[2J\x1b[3J", .{}) catch {};
 
     var boot_info = arch.initBootInfo();
     try log.init(boot_info);
@@ -109,10 +109,13 @@ pub fn kernelMain() !noreturn {
 
     const initrd = blk: for (boot_info.modules()) |*mod| {
         if (!std.mem.eql(u8, mod.name(), "initrd")) continue;
-        break :blk mod.data.?;
+        break :blk mod;
     } else @panic("initrd not found");
 
-    _ = try Task.spawnKernelTask(init, .{initrd});
+    const vmo = try Vmo.fromOwnedSlice(initrd.phys_range);
+    _ = vmo;
+
+    _ = try Task.spawnKernelTask(init, .{initrd.data.?});
     scheduler.exitTask();
 }
 
