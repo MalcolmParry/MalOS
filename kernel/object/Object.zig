@@ -2,6 +2,7 @@ const std = @import("std");
 const Channel = @import("Channel.zig");
 const Socket = @import("Socket.zig");
 const Vmo = @import("Vmo.zig");
+const Process = @import("../task/Process.zig");
 const Object = @This();
 
 kind: Kind,
@@ -12,6 +13,17 @@ pub const Kind = enum {
     socket,
     vmo,
     klog,
+    process,
+
+    pub fn fromType(comptime T: type) Kind {
+        return switch (T) {
+            Channel => .channel,
+            Socket => .socket,
+            Vmo => .vmo,
+            Process => .process,
+            else => @compileError("bad type"),
+        };
+    }
 };
 
 pub fn acquire(obj: *Object) void {
@@ -25,33 +37,20 @@ pub fn release(obj: *Object) void {
     if (prev != 1) return;
 
     switch (obj.kind) {
-        .channel => {
-            const channel = obj.getChannel() orelse unreachable;
-            channel.destroyEnd();
-        },
-        .socket => {
-            const socket = obj.getSocket() orelse unreachable;
-            socket.destroyEnd();
-        },
-        .vmo => {
-            const vmo = obj.getVmo() orelse unreachable;
-            vmo.destroy();
-        },
+        .channel => obj.getAssertKind(Channel).destroyEnd(),
+        .socket => obj.getAssertKind(Socket).destroyEnd(),
+        .vmo => obj.getAssertKind(Vmo).destroy(),
         .klog => {},
+        .process => obj.getAssertKind(Process).destroy(),
     }
 }
 
-pub fn getChannel(obj: *Object) ?*Channel {
-    if (obj.kind != .channel) return null;
+pub fn get(obj: *Object, T: type) ?*T {
+    if (obj.kind != Kind.fromType(T)) return null;
     return @alignCast(@fieldParentPtr("obj", obj));
 }
 
-pub fn getSocket(obj: *Object) ?*Socket {
-    if (obj.kind != .socket) return null;
-    return @alignCast(@fieldParentPtr("obj", obj));
-}
-
-pub fn getVmo(obj: *Object) ?*Vmo {
-    if (obj.kind != .vmo) return null;
+pub fn getAssertKind(obj: *Object, T: type) *T {
+    std.debug.assert(obj.kind == Kind.fromType(T));
     return @alignCast(@fieldParentPtr("obj", obj));
 }

@@ -7,41 +7,22 @@ const gpa = @import("../heap/gpa.zig").allocator;
 const assert = std.debug.assert;
 const HandleTable = @This();
 
-ref_count: std.atomic.Value(u32),
 map: std.AutoHashMapUnmanaged(abi.Handle, Desc),
 lock: Spinlock,
 bump: u32,
+
+pub const init: HandleTable = .{
+    .map = .empty,
+    .lock = .init,
+    .bump = 0,
+};
 
 pub const Desc = struct {
     obj: *Object,
     rights: abi.Rights,
 };
 
-pub fn acquire(table: *HandleTable) void {
-    const prev = table.ref_count.fetchAdd(1, .monotonic);
-    assert(prev != 0);
-}
-
-pub fn release(table: *HandleTable) void {
-    const prev = table.ref_count.fetchSub(1, .acq_rel);
-    assert(prev != 0);
-    if (prev == 1) table.destroy();
-}
-
-pub fn create() !*HandleTable {
-    const table = try gpa.create(HandleTable);
-    table.* = .{
-        .ref_count = .init(1),
-        .map = .empty,
-        .lock = .init,
-        .bump = 0,
-    };
-    return table;
-}
-
-pub fn destroy(table: *HandleTable) void {
-    assert(table.ref_count.load(.monotonic) == 0);
-
+pub fn deinit(table: *HandleTable) void {
     var iter = table.map.iterator();
     while (iter.next()) |kv| {
         const desc = kv.value_ptr.*;
@@ -49,7 +30,6 @@ pub fn destroy(table: *HandleTable) void {
     }
 
     table.map.deinit(gpa);
-    gpa.destroy(table);
 }
 
 pub fn getLocked(table: *HandleTable, handle: abi.Handle) ?Desc {
@@ -73,5 +53,6 @@ pub fn fetchRemoveLocked(table: *HandleTable, handle: abi.Handle) ?Desc {
 }
 
 pub fn getCurrent() *HandleTable {
-    return Task.current_tid.get().handle_table.?;
+    const proc = Task.current_tid.get().proc orelse @panic("cant get handle table in kernel thread");
+    return &proc.handle_table;
 }

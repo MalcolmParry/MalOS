@@ -24,14 +24,12 @@ pub fn init() void {
         .prev = .none,
         .next = .none,
 
-        .addr_space = null,
-        .handle_table = null,
+        .proc = null,
         // null bc i dont want this to get deallocated when the boot task exits
         .kernel_stack = null,
         .cpu_state = undefined,
-        .arch_specific = undefined,
+        .arch_specific = .init,
     };
-    t.arch_specific.init();
     Task.current_tid = tid;
 }
 

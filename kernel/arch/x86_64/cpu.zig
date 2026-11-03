@@ -67,38 +67,46 @@ pub const exception_names = [_][]const u8{
 
 pub const PerTask = struct {
     simd_state: Fxsave,
+
+    pub const init: PerTask = .{ .simd_state = .zero };
+};
+
+pub const PerProcess = struct {
     io_map0: pmm.Index,
     io_map1: pmm.Index,
 
-    pub fn init(per_task: *PerTask) void {
-        per_task.* = .{
-            .simd_state = .zero,
+    pub fn init(per_proc: *PerProcess) void {
+        per_proc.* = .{
             .io_map0 = pmm.onePage(),
             .io_map1 = pmm.onePage(),
         };
     }
 
-    pub fn deinit(per_task: *PerTask) void {
-        if (per_task.io_map0 != pmm.zeroPage() and per_task.io_map0 != pmm.onePage()) pmm.freePage(per_task.io_map0.toPtr());
-        if (per_task.io_map1 != pmm.zeroPage() and per_task.io_map1 != pmm.onePage()) pmm.freePage(per_task.io_map1.toPtr());
+    pub fn deinit(per_proc: *PerProcess) void {
+        if (per_proc.io_map0 != pmm.zeroPage() and per_proc.io_map0 != pmm.onePage()) pmm.freePage(per_proc.io_map0.toPtr());
+        if (per_proc.io_map1 != pmm.zeroPage() and per_proc.io_map1 != pmm.onePage()) pmm.freePage(per_proc.io_map1.toPtr());
     }
 
-    pub fn giveAllPermissions(per_task: *PerTask) void {
-        per_task.io_map0 = pmm.zeroPage();
-        per_task.io_map1 = pmm.zeroPage();
+    pub fn giveAllPermissions(per_proc: *PerProcess) void {
+        per_proc.io_map0 = pmm.zeroPage();
+        per_proc.io_map1 = pmm.zeroPage();
     }
 };
 
 pub fn prepareTaskSwitch(new: *Task, maybe_old: ?*Task) void {
     gdt.setKernelStackPtr(new.kernelStackTop());
-    const page_table = if (new.addr_space) |a| a.table else arch.paging.getGlobalKernelTable();
-    page_table.use();
 
     if (maybe_old) |old|
         old.arch_specific.simd_state.save();
     new.arch_specific.simd_state.load();
 
-    gdt.setIoMap(new.arch_specific.io_map0, new.arch_specific.io_map1);
+    const proc = new.proc orelse {
+        arch.paging.getGlobalKernelTable().use();
+        return;
+    };
+
+    proc.addr_space.table.use();
+    gdt.setIoMap(proc.arch_specific.io_map0, proc.arch_specific.io_map1);
 }
 
 pub const State = extern struct {

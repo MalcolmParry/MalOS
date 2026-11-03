@@ -14,6 +14,7 @@ const gpa = @import("heap/gpa.zig");
 const elf_loader = @import("elf_loader.zig");
 const ustar = @import("shared").ustar;
 const Vmo = @import("object/Vmo.zig");
+const Process = @import("task/Process.zig");
 
 const pit = @import("drivers/x86/pit.zig");
 
@@ -121,12 +122,12 @@ pub fn kernelMain() !noreturn {
 
 fn init(initrd: []const u8) !noreturn {
     const task = Task.current_tid.get();
-    task.handle_table = try .create();
-    task.addr_space = try .create();
-    const as = task.addr_space.?;
+    const proc = try Process.create();
+    task.proc = proc;
+    const as = &proc.addr_space;
     as.table.use();
 
-    const klog_h = try task.handle_table.?.putLocked(.{
+    const klog_h = try proc.handle_table.putLocked(.{
         .obj = &log.log_obj,
         .rights = .{
             .duplicate = true,
@@ -143,7 +144,7 @@ fn init(initrd: []const u8) !noreturn {
         .args = .{ @intFromEnum(klog_h), 0, 0, 0, 0, 0 },
     });
 
-    task.arch_specific.giveAllPermissions();
+    proc.arch_specific.giveAllPermissions();
     arch.cpu.prepareTaskSwitch(task, null);
     scheduler.preempt(&state);
 }

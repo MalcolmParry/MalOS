@@ -6,38 +6,20 @@ const Spinlock = @import("../sync/Spinlock.zig");
 const AddressSpace = @This();
 
 table: *arch.paging.Table,
-ref_count: std.atomic.Value(u32),
 first_region: ?*Region,
 lock: Spinlock,
 
-pub fn acquire(as: *AddressSpace) void {
-    const prev = as.ref_count.fetchAdd(1, .monotonic);
-    std.debug.assert(prev != 0);
-}
-
-pub fn release(as: *AddressSpace) void {
-    const prev = as.ref_count.fetchSub(1, .acq_rel);
-    std.debug.assert(prev != 0);
-    if (prev == 1) as.destroy();
-}
-
-pub fn create() !*AddressSpace {
-    const as = try gpa.create(AddressSpace);
-    errdefer gpa.destroy(as);
-
+pub fn init(as: *AddressSpace) !void {
     const table = try arch.paging.createTable();
 
     as.* = .{
         .table = table,
-        .ref_count = .init(1),
         .first_region = null,
         .lock = .init,
     };
-
-    return as;
 }
 
-pub fn destroy(as: *AddressSpace) void {
+pub fn deinit(as: *AddressSpace) void {
     var maybe_region = as.first_region;
     while (maybe_region) |region| {
         if (region.flags.alloc)
@@ -48,7 +30,6 @@ pub fn destroy(as: *AddressSpace) void {
     }
 
     arch.paging.destroyTable(as.table);
-    gpa.destroy(as);
 }
 
 /// assumes lock is held

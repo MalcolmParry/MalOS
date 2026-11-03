@@ -145,7 +145,7 @@ fn socketCreatePair(_: [7]usize) abi.SocketCreatePairError![3]usize {
 fn socketSend(args: [7]usize) abi.SocketSendError![3]usize {
     const obj = try getObj(args[1], .{ .write = true });
     defer obj.release();
-    const sock = obj.getSocket() orelse return error.BadHandleKind;
+    const sock = obj.get(Socket) orelse return error.BadHandleKind;
 
     var buffer: [1024 * 4]u8 = undefined;
     const len = @min(buffer.len, args[3]);
@@ -160,7 +160,7 @@ fn socketSend(args: [7]usize) abi.SocketSendError![3]usize {
 fn socketReceive(args: [7]usize) abi.SocketReceiveError![3]usize {
     const obj = try getObj(args[1], .{ .read = true });
     defer obj.release();
-    const sock = obj.getSocket() orelse return error.BadHandleKind;
+    const sock = obj.get(Socket) orelse return error.BadHandleKind;
 
     var full_buffer: [1024 * 4]u8 = undefined;
     const buffer = full_buffer[0..@min(args[3], full_buffer.len)];
@@ -202,7 +202,7 @@ fn channelCreatePair(_: [7]usize) abi.ChannelCreatePairError![3]usize {
 fn channelSend(args: [7]usize) abi.ChannelSendError![3]usize {
     const obj = try getObj(args[1], .{ .write = true });
     defer obj.release();
-    const channel = obj.getChannel() orelse return error.BadHandleKind;
+    const channel = obj.get(Channel) orelse return error.BadHandleKind;
 
     const byte_count = args[3];
     const handle_count = args[5];
@@ -236,7 +236,7 @@ fn channelSend(args: [7]usize) abi.ChannelSendError![3]usize {
         desc.* = table.getLocked(h) orelse return error.BadHandle;
 
         if (!desc.rights.transfer) return error.NoRight;
-        if (desc.obj.getChannel()) |c| {
+        if (desc.obj.get(Channel)) |c| {
             if (c.getPair() == channel.getPair()) return error.BadArg;
         }
     }
@@ -262,7 +262,7 @@ fn msgDestroy(msg: *Channel.Message) void {
 fn channelReceive(args: [7]usize) abi.ChannelReceiveError![3]usize {
     const obj = try getObj(args[1], .{ .read = true });
     defer obj.release();
-    const channel = obj.getChannel() orelse return error.BadHandleKind;
+    const channel = obj.get(Channel) orelse return error.BadHandleKind;
 
     var handle_buffer: [Channel.max_handles]abi.Handle = undefined;
     // TODO: return byte and handle count on error.TooBig

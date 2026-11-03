@@ -11,6 +11,7 @@ const abi = @import("abi");
 const Object = @import("../object/Object.zig");
 const AddressSpace = @import("AddressSpace.zig");
 const HandleTable = @import("HandleTable.zig");
+const Process = @import("Process.zig");
 const Task = @This();
 const assert = std.debug.assert;
 
@@ -18,9 +19,8 @@ state: State,
 prev: OptTid,
 next: OptTid,
 
-/// null if this uses the global kernel table
-addr_space: ?*AddressSpace,
-handle_table: ?*HandleTable,
+/// null if this is kernel thread
+proc: ?*Process,
 kernel_stack: ?[]mem.Page,
 cpu_state: ?*align(1) arch.cpu.State,
 arch_specific: arch.cpu.PerTask,
@@ -143,13 +143,11 @@ pub fn spawnKernelTaskRaw(func: ?*const Task.Entry, arg: usize, stack: []mem.Pag
         .next = .none,
         .prev = .none,
 
-        .addr_space = null,
-        .handle_table = null,
+        .proc = null,
         .kernel_stack = stack,
         .cpu_state = state,
-        .arch_specific = undefined,
+        .arch_specific = .init,
     };
-    t.arch_specific.init();
 
     scheduler.makeReady(tid);
     return tid;
@@ -180,8 +178,7 @@ pub fn allocTask() !Tid {
         .state = .dead,
         .prev = .none,
         .next = .none,
-        .addr_space = undefined,
-        .handle_table = undefined,
+        .proc = undefined,
         .cpu_state = undefined,
         .kernel_stack = undefined,
         .arch_specific = undefined,
@@ -214,10 +211,8 @@ pub fn reapZombies() void {
         const t = tid.get();
         first_zombie = t.next;
 
+        if (t.proc) |proc| proc.obj.release();
         if (t.kernel_stack) |stack| PageAllocator.global.free(stack);
-        if (t.handle_table) |table| table.release();
-        if (t.addr_space) |addr_space| addr_space.release();
-        t.arch_specific.deinit();
         freeTask(tid);
     }
 }
