@@ -10,6 +10,7 @@ const vfs = @import("../fs/vfs/vfs.zig");
 const abi = @import("abi");
 const Object = @import("../object/Object.zig");
 const AddressSpace = @import("AddressSpace.zig");
+const HandleTable = @import("HandleTable.zig");
 const Task = @This();
 const assert = std.debug.assert;
 
@@ -60,73 +61,6 @@ pub const OptTid = enum(u32) {
     pub fn unwrap(x: OptTid) ?Tid {
         if (x == .none) return null;
         return @enumFromInt(@intFromEnum(x));
-    }
-};
-
-pub const HandleDesc = struct {
-    obj: *Object,
-    rights: abi.Rights,
-};
-
-pub const HandleTable = struct {
-    ref_count: std.atomic.Value(u32),
-    map: std.AutoHashMapUnmanaged(abi.Handle, HandleDesc),
-    lock: Spinlock,
-    bump: u32,
-
-    pub fn acquire(table: *HandleTable) void {
-        const prev = table.ref_count.fetchAdd(1, .monotonic);
-        assert(prev != 0);
-    }
-
-    pub fn release(table: *HandleTable) void {
-        const prev = table.ref_count.fetchSub(1, .acq_rel);
-        assert(prev != 0);
-        if (prev == 1) table.destroy();
-    }
-
-    pub fn create() !*HandleTable {
-        const table = try gpa.allocator.create(HandleTable);
-        table.* = .{
-            .ref_count = .init(1),
-            .map = .empty,
-            .lock = .init,
-            .bump = 0,
-        };
-        return table;
-    }
-
-    pub fn destroy(table: *HandleTable) void {
-        assert(table.ref_count.load(.monotonic) == 0);
-
-        var iter = table.map.iterator();
-        while (iter.next()) |kv| {
-            const desc = kv.value_ptr.*;
-            desc.obj.release();
-        }
-
-        table.map.deinit(gpa.allocator);
-        gpa.allocator.destroy(table);
-    }
-
-    pub fn getLocked(table: *HandleTable, handle: abi.Handle) ?HandleDesc {
-        return table.map.get(handle);
-    }
-
-    pub fn putLocked(table: *HandleTable, desc: HandleDesc) !abi.Handle {
-        const handle: abi.Handle = @enumFromInt(table.bump);
-        table.bump +|= 1;
-
-        const kv = try table.map.getOrPut(gpa.allocator, handle);
-        if (kv.found_existing) return error.TooManyHandles;
-
-        kv.value_ptr.* = desc;
-        return handle;
-    }
-
-    pub fn fetchRemoveLocked(table: *HandleTable, handle: abi.Handle) ?HandleDesc {
-        const kv = table.map.fetchRemove(handle) orelse return null;
-        return kv.value;
     }
 };
 

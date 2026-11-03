@@ -1,8 +1,8 @@
 const std = @import("std");
 const gpa = @import("../heap/gpa.zig").allocator;
-const Task = @import("../task/Task.zig");
 const Spinlock = @import("../sync/Spinlock.zig");
 const Object = @import("Object.zig");
+const HandleTable = @import("../task/HandleTable.zig");
 const Channel = @This();
 
 obj: Object,
@@ -62,7 +62,7 @@ pub const Message = struct {
     next: ?*Message = null,
     destroy_ptr: *const fn (msg: *Message) void,
     bytes: []const u8,
-    handles: []const Task.HandleDesc,
+    handles: []const HandleTable.Desc,
 
     pub fn destroy(msg: *Message) void {
         for (msg.handles) |d| d.obj.release();

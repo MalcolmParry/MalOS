@@ -8,6 +8,7 @@ const Task = @import("task/Task.zig");
 const Object = @import("object/Object.zig");
 const Channel = @import("object/Channel.zig");
 const Socket = @import("object/Socket.zig");
+const HandleTable = @import("task/HandleTable.zig");
 const scheduler = @import("task/scheduler.zig");
 
 const Handler = fn (args: [7]usize) Error![3]usize;
@@ -68,14 +69,9 @@ pub fn handler(args: [7]usize) [4]usize {
     return [1]usize{@intFromEnum(abi.Status.success)} ++ result;
 }
 
-fn getTable() *Task.HandleTable {
-    const task = Task.current_tid.get();
-    return task.handle_table.?;
-}
-
 fn getObj(handle_usize: usize, required_rights: abi.Rights) !*Object {
     const h: abi.Handle = try .fromUsize(handle_usize);
-    const table = getTable();
+    const table = HandleTable.getCurrent();
     const l = table.lock.lock();
     defer l.unlock();
 
@@ -90,7 +86,7 @@ fn handleClose(args: [7]usize) abi.HandleCloseError![3]usize {
     const handle: abi.Handle = try .fromUsize(args[1]);
 
     const old = blk: {
-        const table = getTable();
+        const table = HandleTable.getCurrent();
         const l = table.lock.lock();
         defer l.unlock();
 
@@ -105,7 +101,7 @@ fn handleDuplicate(args: [7]usize) abi.HandleDuplicateError![3]usize {
     const old: abi.Handle = try .fromUsize(args[1]);
     const rights: abi.Rights = try .fromUsize(args[2]);
 
-    const table = getTable();
+    const table = HandleTable.getCurrent();
     const l = table.lock.lock();
     defer l.unlock();
 
@@ -132,10 +128,10 @@ fn socketCreatePair(_: [7]usize) abi.SocketCreatePairError![3]usize {
         pair.end1.obj.release();
     }
 
-    const d0: Task.HandleDesc = .{ .obj = &pair.end0.obj, .rights = rights };
-    const d1: Task.HandleDesc = .{ .obj = &pair.end1.obj, .rights = rights };
+    const d0: HandleTable.Desc = .{ .obj = &pair.end0.obj, .rights = rights };
+    const d1: HandleTable.Desc = .{ .obj = &pair.end1.obj, .rights = rights };
 
-    const table = getTable();
+    const table = HandleTable.getCurrent();
     const l = table.lock.lock();
     defer l.unlock();
 
@@ -189,10 +185,10 @@ fn channelCreatePair(_: [7]usize) abi.ChannelCreatePairError![3]usize {
         pair.end1.obj.release();
     }
 
-    const d0: Task.HandleDesc = .{ .obj = &pair.end0.obj, .rights = rights };
-    const d1: Task.HandleDesc = .{ .obj = &pair.end1.obj, .rights = rights };
+    const d0: HandleTable.Desc = .{ .obj = &pair.end0.obj, .rights = rights };
+    const d1: HandleTable.Desc = .{ .obj = &pair.end1.obj, .rights = rights };
 
-    const table = getTable();
+    const table = HandleTable.getCurrent();
     const l = table.lock.lock();
     defer l.unlock();
 
@@ -228,10 +224,10 @@ fn channelSend(args: [7]usize) abi.ChannelSendError![3]usize {
     if (!arch.copyFromUser(bytes, user_bytes)) return error.Fault;
     if (!arch.copyFromUser(std.mem.sliceAsBytes(handles), std.mem.sliceAsBytes(user_handles))) return error.Fault;
 
-    const descs = try gpa.alloc(Task.HandleDesc, handle_count);
+    const descs = try gpa.alloc(HandleTable.Desc, handle_count);
     errdefer gpa.free(descs);
 
-    const table = getTable();
+    const table = HandleTable.getCurrent();
     const l = table.lock.lock();
     defer l.unlock();
 
@@ -275,7 +271,7 @@ fn channelReceive(args: [7]usize) abi.ChannelReceiveError![3]usize {
     defer msg.destroyNoReleaseHandles();
     const handles = handle_buffer[0..msg.handles.len];
 
-    const table = getTable();
+    const table = HandleTable.getCurrent();
     {
         const l = table.lock.lock();
         defer l.unlock();
