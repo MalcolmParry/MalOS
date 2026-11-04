@@ -1,8 +1,8 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const arch = @import("../arch/arch.zig").current;
-const Task = @import("../task/Task.zig");
-const scheduler = @import("../task/scheduler.zig");
+const Thread = @import("../proc/Thread.zig");
+const scheduler = @import("../proc/scheduler.zig");
 const Mutex = @This();
 
 const debug_info = switch (builtin.mode) {
@@ -21,7 +21,7 @@ pub const init: Mutex = .{
 };
 
 const Waiter = struct {
-    tid: Task.Tid,
+    thread: *Thread,
     next: ?*Waiter,
 };
 
@@ -31,13 +31,9 @@ const working: u32 = 1 << 2;
 const owner_shift = 3;
 const flags_mask: u32 = (1 << owner_shift) - 1;
 
-comptime {
-    std.debug.assert(@bitSizeOf(Task.Tid) <= 32 - owner_shift);
-}
-
 pub fn lock(m: *Mutex) void {
     arch.interrupt.assertEnabled();
-    const me = if (debug_info) @as(u32, @intFromEnum(Task.current_tid)) << owner_shift else 0;
+    const me = if (debug_info) @as(u32, @truncate(@intFromPtr(Thread.current))) << owner_shift else 0;
 
     if (m.state.cmpxchgStrong(0, locked | me, .acquire, .monotonic) == null) {
         @branchHint(.likely);
@@ -59,7 +55,7 @@ pub fn lock(m: *Mutex) void {
     }
 
     var waiter: Waiter = .{
-        .tid = Task.current_tid,
+        .tid = Thread.current,
         .next = null,
     };
 
@@ -70,7 +66,7 @@ pub fn lock(m: *Mutex) void {
     }
     m.last_waiter = &waiter;
 
-    _ = Task.spinlock.lock();
+    _ = scheduler.lock.lock();
     m.state.store(locked | contended | owner, .release);
     std.debug.assert(scheduler.scheduleLockHeld(.blocked));
     arch.interrupt.enable();
@@ -78,7 +74,7 @@ pub fn lock(m: *Mutex) void {
 
 pub fn unlock(m: *Mutex) void {
     arch.interrupt.assertEnabled();
-    const me = if (debug_info) @as(u32, @intFromEnum(Task.current_tid)) << owner_shift else 0;
+    const me = if (debug_info) @as(u32, @truncate(@intFromPtr(Thread.current))) << owner_shift else 0;
 
     if (debug_info) {
         const s = m.state.load(.monotonic);

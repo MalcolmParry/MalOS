@@ -2,7 +2,8 @@ const std = @import("std");
 const Channel = @import("Channel.zig");
 const Socket = @import("Socket.zig");
 const Vmo = @import("Vmo.zig");
-const Process = @import("../task/Process.zig");
+const Process = @import("../proc/Process.zig");
+const Thread = @import("../proc/Thread.zig");
 const Object = @This();
 
 kind: Kind,
@@ -14,6 +15,7 @@ pub const Kind = enum {
     vmo,
     klog,
     process,
+    thread,
 
     pub fn fromType(comptime T: type) Kind {
         return switch (T) {
@@ -21,6 +23,7 @@ pub const Kind = enum {
             Socket => .socket,
             Vmo => .vmo,
             Process => .process,
+            Thread => .thread,
             else => @compileError("bad type"),
         };
     }
@@ -42,6 +45,7 @@ pub fn release(obj: *Object) void {
         .vmo => obj.getAssertKind(Vmo).destroy(),
         .klog => {},
         .process => obj.getAssertKind(Process).destroy(),
+        .thread => obj.getAssertKind(Thread).destroy(),
     }
 }
 

@@ -2,7 +2,7 @@ const std = @import("std");
 const mem = @import("memory.zig");
 const arch = @import("arch/arch.zig").current;
 const vfs = @import("fs/vfs/vfs.zig");
-const AddressSpace = @import("task/AddressSpace.zig");
+const AddressSpace = @import("proc/AddressSpace.zig");
 
 const Result = struct {
     entry: usize,

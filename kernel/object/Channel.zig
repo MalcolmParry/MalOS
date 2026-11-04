@@ -2,7 +2,7 @@ const std = @import("std");
 const gpa = @import("../heap/gpa.zig").allocator;
 const Spinlock = @import("../sync/Spinlock.zig");
 const Object = @import("Object.zig");
-const HandleTable = @import("../task/HandleTable.zig");
+const HandleTable = @import("../proc/HandleTable.zig");
 const Channel = @This();
 
 obj: Object,

@@ -2,7 +2,8 @@ const std = @import("std");
 const gdt = @import("gdt.zig");
 const pmm = @import("../../pmm.zig");
 const arch = @import("x86_64.zig");
-const Task = @import("../../task/Task.zig");
+const Thread = @import("../../proc/Thread.zig");
+const scheduler = @import("../../proc/scheduler.zig");
 const mem = @import("../../memory.zig");
 
 pub const Fxsave = struct {
@@ -93,8 +94,9 @@ pub const PerProcess = struct {
     }
 };
 
-pub fn prepareTaskSwitch(new: *Task, maybe_old: ?*Task) void {
-    gdt.setKernelStackPtr(new.kernelStackTop());
+pub fn prepareThreadSwitch(new: *Thread, maybe_old: ?*Thread) void {
+    if (new.kernel_stack) |stack|
+        gdt.setKernelStackPtr(@intFromPtr(stack.ptr + stack.len));
 
     if (maybe_old) |old|
         old.arch_specific.simd_state.save();
@@ -171,7 +173,7 @@ pub const State = extern struct {
     }
 
     comptime {
-        const Status = @TypeOf(Task.spinlock.status.raw);
+        const Status = @TypeOf(scheduler.lock.status.raw);
         std.debug.assert(@sizeOf(Status) == 1);
         std.debug.assert(@intFromEnum(Status.unlocked) == 0);
     }
@@ -199,7 +201,7 @@ pub const State = extern struct {
             \\ addq $0x10, %rsp
             \\ iretq
             :
-            : [lock] "i" (&Task.spinlock.status.raw),
+            : [lock] "i" (&scheduler.lock.status.raw),
         );
     }
 
@@ -269,36 +271,29 @@ pub const State = extern struct {
     }
 };
 
-pub const task_callconv: std.builtin.CallingConvention = .{ .x86_64_sysv = .{} };
-const TaskInitInfo = struct {
+pub const thread_callconv: std.builtin.CallingConvention = .{ .x86_64_sysv = .{} };
+const ThreadInitInfo = struct {
     entry: usize,
     stack_top: usize,
     arg: usize,
 };
 
-pub fn pushInitTaskFrame(info: TaskInitInfo) *align(1) State {
-    const sp = (info.stack_top & ~@as(usize, 15)) - 8;
-    // return address
-    @as(*u64, @ptrFromInt(sp)).* = 0;
-
-    const state: *State = @ptrFromInt(sp - @sizeOf(State));
-    state.* = .{
+pub fn getInitThreadFrame(info: ThreadInitInfo) State {
+    return .{
         .rbp = 0,
         .rip = info.entry,
         .flags = .{ .IF = true },
-        .rsp = sp,
+        .rsp = (info.stack_top & ~@as(usize, 15)) - 8,
         .rdi = info.arg,
     };
-
-    return state;
 }
 
-const UserTaskInfo = struct {
+const UserThreadInfo = struct {
     entry: usize,
     args: [6]usize,
 };
 
-pub fn getUserTaskFrame(info: UserTaskInfo) State {
+pub fn getUserThreadFrame(info: UserThreadInfo) State {
     return .{
         .rip = info.entry,
         .flags = .{ .IF = true },

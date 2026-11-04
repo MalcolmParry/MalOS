@@ -6,15 +6,15 @@ const Vmm = @import("Vmm.zig");
 const PageAllocator = @import("heap/PageAllocator.zig");
 const std = @import("std");
 const builtin = @import("builtin");
-const scheduler = @import("task/scheduler.zig");
-const Task = @import("task/Task.zig");
-const AddressSpace = @import("task/AddressSpace.zig");
+const scheduler = @import("proc/scheduler.zig");
+const AddressSpace = @import("proc/AddressSpace.zig");
 const log = @import("log.zig");
 const gpa = @import("heap/gpa.zig");
 const elf_loader = @import("elf_loader.zig");
 const ustar = @import("shared").ustar;
 const Vmo = @import("object/Vmo.zig");
-const Process = @import("task/Process.zig");
+const Process = @import("proc/Process.zig");
+const Thread = @import("proc/Thread.zig");
 
 const pit = @import("drivers/x86/pit.zig");
 
@@ -67,7 +67,7 @@ pub fn kernelMain() !noreturn {
     const page_alloc = PageAllocator.global.allocator();
 
     pmm.init(&boot_info, page_alloc);
-    scheduler.init();
+    try scheduler.init();
     pit.init();
 
     for (boot_info.module_buffer[0..boot_info.module_count]) |*module| {
@@ -116,16 +116,28 @@ pub fn kernelMain() !noreturn {
     const vmo = try Vmo.fromOwnedSlice(initrd.phys_range);
     _ = vmo;
 
-    _ = try Task.spawnKernelTask(init, .{initrd.data.?});
-    scheduler.exitTask();
+    const stack_size = 1024 * 32;
+    const stack = try PageAllocator.global.alloc(stack_size / mem.page_size, .{
+        .global = true,
+        .cache_mode = .full,
+        .executable = false,
+        .user = false,
+        .writable = true,
+    });
+
+    const init_proc = try Process.create();
+    init_proc.arch_specific.giveAllPermissions();
+    const init_thread = try Thread.create(init_proc, stack);
+    try init_thread.startWrapped(init, .{initrd.data.?});
+
+    init_thread.obj.release();
+    init_proc.obj.release();
+    Thread.exitCurrent();
 }
 
 fn init(initrd: []const u8) !noreturn {
-    const task = Task.current_tid.get();
-    const proc = try Process.create();
-    task.proc = proc;
-    const as = &proc.addr_space;
-    as.table.use();
+    const thread = Thread.current;
+    const proc = thread.proc.?;
 
     const klog_h = try proc.handle_table.putLocked(.{
         .obj = &log.log_obj,
@@ -137,14 +149,12 @@ fn init(initrd: []const u8) !noreturn {
     });
 
     const init_elf = try ustar.lookup(initrd, "init") orelse return error.InitNotFound;
-    const result = try elf_loader.load(as, init_elf);
+    const result = try elf_loader.load(&proc.addr_space, init_elf);
 
-    var state = arch.cpu.getUserTaskFrame(.{
+    var state = arch.cpu.getUserThreadFrame(.{
         .entry = result.entry,
         .args = .{ @intFromEnum(klog_h), 0, 0, 0, 0, 0 },
     });
 
-    proc.arch_specific.giveAllPermissions();
-    arch.cpu.prepareTaskSwitch(task, null);
     scheduler.preempt(&state);
 }

@@ -4,8 +4,8 @@ const options = @import("options");
 const mem = @import("../../memory.zig");
 const arch = @import("x86_64.zig");
 const pic = @import("pic.zig");
-const scheduler = @import("../../task/scheduler.zig");
-const Task = @import("../../task/Task.zig");
+const scheduler = @import("../../proc/scheduler.zig");
+const Thread = @import("../../proc/Thread.zig");
 const log = @import("../../log.zig");
 const syscall = @import("../../syscall.zig");
 const abi = @import("abi");
@@ -159,9 +159,8 @@ fn handler(state: *align(1) arch.cpu.State) callconv(.{ .x86_64_sysv = .{ .incom
             };
 
             if (options.strace) {
-                const tid_i = @intFromEnum(Task.current_tid);
-                std.log.info("tid {} syscall {{\x1b[94m.{s}\x1b[m (#{}), {}, {}, {}, {}, {}, {}}}", .{
-                    tid_i,
+                std.log.info("thread 0x{x} syscall {{\x1b[94m.{s}\x1b[m (#{}), {}, {}, {}, {}, {}, {}}}", .{
+                    @intFromPtr(Thread.current),
                     if (std.enums.fromInt(abi.Syscall, args[0])) |x| @tagName(x) else "invalid",
                     args[0],
                     args[1],
@@ -175,9 +174,8 @@ fn handler(state: *align(1) arch.cpu.State) callconv(.{ .x86_64_sysv = .{ .incom
 
             const result = syscall.handler(args);
             if (options.strace) {
-                const tid_i = @intFromEnum(Task.current_tid);
-                std.log.info("tid {} syscall ret = {{\x1b[92m.{s}\x1b[m (#{}), {}, {}, {}}}", .{
-                    tid_i,
+                std.log.info("thread 0x{x} syscall ret = {{\x1b[92m.{s}\x1b[m (#{}), {}, {}, {}}}", .{
+                    @intFromPtr(Thread.current),
                     @tagName(@as(abi.Status, @enumFromInt(result[0]))),
                     result[0],
                     result[1],

@@ -1,6 +1,6 @@
 const std = @import("std");
 const abi = @import("abi");
-const Task = @import("Task.zig");
+const Thread = @import("Thread.zig");
 const Object = @import("../object/Object.zig");
 const Spinlock = @import("../sync/Spinlock.zig");
 const gpa = @import("../heap/gpa.zig").allocator;
@@ -53,6 +53,6 @@ pub fn fetchRemoveLocked(table: *HandleTable, handle: abi.Handle) ?Desc {
 }
 
 pub fn getCurrent() *HandleTable {
-    const proc = Task.current_tid.get().proc orelse @panic("cant get handle table in kernel thread");
+    const proc = Thread.current.proc orelse @panic("cant get handle table in kernel thread");
     return &proc.handle_table;
 }

@@ -4,12 +4,11 @@ const log = @import("log.zig");
 const abi = @import("abi");
 const vfs = @import("fs/vfs/vfs.zig");
 const gpa = @import("heap/gpa.zig").allocator;
-const Task = @import("task/Task.zig");
 const Object = @import("object/Object.zig");
 const Channel = @import("object/Channel.zig");
 const Socket = @import("object/Socket.zig");
-const HandleTable = @import("task/HandleTable.zig");
-const scheduler = @import("task/scheduler.zig");
+const HandleTable = @import("proc/HandleTable.zig");
+const Thread = @import("proc/Thread.zig");
 
 const Handler = fn (args: [7]usize) Error![3]usize;
 const Error = error{
@@ -327,5 +326,5 @@ fn exit(args: [7]usize) ![3]usize {
     const status = args[1];
     _ = status;
 
-    scheduler.exitTask();
+    Thread.exitCurrent();
 }
