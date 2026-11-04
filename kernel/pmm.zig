@@ -176,13 +176,7 @@ const PageDesc = struct {
     const Data = union {
         none: void,
         next_free: OptIndex,
-        vfs_cache: VfsCache,
         gpa: GpaPage,
-
-        const VfsCache = struct {
-            lock: Spinlock,
-            dirty: bool,
-        };
 
         const GpaPage = struct {
             first_free: u16,

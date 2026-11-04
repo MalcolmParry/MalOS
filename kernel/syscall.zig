@@ -2,7 +2,6 @@ const std = @import("std");
 const arch = @import("arch/arch.zig").current;
 const log = @import("log.zig");
 const abi = @import("abi");
-const vfs = @import("fs/vfs/vfs.zig");
 const gpa = @import("heap/gpa.zig").allocator;
 const Object = @import("object/Object.zig");
 const Channel = @import("object/Channel.zig");
