@@ -92,6 +92,13 @@ pub fn allocatePage() !*mem.PhysPage {
     return error.OutOfMemory;
 }
 
+pub fn allocPageZeroed() !Index {
+    const page = try allocatePage();
+    const index: Index = .fromPtr(page);
+    @memset(&index.toDirectMap().bytes, 0);
+    return index;
+}
+
 pub fn freePage(page: *mem.PhysPage) void {
     const lock = spinlock.lock();
     defer lock.unlock();

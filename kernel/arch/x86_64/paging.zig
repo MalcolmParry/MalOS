@@ -5,6 +5,7 @@ const Vmm = @import("../../Vmm.zig");
 const pmm = @import("../../pmm.zig");
 const arch = @import("x86_64.zig");
 const BootInfo = @import("../../BootInfo.zig");
+const Vmo = @import("../../object/Vmo.zig");
 
 pub const Entry = packed struct(u64) {
     present: bool,
@@ -146,11 +147,12 @@ fn walkOrCreate(l4: *Table, page_index: usize) !*Table {
     return l1;
 }
 
-pub fn mapAndAllocRegion(l4: *Table, first_page: usize, page_count: usize, flags: Vmm.PageFlags, zero_pages: bool) !void {
-    std.debug.assert(!(flags.user and flags.global));
+pub fn mapVmoLocked(l4: *Table, vmo: *Vmo, vmo_first_page: usize, first_page: usize, page_count: usize, flags: Vmm.PageFlags) !void {
+    std.debug.assert(!flags.global);
+    std.debug.assert(flags.user);
 
     var mapped: usize = 0;
-    errdefer unmapAndFreeRegion(l4, first_page, mapped);
+    errdefer unmap(l4, first_page, mapped);
 
     var l1: *Table = undefined;
     while (mapped < page_count) : (mapped += 1) {
@@ -159,41 +161,34 @@ pub fn mapAndAllocRegion(l4: *Table, first_page: usize, page_count: usize, flags
         if (mapped == 0 or il1 == 0)
             l1 = try walkOrCreate(l4, page_index);
 
-        std.debug.assert(!l1.entries[il1].present);
-        const phys = try pmm.allocatePage();
-        const index: pmm.Index = .fromPtr(phys);
-        if (zero_pages) @memset(&index.toDirectMap().bytes, 0);
+        const phys_index = vmo.getPhysLocked(vmo_first_page + mapped);
 
+        std.debug.assert(!l1.entries[il1].present);
         l1.entries[il1] = .{
             .present = true,
-            .writable = flags.writable,
-            .user = flags.user,
+            .writable = flags.writable and phys_index != null,
+            .user = true,
             .write_through = flags.cache_mode == .write_through,
             .disable_cache = flags.cache_mode == .disabled,
             .huge = false,
-            .global = flags.global,
-            .address = @intFromEnum(index),
+            .global = false,
+            .address = @intFromEnum(phys_index orelse pmm.zeroPage()),
             .disable_execute = !flags.executable,
         };
     }
 }
 
-pub fn unmapAndFreeRegion(l4: *Table, first_page: usize, page_count: usize) void {
-    var unmapped: usize = 0;
+pub fn unmap(l4: *Table, first_page: usize, page_count: usize) void {
     var l1: *Table = undefined;
-    while (unmapped < page_count) : (unmapped += 1) {
-        const page_index = first_page + unmapped;
+    for (0..page_count) |i| {
+        const page_index = first_page + i;
         const il1 = page_index & 0x1ff;
-        if (unmapped == 0 or il1 == 0)
+        if (i == 0 or il1 == 0)
             l1 = walk(l4, page_index);
 
-        const entry = l1.entries[il1];
+        std.debug.assert(l1.entries[il1].present);
         l1.entries[il1] = .blank;
         invalidatePage(@ptrFromInt(page_index * mem.page_size));
-
-        std.debug.assert(entry.present);
-        const index: pmm.Index = @enumFromInt(entry.address);
-        pmm.freePage(index.toPtr());
     }
 }
 

@@ -7,7 +7,9 @@ pub const std_options: std.Options = .{
     .logFn = lib.log,
 };
 
-pub fn main() !void {
+pub fn main(initrd: abi.Handle) !void {
+    _ = initrd;
+    // lib.syscall.handleClose(initrd) catch @panic("failed to close handle");
     std.log.info("hello world", .{});
 
     {

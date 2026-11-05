@@ -1,14 +1,14 @@
 const std = @import("std");
 const mem = @import("memory.zig");
 const arch = @import("arch/arch.zig").current;
-const AddressSpace = @import("proc/AddressSpace.zig");
+const Vmar = @import("object/Vmar.zig");
+const Vmo = @import("object/Vmo.zig");
 
 const Result = struct {
     entry: usize,
 };
 
-/// as must be loaded
-pub fn load(as: *AddressSpace, elf: []const u8) !Result {
+pub fn load(vmar: *Vmar, elf: []const u8) !Result {
     var reader: std.Io.Reader = .fixed(elf);
 
     const header = try std.elf.Header.read(&reader);
@@ -16,6 +16,9 @@ pub fn load(as: *AddressSpace, elf: []const u8) !Result {
     if (header.machine != .X86_64) return error.NotSupported;
     if (header.type != .EXEC) return error.NotSupported;
     if (header.entry > arch.paging.max_user_addr) return error.BadElf;
+
+    const vmar_l = vmar.lock.lock();
+    defer vmar_l.unlock();
 
     for (0..header.phnum) |i| {
         reader.seek = header.phoff + i * header.phentsize;
@@ -28,20 +31,20 @@ pub fn load(as: *AddressSpace, elf: []const u8) !Result {
         const end = std.math.add(u64, ph.vaddr, ph.memsz) catch return error.BadElf;
         if (end > arch.paging.max_user_addr) return error.BadElf;
 
-        const first_page = std.mem.alignBackward(u64, ph.vaddr, mem.page_size) / mem.page_size;
-        const end_page = std.mem.alignForward(u64, end, mem.page_size) / mem.page_size;
+        const first_page = ph.vaddr / mem.page_size;
+        const offset_from_page = ph.vaddr % mem.page_size;
+        const end_page = (end + mem.page_size - 1) / mem.page_size;
         const page_count = end_page - first_page;
 
-        try as.map(first_page, page_count, .{
-            .alloc = true,
-            .w = true,
-            .x = true,
+        const vmo = try Vmo.create(ph.memsz + offset_from_page);
+        defer vmo.obj.release();
+
+        try vmo.write(offset_from_page, elf[ph.offset..][0..ph.filesz]);
+        try vmo.commitLocked(0, page_count);
+        try vmar.map(vmo, 0, first_page, page_count, .{
+            .w = ph.flags.W,
+            .x = ph.flags.X,
         });
-
-        const mapping = @as([*]u8, @ptrFromInt(ph.vaddr))[0..ph.filesz];
-        @memcpy(mapping, elf[ph.offset..][0..mapping.len]);
-
-        // TODO: remap as with proper permissions
     }
 
     return .{ .entry = header.entry };

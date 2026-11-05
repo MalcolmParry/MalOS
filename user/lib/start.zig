@@ -1,4 +1,5 @@
 const std = @import("std");
+const abi = @import("abi");
 const lib = @import("lib.zig");
 const root = @import("root");
 
@@ -17,16 +18,17 @@ pub fn _start() callconv(.naked) noreturn {
     );
 }
 
-fn callMain(klog_h: usize) callconv(.{ .x86_64_sysv = .{} }) noreturn {
+fn callMain(klog_h: usize, initrd_i: usize) callconv(.{ .x86_64_sysv = .{} }) noreturn {
     lib.klog = @enumFromInt(klog_h);
+    const initrd: abi.Handle = @enumFromInt(initrd_i);
 
     const Ret = @typeInfo(@TypeOf(root.main)).@"fn".return_type.?;
     switch (@typeInfo(Ret)) {
         .noreturn => {
-            root.main();
+            root.main(initrd);
         },
         .void => {
-            root.main();
+            root.main(initrd);
             lib.syscall.exit(0);
         },
         .error_union => |eu| {
@@ -35,7 +37,7 @@ fn callMain(klog_h: usize) callconv(.{ .x86_64_sysv = .{} }) noreturn {
                 else => @compileError("bad return type"),
             }
 
-            root.main() catch |err| {
+            root.main(initrd) catch |err| {
                 std.log.err("main returned with {}", .{err});
                 lib.syscall.exit(1);
             };

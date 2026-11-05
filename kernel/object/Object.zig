@@ -2,6 +2,7 @@ const std = @import("std");
 const Channel = @import("Channel.zig");
 const Socket = @import("Socket.zig");
 const Vmo = @import("Vmo.zig");
+const Vmar = @import("Vmar.zig");
 const Process = @import("../proc/Process.zig");
 const Thread = @import("../proc/Thread.zig");
 const Object = @This();
@@ -12,18 +13,22 @@ ref_count: std.atomic.Value(u32),
 pub const Kind = enum {
     channel,
     socket,
-    vmo,
     klog,
+
     process,
     thread,
+
+    vmo,
+    vmar,
 
     pub fn fromType(comptime T: type) Kind {
         return switch (T) {
             Channel => .channel,
             Socket => .socket,
-            Vmo => .vmo,
             Process => .process,
             Thread => .thread,
+            Vmo => .vmo,
+            Vmar => .vmar,
             else => @compileError("bad type"),
         };
     }
@@ -42,10 +47,11 @@ pub fn release(obj: *Object) void {
     switch (obj.kind) {
         .channel => obj.getAssertKind(Channel).destroyEnd(),
         .socket => obj.getAssertKind(Socket).destroyEnd(),
-        .vmo => obj.getAssertKind(Vmo).destroy(),
         .klog => {},
         .process => obj.getAssertKind(Process).destroy(),
         .thread => obj.getAssertKind(Thread).destroy(),
+        .vmo => obj.getAssertKind(Vmo).destroy(),
+        .vmar => obj.getAssertKind(Vmar).destroy(),
     }
 }
 

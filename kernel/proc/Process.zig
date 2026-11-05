@@ -3,15 +3,15 @@ const arch = @import("../arch/arch.zig").current;
 const Spinlock = @import("../sync/Spinlock.zig");
 const Object = @import("../object/Object.zig");
 const HandleTable = @import("HandleTable.zig");
-const AddressSpace = @import("AddressSpace.zig");
+const Vmar = @import("../object/Vmar.zig");
 const Thread = @import("Thread.zig");
 const gpa = @import("../heap/gpa.zig").allocator;
 const Process = @This();
 
 obj: Object,
 handle_table: HandleTable,
-addr_space: AddressSpace,
 arch_specific: arch.cpu.PerProcess,
+vmar: *Vmar,
 
 lock: Spinlock,
 /// owned by lock
@@ -26,6 +26,9 @@ pub const State = enum {
 };
 
 pub fn create() !*Process {
+    const vmar = try Vmar.create();
+    errdefer vmar.obj.release();
+
     const proc = try gpa.create(Process);
     errdefer gpa.destroy(proc);
 
@@ -35,8 +38,8 @@ pub fn create() !*Process {
             .ref_count = .init(1),
         },
         .handle_table = .init,
-        .addr_space = undefined,
         .arch_specific = undefined,
+        .vmar = vmar,
 
         .lock = .init,
         .state = .initial,
@@ -45,7 +48,6 @@ pub fn create() !*Process {
 
     proc.arch_specific.init();
     errdefer proc.arch_specific.deinit();
-    try proc.addr_space.init();
     return proc;
 }
 
@@ -54,8 +56,8 @@ pub fn destroy(proc: *Process) void {
 
     if (proc.state == .initial) {
         proc.handle_table.deinit();
-        proc.addr_space.deinit();
         proc.arch_specific.deinit();
+        proc.vmar.obj.release();
     }
 
     gpa.destroy(proc);
@@ -92,6 +94,6 @@ pub fn unlinkLiveThread(proc: *Process, thread: *Thread) void {
     proc.state = .dead;
     l.unlock();
     proc.handle_table.deinit();
-    proc.addr_space.deinit();
     proc.arch_specific.deinit();
+    proc.vmar.obj.release();
 }

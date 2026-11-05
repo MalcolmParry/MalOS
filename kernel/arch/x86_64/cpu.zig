@@ -107,7 +107,7 @@ pub fn prepareThreadSwitch(new: *Thread, maybe_old: ?*Thread) void {
         return;
     };
 
-    proc.addr_space.table.use();
+    proc.vmar.page_table.use();
     gdt.setIoMap(proc.arch_specific.io_map0, proc.arch_specific.io_map1);
 }
 

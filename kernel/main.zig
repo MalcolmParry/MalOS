@@ -7,7 +7,6 @@ const PageAllocator = @import("heap/PageAllocator.zig");
 const std = @import("std");
 const builtin = @import("builtin");
 const scheduler = @import("proc/scheduler.zig");
-const AddressSpace = @import("proc/AddressSpace.zig");
 const log = @import("log.zig");
 const gpa = @import("heap/gpa.zig");
 const elf_loader = @import("elf_loader.zig");
@@ -114,7 +113,6 @@ pub fn kernelMain() !noreturn {
     } else @panic("initrd not found");
 
     const vmo = try Vmo.fromOwnedSlice(initrd.phys_range);
-    _ = vmo;
 
     const stack_size = 1024 * 32;
     const stack = try PageAllocator.global.alloc(stack_size / mem.page_size, .{
@@ -128,14 +126,14 @@ pub fn kernelMain() !noreturn {
     const init_proc = try Process.create();
     init_proc.arch_specific.giveAllPermissions();
     const init_thread = try Thread.create(init_proc, stack);
-    try init_thread.startWrapped(init, .{initrd.data.?});
+    try init_thread.startWrapped(init, .{ initrd.data.?, vmo });
 
     init_thread.obj.release();
     init_proc.obj.release();
     Thread.exitCurrent();
 }
 
-fn init(initrd: []const u8) !noreturn {
+fn init(initrd: []const u8, initrd_vmo: *Vmo) !noreturn {
     const thread = Thread.current;
     const proc = thread.proc.?;
 
@@ -148,12 +146,21 @@ fn init(initrd: []const u8) !noreturn {
         },
     });
 
+    const initrd_h = try proc.handle_table.putLocked(.{
+        .obj = &initrd_vmo.obj,
+        .rights = .{
+            .duplicate = true,
+            .transfer = true,
+            .read = true,
+        },
+    });
+
     const init_elf = try ustar.lookup(initrd, "init") orelse return error.InitNotFound;
-    const result = try elf_loader.load(&proc.addr_space, init_elf);
+    const result = try elf_loader.load(proc.vmar, init_elf);
 
     var state = arch.cpu.getUserThreadFrame(.{
         .entry = result.entry,
-        .args = .{ @intFromEnum(klog_h), 0, 0, 0, 0, 0 },
+        .args = .{ @intFromEnum(klog_h), @intFromEnum(initrd_h), 0, 0, 0, 0 },
     });
 
     scheduler.preempt(&state);
