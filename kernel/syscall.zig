@@ -8,6 +8,7 @@ const Channel = @import("object/Channel.zig");
 const Socket = @import("object/Socket.zig");
 const HandleTable = @import("proc/HandleTable.zig");
 const Thread = @import("proc/Thread.zig");
+const Vmo = @import("object/Vmo.zig");
 
 const Handler = fn (args: [7]usize) Error![3]usize;
 const Error = error{
@@ -22,6 +23,7 @@ const Error = error{
     IsFull,
     IsEmpty,
     NoRight,
+    OutOfRange,
 };
 
 fn errorToStatus(err: Error) abi.Status {
@@ -37,6 +39,7 @@ fn errorToStatus(err: Error) abi.Status {
         Error.IsFull => .is_full,
         Error.IsEmpty => .is_empty,
         Error.NoRight => .no_right,
+        Error.OutOfRange => .out_of_range,
     };
 }
 
@@ -56,6 +59,10 @@ pub fn handler(args: [7]usize) [4]usize {
         .socket_receive => &socketReceive,
 
         .klog_write => &klogWrite,
+
+        .vmo_create => &vmoCreate,
+        .vmo_write => &vmoWrite,
+        .vmo_read => &vmoRead,
 
         .exit => &exit,
     };
@@ -317,6 +324,70 @@ fn klogWrite(args: [7]usize) abi.KLogWriteError![3]usize {
     if (!arch.copyFromUser(data, user_data)) return error.Fault;
 
     log.writer.writeAll(data) catch {};
+
+    return @splat(0);
+}
+
+fn vmoCreate(args: [7]usize) abi.VmoCreateError![3]usize {
+    const size = args[1];
+    const vmo = try Vmo.create(size);
+
+    const table = HandleTable.getCurrent();
+    const l = table.lock.lock();
+    defer l.unlock();
+
+    const h = try table.putLocked(.{
+        .obj = &vmo.obj,
+        .rights = .{
+            .duplicate = true,
+            .transfer = true,
+            .read = true,
+            .write = true,
+        },
+    });
+
+    return .{ @intFromEnum(h), 0, 0 };
+}
+
+fn vmoWrite(args: [7]usize) abi.VmoWriteError![3]usize {
+    const obj = try getObj(args[1], .{ .write = true });
+    defer obj.release();
+    const vmo = obj.get(Vmo) orelse return error.BadHandleKind;
+
+    var vmo_offset = args[2];
+    var remaining_user = @as([*]allowzero const u8, @ptrFromInt(args[3]))[0..args[4]];
+    while (remaining_user.len != 0) {
+        var buffer: [8 * 1024]u8 = undefined;
+        const user = remaining_user[0..@min(remaining_user.len, buffer.len)];
+        const data = buffer[0..user.len];
+        if (!arch.copyFromUser(data, user)) return error.Fault;
+
+        try vmo.write(vmo_offset, data);
+        remaining_user = remaining_user[data.len..];
+        vmo_offset += data.len;
+    }
+
+    return @splat(0);
+}
+
+fn vmoRead(args: [7]usize) abi.VmoReadError![3]usize {
+    const obj = try getObj(args[1], .{ .read = true });
+    defer obj.release();
+    const vmo = obj.get(Vmo) orelse return error.BadHandleKind;
+
+    var vmo_offset = args[2];
+    var remaining_user = @as([*]allowzero u8, @ptrFromInt(args[3]))[0..args[4]];
+    while (remaining_user.len != 0) {
+        var full_buffer: [8 * 1024]u8 = undefined;
+        const user = remaining_user[0..@min(remaining_user.len, full_buffer.len)];
+        const buffer = full_buffer[0..user.len];
+
+        try vmo.read(vmo_offset, buffer);
+        remaining_user = remaining_user[buffer.len..];
+        vmo_offset += buffer.len;
+
+        if (!arch.copyToUser(user, buffer)) return error.Fault;
+    }
 
     return @splat(0);
 }

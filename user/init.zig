@@ -46,6 +46,18 @@ pub fn main(initrd: abi.Handle) !void {
         lib.syscall.klogWrite(lib.klog, buffer[0..read]) catch {};
     }
 
+    {
+        const vmo = try lib.syscall.vmoCreate(64 * 1024);
+        defer lib.syscall.handleClose(vmo) catch @panic("failed to close handle");
+
+        const base = 4090;
+        const msg = "message written to vmo";
+        try lib.syscall.vmoWrite(vmo, base, "   " ++ msg);
+        var buffer: [msg.len]u8 = undefined;
+        try lib.syscall.vmoRead(vmo, base + 3, &buffer);
+        std.log.info("data in vmo: '{s}'", .{&buffer});
+    }
+
     const disk = getDrive(.{
         .io_base = 0x1f0,
         .kind = .master,

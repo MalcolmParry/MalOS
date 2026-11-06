@@ -188,8 +188,10 @@ pub fn write(vmo: *Vmo, offset: usize, data: []const u8) !void {
     const l = vmo.lock.lock();
     defer l.unlock();
 
+    const end = std.math.add(usize, offset, data.len) catch return error.OutOfRange;
+    if (end > std.math.maxInt(usize) - mem.page_size) return error.OutOfRange;
     const page_start = offset / mem.page_size;
-    const page_end = (offset + data.len + mem.page_size - 1) / mem.page_size;
+    const page_end = (end + mem.page_size - 1) / mem.page_size;
     const page_len = page_end - page_start;
     if (vmo.pageCount() < page_end) return error.OutOfRange;
     try vmo.expandToPageCount(page_end);
@@ -212,6 +214,38 @@ pub fn write(vmo: *Vmo, offset: usize, data: []const u8) !void {
         const len = @min(mem.page_size - offset_from_page, data.len - written);
         @memcpy(direct[offset_from_page..][0..len], data[written..][0..len]);
         written += len;
+    }
+}
+
+pub fn read(vmo: *Vmo, offset: usize, buffer: []u8) !void {
+    if (buffer.len == 0) return;
+
+    const l = vmo.lock.lock();
+    defer l.unlock();
+
+    const end = std.math.add(usize, offset, buffer.len) catch return error.OutOfRange;
+    if (end > std.math.maxInt(usize) - mem.page_size) return error.OutOfRange;
+    const page_start = offset / mem.page_size;
+    const page_end = (end + mem.page_size - 1) / mem.page_size;
+    const page_len = page_end - page_start;
+    if (vmo.pageCount() < page_end) return error.OutOfRange;
+
+    var bytes_read: usize = 0;
+    for (0..page_len) |i| {
+        const page_offset = page_start + i;
+        const maybe_page = vmo.getPhysLocked(page_offset);
+
+        const offset_from_page = if (i == 0) offset % mem.page_size else 0;
+        const len = @min(mem.page_size - offset_from_page, buffer.len - bytes_read);
+
+        if (maybe_page) |page| {
+            const direct = &page.toDirectMap().bytes;
+            @memcpy(buffer[bytes_read..][0..len], direct[offset_from_page..][0..len]);
+        } else {
+            @memset(buffer[bytes_read..][0..len], 0);
+        }
+
+        bytes_read += len;
     }
 }
 

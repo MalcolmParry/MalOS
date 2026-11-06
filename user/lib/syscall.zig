@@ -163,6 +163,62 @@ pub fn klogWrite(klog: abi.Handle, data: []allowzero const u8) !void {
         else => unexpected(result[0]),
     };
 }
+
+pub fn vmoCreate(size: usize) !abi.Handle {
+    const result = syscall(.{
+        @intFromEnum(abi.Syscall.vmo_create),
+        size,
+    });
+
+    return switch (try readStatus(result[0])) {
+        .success => @enumFromInt(result[1]),
+        .out_of_memory => error.OutOfMemory,
+        .too_many_handles => error.TooManyHandles,
+        else => unexpected(result[0]),
+    };
+}
+
+pub fn vmoWrite(vmo: abi.Handle, vmo_offset: usize, data: []const u8) !void {
+    const result = syscall(.{
+        @intFromEnum(abi.Syscall.vmo_write),
+        @intFromEnum(vmo),
+        vmo_offset,
+        @intFromPtr(data.ptr),
+        data.len,
+    });
+
+    return switch (try readStatus(result[0])) {
+        .success => {},
+        .out_of_memory => error.OutOfMemory,
+        .fault => error.Fault,
+        .bad_handle => error.BadHandle,
+        .bad_handle_kind => error.BadHandleKind,
+        .no_right => error.NoRight,
+        .out_of_range => error.OutOfRange,
+        else => unexpected(result[0]),
+    };
+}
+
+pub fn vmoRead(vmo: abi.Handle, vmo_offset: usize, buffer: []u8) !void {
+    const result = syscall(.{
+        @intFromEnum(abi.Syscall.vmo_read),
+        @intFromEnum(vmo),
+        vmo_offset,
+        @intFromPtr(buffer.ptr),
+        buffer.len,
+    });
+
+    return switch (try readStatus(result[0])) {
+        .success => {},
+        .fault => error.Fault,
+        .bad_handle => error.BadHandle,
+        .bad_handle_kind => error.BadHandleKind,
+        .no_right => error.NoRight,
+        .out_of_range => error.OutOfRange,
+        else => unexpected(result[0]),
+    };
+}
+
 pub fn exit(status: usize) noreturn {
     _ = syscall(.{
         @intFromEnum(abi.Syscall.exit),
