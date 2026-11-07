@@ -4,6 +4,7 @@ const abi = @import("abi");
 pub const syscall = @import("syscall.zig");
 
 pub var klog: abi.Handle = undefined;
+pub var vmar: abi.Handle = undefined;
 
 pub fn log(
     comptime level: std.log.Level,

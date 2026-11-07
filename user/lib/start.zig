@@ -18,8 +18,9 @@ pub fn _start() callconv(.naked) noreturn {
     );
 }
 
-fn callMain(klog_h: usize, initrd_i: usize) callconv(.{ .x86_64_sysv = .{} }) noreturn {
+fn callMain(klog_h: usize, initrd_i: usize, vmar_h: usize) callconv(.{ .x86_64_sysv = .{} }) noreturn {
     lib.klog = @enumFromInt(klog_h);
+    lib.vmar = @enumFromInt(vmar_h);
     const initrd: abi.Handle = @enumFromInt(initrd_i);
 
     const Ret = @typeInfo(@TypeOf(root.main)).@"fn".return_type.?;

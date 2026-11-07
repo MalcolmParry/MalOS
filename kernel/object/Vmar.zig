@@ -55,8 +55,7 @@ pub fn destroy(vmar: *Vmar) void {
     gpa.destroy(vmar);
 }
 
-/// assumes lock is held
-pub fn find(vmar: *Vmar, page_index: usize) ?*Region {
+pub fn findLocked(vmar: *Vmar, page_index: usize) ?*Region {
     var maybe_region = vmar.first_region;
     while (maybe_region) |region| : (maybe_region = region.next) {
         if (region.first_page > page_index) return null;
@@ -66,9 +65,8 @@ pub fn find(vmar: *Vmar, page_index: usize) ?*Region {
     return null;
 }
 
-/// assumes lock is held
 /// returns virtual page index
-pub fn findGap(vmar: *Vmar, page_count: usize, hint: ?usize) ?usize {
+pub fn findGapLocked(vmar: *Vmar, page_count: usize, hint: ?usize) ?usize {
     _ = hint;
 
     const min_page = 1024 * 1024 / mem.page_size;
@@ -89,13 +87,13 @@ pub fn findGap(vmar: *Vmar, page_count: usize, hint: ?usize) ?usize {
 }
 
 /// assumes vmar & vmo locks are held
-pub fn map(vmar: *Vmar, vmo: *Vmo, vmo_first_page: usize, first_page: usize, page_count: usize, flags: Region.Flags) !void {
+pub fn mapLocked(vmar: *Vmar, vmo: *Vmo, vmo_first_page: usize, first_page: usize, page_count: usize, flags: Region.Flags) !void {
     if (vmo_first_page > vmo.pageCount()) return error.OutOfRange;
 
     const region = try gpa.create(Region);
     errdefer gpa.destroy(region);
 
-    try vmar.unmap(first_page, page_count);
+    try vmar.unmapLocked(first_page, page_count);
 
     try arch.paging.mapVmoLocked(vmar.page_table, vmo, vmo_first_page, first_page, @min(page_count, vmo.pageCount() - vmo_first_page), .{
         .global = false,
@@ -130,8 +128,7 @@ pub fn map(vmar: *Vmar, vmo: *Vmo, vmo_first_page: usize, first_page: usize, pag
     }
 }
 
-/// assumes lock is held
-pub fn unmap(vmar: *Vmar, first_page: usize, page_count: usize) !void {
+pub fn unmapLocked(vmar: *Vmar, first_page: usize, page_count: usize) !void {
     _ = vmar;
     _ = first_page;
     _ = page_count;

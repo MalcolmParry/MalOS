@@ -1,4 +1,5 @@
 const std = @import("std");
+const mem = @import("memory.zig");
 const arch = @import("arch/arch.zig").current;
 const log = @import("log.zig");
 const abi = @import("abi");
@@ -9,6 +10,7 @@ const Socket = @import("object/Socket.zig");
 const HandleTable = @import("proc/HandleTable.zig");
 const Thread = @import("proc/Thread.zig");
 const Vmo = @import("object/Vmo.zig");
+const Vmar = @import("object/Vmar.zig");
 
 const Handler = fn (args: [7]usize) Error![3]usize;
 const Error = error{
@@ -24,6 +26,8 @@ const Error = error{
     IsEmpty,
     NoRight,
     OutOfRange,
+    NotAligned,
+    NoGap,
 };
 
 fn errorToStatus(err: Error) abi.Status {
@@ -40,6 +44,8 @@ fn errorToStatus(err: Error) abi.Status {
         Error.IsEmpty => .is_empty,
         Error.NoRight => .no_right,
         Error.OutOfRange => .out_of_range,
+        Error.NotAligned => .not_aligned,
+        Error.NoGap => .no_gap,
     };
 }
 
@@ -63,6 +69,8 @@ pub fn handler(args: [7]usize) [4]usize {
         .vmo_create => &vmoCreate,
         .vmo_write => &vmoWrite,
         .vmo_read => &vmoRead,
+
+        .vmar_map => &vmarMap,
 
         .exit => &exit,
     };
@@ -343,6 +351,7 @@ fn vmoCreate(args: [7]usize) abi.VmoCreateError![3]usize {
             .transfer = true,
             .read = true,
             .write = true,
+            .exec = true,
         },
     });
 
@@ -390,6 +399,65 @@ fn vmoRead(args: [7]usize) abi.VmoReadError![3]usize {
     }
 
     return @splat(0);
+}
+
+fn vmarMap(args: [7]usize) abi.VmarMapError![3]usize {
+    const requested_vmar_offset = args[2];
+    const vmo_offset = args[4];
+    const len = args[5];
+    const opts: abi.VmarMapOpts = try .fromUsize(args[6]);
+
+    if (len == 0) return error.BadArg;
+    if (opts.placement == .normal and requested_vmar_offset != 0) return error.BadArg;
+    if (requested_vmar_offset % mem.page_size != 0) return error.NotAligned;
+    if (vmo_offset % mem.page_size != 0) return error.NotAligned;
+
+    const vmo_end = std.math.add(usize, vmo_offset, len) catch return error.OutOfRange;
+    if (vmo_end >= std.math.maxInt(usize) - mem.page_size) return error.OutOfRange;
+    const vmo_page_offset = (vmo_offset + mem.page_size - 1) / mem.page_size;
+    const page_count = (len + mem.page_size - 1) / mem.page_size;
+
+    const rights: abi.Rights = switch (opts.perm) {
+        .ro => .{ .read = true },
+        .rw => .{ .read = true, .write = true },
+        .rx => .{ .read = true, .exec = true },
+        _ => unreachable,
+    };
+
+    const vmar_obj = try getObj(args[1], rights);
+    defer vmar_obj.release();
+    const vmar = vmar_obj.get(Vmar) orelse return error.BadHandleKind;
+
+    const vmo_obj = try getObj(args[3], rights);
+    defer vmo_obj.release();
+    const vmo = vmo_obj.get(Vmo) orelse return error.BadHandleKind;
+
+    const vmar_l = vmar.lock.lock();
+    defer vmar_l.unlock();
+    const vmo_l = vmo.lock.lock();
+    defer vmo_l.unlock();
+
+    const vmar_page_offset = blk: switch (opts.placement) {
+        .normal => vmar.findGapLocked(page_count, null) orelse return error.NoGap,
+        .fixed, .fixed_overwrite => {
+            const vmar_end = std.math.add(usize, requested_vmar_offset, len) catch return error.BadArg;
+            if (vmar_end > arch.paging.max_user_addr) return error.BadArg;
+            const requested_vmar_page_offset = @divExact(requested_vmar_offset, mem.page_size);
+
+            // TODO: check for overwrite
+
+            break :blk requested_vmar_page_offset;
+        },
+        _ => unreachable,
+    };
+
+    if (rights.write) try vmo.commitLocked(vmo_page_offset, page_count);
+    try vmar.mapLocked(vmo, vmo_page_offset, vmar_page_offset, page_count, .{
+        .w = rights.write,
+        .x = rights.exec,
+    });
+
+    return .{ vmar_page_offset * mem.page_size, 0, 0 };
 }
 
 fn exit(args: [7]usize) ![3]usize {

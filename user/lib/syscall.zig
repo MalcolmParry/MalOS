@@ -219,6 +219,31 @@ pub fn vmoRead(vmo: abi.Handle, vmo_offset: usize, buffer: []u8) !void {
     };
 }
 
+pub fn vmarMap(vmar: abi.Handle, vmar_offset: usize, vmo: abi.Handle, vmo_offset: usize, len: usize, opts: abi.VmarMapOpts) ![*]u8 {
+    const result = syscall(.{
+        @intFromEnum(abi.Syscall.vmar_map),
+        @intFromEnum(vmar),
+        vmar_offset,
+        @intFromEnum(vmo),
+        vmo_offset,
+        len,
+        opts.toUsize(),
+    });
+
+    return switch (try readStatus(result[0])) {
+        .success => @ptrFromInt(result[1]),
+        .bad_handle => error.BadHandle,
+        .bad_handle_kind => error.BadHandleKind,
+        .no_right => error.NoRight,
+        .out_of_range => error.OutOfRange,
+        .bad_arg => error.BadArg,
+        .not_aligned => error.NotAligned,
+        .no_gap => error.NoGap,
+        .out_of_memory => error.OutOfMemory,
+        else => unexpected(result[0]),
+    };
+}
+
 pub fn exit(status: usize) noreturn {
     _ = syscall(.{
         @intFromEnum(abi.Syscall.exit),

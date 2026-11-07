@@ -152,6 +152,19 @@ fn init(initrd: []const u8, initrd_vmo: *Vmo) !noreturn {
             .duplicate = true,
             .transfer = true,
             .read = true,
+            .exec = true,
+        },
+    });
+
+    proc.vmar.obj.acquire();
+    const vmar_h = try proc.handle_table.putLocked(.{
+        .obj = &proc.vmar.obj,
+        .rights = .{
+            .duplicate = true,
+            .transfer = true,
+            .read = true,
+            .write = true,
+            .exec = true,
         },
     });
 
@@ -160,7 +173,7 @@ fn init(initrd: []const u8, initrd_vmo: *Vmo) !noreturn {
 
     var state = arch.cpu.getUserThreadFrame(.{
         .entry = result.entry,
-        .args = .{ @intFromEnum(klog_h), @intFromEnum(initrd_h), 0, 0, 0, 0 },
+        .args = .{ @intFromEnum(klog_h), @intFromEnum(initrd_h), @intFromEnum(vmar_h), 0, 0, 0 },
     });
 
     scheduler.preempt(&state);

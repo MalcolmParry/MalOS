@@ -47,7 +47,8 @@ pub fn main(initrd: abi.Handle) !void {
     }
 
     {
-        const vmo = try lib.syscall.vmoCreate(64 * 1024);
+        const size = 64 * 1024;
+        const vmo = try lib.syscall.vmoCreate(size);
         defer lib.syscall.handleClose(vmo) catch @panic("failed to close handle");
 
         const base = 4090;
@@ -56,6 +57,11 @@ pub fn main(initrd: abi.Handle) !void {
         var buffer: [msg.len]u8 = undefined;
         try lib.syscall.vmoRead(vmo, base + 3, &buffer);
         std.log.info("data in vmo: '{s}'", .{&buffer});
+
+        const map_ptr = try lib.syscall.vmarMap(lib.vmar, 0, vmo, 0, size, .{});
+        const map = map_ptr[0..size];
+
+        std.log.info("data from vmo map: '{s}'", .{map[base + 3 ..][0..msg.len]});
     }
 
     const disk = getDrive(.{

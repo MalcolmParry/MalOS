@@ -27,6 +27,7 @@ pub fn load(vmar: *Vmar, elf: []const u8) !Result {
         if (ph.filesz > ph.memsz) return error.BadElf;
         if (ph.memsz == 0) continue;
         if (ph.vaddr < mem.page_size) return error.NotSupported;
+        if (ph.flags.W and ph.flags.X) return error.NotSupported;
 
         const end = std.math.add(u64, ph.vaddr, ph.memsz) catch return error.BadElf;
         if (end > arch.paging.max_user_addr) return error.BadElf;
@@ -41,7 +42,8 @@ pub fn load(vmar: *Vmar, elf: []const u8) !Result {
 
         try vmo.write(offset_from_page, elf[ph.offset..][0..ph.filesz]);
         try vmo.commitLocked(0, page_count);
-        try vmar.map(vmo, 0, first_page, page_count, .{
+
+        try vmar.mapLocked(vmo, 0, first_page, page_count, .{
             .w = ph.flags.W,
             .x = ph.flags.X,
         });

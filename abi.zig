@@ -18,6 +18,8 @@ pub const Syscall = enum(usize) {
     vmo_write,
     vmo_read,
 
+    vmar_map,
+
     exit,
 };
 
@@ -37,6 +39,8 @@ pub const Status = enum(usize) {
     is_empty,
     no_right,
     out_of_range,
+    not_aligned,
+    no_gap,
 };
 
 pub const Handle = enum(u32) {
@@ -54,6 +58,7 @@ pub const Rights = packed struct {
     transfer: bool = false,
     read: bool = false,
     write: bool = false,
+    exec: bool = false,
 
     const Backing = @Int(.unsigned, @bitSizeOf(Rights));
     pub fn fromUsize(int: usize) !Rights {
@@ -74,6 +79,44 @@ pub const Rights = packed struct {
     }
 };
 
+pub const VmarMapOpts = packed struct {
+    placement: Placement = .normal,
+    perm: Permission = .ro,
+
+    pub const Placement = enum(u2) {
+        normal,
+        fixed,
+        fixed_overwrite,
+        _,
+    };
+
+    pub const Permission = enum(u2) {
+        ro,
+        rw,
+        rx,
+        _,
+    };
+
+    const Backing = @Int(.unsigned, @bitSizeOf(VmarMapOpts));
+    pub fn fromUsize(int: usize) !VmarMapOpts {
+        if (int > std.math.maxInt(Backing)) return error.BadArg;
+        const opts: VmarMapOpts = @bitCast(@as(Backing, @intCast(int)));
+        switch (opts.placement) {
+            _ => return error.BadArg,
+            else => {},
+        }
+        switch (opts.perm) {
+            _ => return error.BadArg,
+            else => {},
+        }
+        return opts;
+    }
+
+    pub fn toUsize(opts: VmarMapOpts) usize {
+        return @as(Backing, @bitCast(opts));
+    }
+};
+
 pub const HandleCloseError = error{BadHandle};
 pub const HandleDuplicateError = error{ BadHandle, OutOfMemory, TooManyHandles, BadArg, NoRight };
 
@@ -88,5 +131,7 @@ pub const ChannelReceiveError = error{ BadHandle, BadHandleKind, Fault, PeerClos
 pub const VmoCreateError = error{ OutOfMemory, TooManyHandles };
 pub const VmoWriteError = error{ OutOfMemory, BadHandle, BadHandleKind, OutOfRange, NoRight, Fault };
 pub const VmoReadError = error{ BadHandle, BadHandleKind, OutOfRange, NoRight, Fault };
+
+pub const VmarMapError = error{ BadHandle, BadHandleKind, NoRight, BadArg, NotAligned, OutOfRange, NoGap, OutOfMemory };
 
 pub const KLogWriteError = error{ BadHandle, BadHandleKind, Fault, NoRight };
