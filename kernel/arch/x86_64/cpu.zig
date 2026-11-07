@@ -291,6 +291,7 @@ pub fn getInitThreadFrame(info: ThreadInitInfo) State {
 const UserThreadInfo = struct {
     entry: usize,
     args: [6]usize,
+    sp: usize,
 };
 
 pub fn getUserThreadFrame(info: UserThreadInfo) State {
@@ -298,7 +299,7 @@ pub fn getUserThreadFrame(info: UserThreadInfo) State {
         .rip = info.entry,
         .flags = .{ .IF = true },
         .rbp = 0,
-        .rsp = 0,
+        .rsp = info.sp,
         .cs = 0x23,
         .ss = 0x1b,
         .rdi = info.args[0],

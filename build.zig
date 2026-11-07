@@ -102,12 +102,28 @@ fn addBuildStep(b: *Build, optimize: std.builtin.OptimizeMode, target: Build.Res
             .imports = &.{
                 .{ .name = "lib", .module = lib },
                 .{ .name = "abi", .module = abi },
+                .{ .name = "shared", .module = shared },
             },
+        }),
+    });
+
+    const other_thing = b.addExecutable(.{
+        .name = "other_thing",
+        .use_llvm = true,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("user/other_thing.zig"),
+            .target = user_target,
+            .optimize = optimize,
+            .pic = false,
+            .strip = !debug_info,
+            .omit_frame_pointer = !debug_info,
+            .imports = &.{.{ .name = "lib", .module = lib }},
         }),
     });
 
     const initrd_dir = b.addWriteFiles();
     _ = initrd_dir.addCopyFile(init.getEmittedBin(), "init");
+    _ = initrd_dir.addCopyFile(other_thing.getEmittedBin(), "other-thing");
 
     const initrd_tar = b.addSystemCommand(&.{
         "tar",

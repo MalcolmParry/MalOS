@@ -17,10 +17,15 @@ pub const Syscall = enum(usize) {
     vmo_create,
     vmo_write,
     vmo_read,
+    vmo_get_size,
 
     vmar_map,
 
-    exit,
+    process_create,
+
+    thread_create,
+    thread_start,
+    thread_exit,
 };
 
 pub const Status = enum(usize) {
@@ -41,6 +46,7 @@ pub const Status = enum(usize) {
     out_of_range,
     not_aligned,
     no_gap,
+    bad_state,
 };
 
 pub const Handle = enum(u32) {
@@ -59,6 +65,7 @@ pub const Rights = packed struct {
     read: bool = false,
     write: bool = false,
     exec: bool = false,
+    transfer_to: bool = false,
 
     const Backing = @Int(.unsigned, @bitSizeOf(Rights));
     pub fn fromUsize(int: usize) !Rights {
@@ -117,6 +124,12 @@ pub const VmarMapOpts = packed struct {
     }
 };
 
+pub const ThreadStartInfo = extern struct {
+    ip: usize,
+    sp: usize,
+    args: [6]usize,
+};
+
 pub const HandleCloseError = error{BadHandle};
 pub const HandleDuplicateError = error{ BadHandle, OutOfMemory, TooManyHandles, BadArg, NoRight };
 
@@ -128,10 +141,16 @@ pub const ChannelCreatePairError = error{ TooManyHandles, OutOfMemory };
 pub const ChannelSendError = error{ BadHandle, BadHandleKind, Fault, PeerClosed, TooBig, OutOfMemory, BadArg, NoRight };
 pub const ChannelReceiveError = error{ BadHandle, BadHandleKind, Fault, PeerClosed, TooBig, OutOfMemory, TooManyHandles, NoRight };
 
+pub const KLogWriteError = error{ BadHandle, BadHandleKind, Fault, NoRight };
+
 pub const VmoCreateError = error{ OutOfMemory, TooManyHandles };
 pub const VmoWriteError = error{ OutOfMemory, BadHandle, BadHandleKind, OutOfRange, NoRight, Fault };
 pub const VmoReadError = error{ BadHandle, BadHandleKind, OutOfRange, NoRight, Fault };
+pub const VmoGetSizeError = error{ BadHandle, BadHandleKind };
 
 pub const VmarMapError = error{ BadHandle, BadHandleKind, NoRight, BadArg, NotAligned, OutOfRange, NoGap, OutOfMemory };
 
-pub const KLogWriteError = error{ BadHandle, BadHandleKind, Fault, NoRight };
+pub const ProcessCreateError = error{ OutOfMemory, TooManyHandles };
+
+pub const ThreadCreateError = error{ BadHandle, BadHandleKind, OutOfMemory, TooManyHandles };
+pub const ThreadStartError = error{ BadHandle, BadHandleKind, Fault, BadState, BadArg };

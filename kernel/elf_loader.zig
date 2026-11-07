@@ -15,7 +15,7 @@ pub fn load(vmar: *Vmar, elf: []const u8) !Result {
     if (!header.is_64) return error.NotSupported;
     if (header.machine != .X86_64) return error.NotSupported;
     if (header.type != .EXEC) return error.NotSupported;
-    if (header.entry > arch.paging.max_user_addr) return error.BadElf;
+    if (header.entry >= arch.paging.max_user_addr) return error.BadElf;
 
     const vmar_l = vmar.lock.lock();
     defer vmar_l.unlock();

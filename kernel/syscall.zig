@@ -11,6 +11,9 @@ const HandleTable = @import("proc/HandleTable.zig");
 const Thread = @import("proc/Thread.zig");
 const Vmo = @import("object/Vmo.zig");
 const Vmar = @import("object/Vmar.zig");
+const Process = @import("proc/Process.zig");
+const PageAlloc = @import("heap/PageAllocator.zig");
+const scheduler = @import("proc/scheduler.zig");
 
 const Handler = fn (args: [7]usize) Error![3]usize;
 const Error = error{
@@ -28,6 +31,7 @@ const Error = error{
     OutOfRange,
     NotAligned,
     NoGap,
+    BadState,
 };
 
 fn errorToStatus(err: Error) abi.Status {
@@ -46,6 +50,7 @@ fn errorToStatus(err: Error) abi.Status {
         Error.OutOfRange => .out_of_range,
         Error.NotAligned => .not_aligned,
         Error.NoGap => .no_gap,
+        Error.BadState => .bad_state,
     };
 }
 
@@ -69,10 +74,15 @@ pub fn handler(args: [7]usize) [4]usize {
         .vmo_create => &vmoCreate,
         .vmo_write => &vmoWrite,
         .vmo_read => &vmoRead,
+        .vmo_get_size => &vmoGetSize,
 
         .vmar_map => &vmarMap,
 
-        .exit => &exit,
+        .process_create => &processCreate,
+
+        .thread_create => &threadCreate,
+        .thread_start => &threadStart,
+        .thread_exit => &threadExit,
     };
 
     const result = inner_handler(args) catch |err| {
@@ -401,6 +411,18 @@ fn vmoRead(args: [7]usize) abi.VmoReadError![3]usize {
     return @splat(0);
 }
 
+fn vmoGetSize(args: [7]usize) abi.VmoGetSizeError![3]usize {
+    const obj = getObj(args[1], .{}) catch |err| return switch (err) {
+        error.NoRight => unreachable,
+        else => |x| x,
+    };
+    defer obj.release();
+    const vmo = obj.get(Vmo) orelse return error.BadHandleKind;
+    const l = vmo.lock.lock();
+    defer l.unlock();
+    return .{ vmo.size, 0, 0 };
+}
+
 fn vmarMap(args: [7]usize) abi.VmarMapError![3]usize {
     const requested_vmar_offset = args[2];
     const vmo_offset = args[4];
@@ -460,9 +482,100 @@ fn vmarMap(args: [7]usize) abi.VmarMapError![3]usize {
     return .{ vmar_page_offset * mem.page_size, 0, 0 };
 }
 
-fn exit(args: [7]usize) ![3]usize {
-    const status = args[1];
-    _ = status;
+fn processCreate(_: [7]usize) abi.ProcessCreateError![3]usize {
+    const handle_table = HandleTable.getCurrent();
+    const proc = try Process.create();
+    const l = handle_table.lock.lock();
+    defer l.unlock();
 
+    const proc_h = try handle_table.putLocked(.{
+        .obj = &proc.obj,
+        .rights = .{
+            .duplicate = true,
+            .transfer = true,
+            .transfer_to = true,
+        },
+    });
+    errdefer handle_table.fetchRemoveLocked(proc_h).?.obj.release();
+
+    proc.vmar.obj.acquire();
+    const vmar_h = try handle_table.putLocked(.{
+        .obj = &proc.vmar.obj,
+        .rights = .{
+            .duplicate = true,
+            .transfer = true,
+            .read = true,
+            .write = true,
+            .exec = true,
+        },
+    });
+
+    return .{ @intFromEnum(proc_h), @intFromEnum(vmar_h), 0 };
+}
+
+fn threadCreate(args: [7]usize) abi.ThreadCreateError![3]usize {
+    const handle_table = HandleTable.getCurrent();
+    // TODO: add right for this
+    const proc_obj = getObj(args[1], .{}) catch |err| return switch (err) {
+        error.NoRight => unreachable,
+        else => |x| x,
+    };
+    defer proc_obj.release();
+    const proc = proc_obj.get(Process) orelse return error.BadHandleKind;
+
+    const stack_size = 32 * 1024;
+    const kernel_stack = PageAlloc.global.alloc(stack_size / mem.page_size, .{
+        .global = true,
+        .cache_mode = .full,
+        .executable = false,
+        .user = false,
+        .writable = true,
+    }) catch return error.OutOfMemory;
+
+    const thread = Thread.create(proc, kernel_stack) catch |err| {
+        PageAlloc.global.free(kernel_stack);
+        return err;
+    };
+
+    const l = handle_table.lock.lock();
+    defer l.unlock();
+
+    const h = try handle_table.putLocked(.{
+        .obj = &thread.obj,
+        // TODO: add rights
+        .rights = .{
+            .duplicate = true,
+            .transfer = true,
+        },
+    });
+
+    return .{ @intFromEnum(h), 0, 0 };
+}
+
+fn threadStart(args: [7]usize) abi.ThreadStartError![3]usize {
+    var info: abi.ThreadStartInfo = undefined;
+    if (!arch.copyFromUser(std.mem.asBytes(&info), @as([*]allowzero const u8, @ptrFromInt(args[2]))[0..@sizeOf(abi.ThreadStartInfo)])) return error.Fault;
+
+    if (info.ip >= arch.paging.max_user_addr) return error.BadArg;
+
+    const state = arch.cpu.getUserThreadFrame(.{
+        .entry = info.ip,
+        .sp = info.sp,
+        .args = info.args,
+    });
+
+    // TODO: add right for this
+    const thread_obj = getObj(args[1], .{}) catch |err| return switch (err) {
+        error.NoRight => unreachable,
+        else => |x| x,
+    };
+    defer thread_obj.release();
+    const thread = thread_obj.get(Thread) orelse return error.BadHandleKind;
+
+    try thread.start(&state);
+    return @splat(0);
+}
+
+fn threadExit(_: [7]usize) ![3]usize {
     Thread.exitCurrent();
 }

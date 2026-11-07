@@ -1,6 +1,7 @@
 const std = @import("std");
 const lib = @import("lib");
 const abi = @import("abi");
+const shared = @import("shared");
 
 pub const panic = std.debug.FullPanic(lib.panic);
 pub const std_options: std.Options = .{
@@ -8,9 +9,7 @@ pub const std_options: std.Options = .{
 };
 
 pub fn main(initrd: abi.Handle) !void {
-    _ = initrd;
-    // lib.syscall.handleClose(initrd) catch @panic("failed to close handle");
-    std.log.info("hello world", .{});
+    const initrd_size = try lib.syscall.vmoGetSize(initrd);
 
     {
         const h0, const h1 = try lib.syscall.channelCreatePair();
@@ -64,6 +63,63 @@ pub fn main(initrd: abi.Handle) !void {
         std.log.info("data from vmo map: '{s}'", .{map[base + 3 ..][0..msg.len]});
     }
 
+    {
+        const proc, const vmar = try lib.syscall.processCreate();
+        defer {
+            lib.syscall.handleClose(vmar) catch unreachable;
+            lib.syscall.handleClose(proc) catch unreachable;
+        }
+
+        const initrd_map_ptr = try lib.syscall.vmarMap(lib.vmar, 0, initrd, 0, initrd_size, .{});
+        const initrd_map = initrd_map_ptr[0..initrd_size];
+
+        const elf = (try shared.ustar.lookup(initrd_map, "other-thing")) orelse @panic("cant find other thing");
+        var reader: std.Io.Reader = .fixed(elf);
+
+        const header = try std.elf.Header.read(&reader);
+        if (!header.is_64) return error.NotSupported;
+        if (header.machine != .X86_64) return error.NotSupported;
+        if (header.type != .EXEC) return error.NotSupported;
+
+        const min_load_addr = 4096;
+        const page_size = 4096;
+        for (0..header.phnum) |i| {
+            reader.seek = header.phoff + i * header.phentsize;
+            const ph = try reader.takeStruct(std.elf.Elf64.Phdr, header.endian);
+            if (ph.type != .LOAD) continue;
+            if (ph.filesz > ph.memsz) return error.BadElf;
+            if (ph.memsz == 0) continue;
+            if (ph.vaddr < min_load_addr) return error.NotSupported;
+            if (ph.flags.W and ph.flags.X) return error.NotSupported;
+
+            const first_page = ph.vaddr / page_size;
+            const offset_from_page = ph.vaddr % page_size;
+
+            const vmo = try lib.syscall.vmoCreate(ph.memsz + offset_from_page);
+            defer lib.syscall.handleClose(vmo) catch unreachable;
+
+            try lib.syscall.vmoWrite(vmo, offset_from_page, elf[ph.offset..][0..ph.filesz]);
+
+            _ = try lib.syscall.vmarMap(vmar, first_page * page_size, vmo, 0, ph.memsz + offset_from_page, .{
+                .placement = .fixed,
+                .perm = if (ph.flags.W) .rw else if (ph.flags.X) .rx else .ro,
+            });
+        }
+
+        const stack_size = 32 * 1024;
+        const stack_vmo = try lib.syscall.vmoCreate(stack_size);
+        const stack_base = try lib.syscall.vmarMap(vmar, 0, stack_vmo, 0, stack_size, .{ .perm = .rw });
+
+        const thread = try lib.syscall.threadCreate(proc);
+        defer lib.syscall.handleClose(thread) catch unreachable;
+        try lib.syscall.threadStart(thread, &.{
+            .ip = header.entry,
+            .sp = @intFromPtr(stack_base) + stack_size - 8,
+            // TODO: transfer klog
+            .args = @splat(0),
+        });
+    }
+
     const disk = getDrive(.{
         .io_base = 0x1f0,
         .kind = .master,
@@ -94,7 +150,7 @@ pub fn main(initrd: abi.Handle) !void {
         try lib.syscall.klogWrite(lib.klog, writer.buffered());
     }
 
-    lib.syscall.exit(0);
+    lib.syscall.threadExit();
 }
 
 fn outb(port: u16, data: u8) void {
@@ -133,10 +189,6 @@ pub fn repInsw(port: u16, buffer: []align(1) u16) void {
           [buffer] "{rdi}" (buffer.ptr),
           [count] "{rcx}" (buffer.len),
         : .{ .rdi = true, .rcx = true, .memory = true, .dirflag = true });
-}
-
-comptime {
-    _ = lib;
 }
 
 const sector_size = 512;

@@ -25,9 +25,10 @@ pub fn panic(str: []const u8, ret_addr: ?usize) noreturn {
     _ = ret_addr;
 
     std.log.err("panic: {s}", .{str});
-    syscall.exit(1);
+    syscall.threadExit();
 }
 
 comptime {
-    @export(&@import("start.zig")._start, .{ .name = "_start" });
+    if (!@hasDecl(@import("root"), "_start"))
+        @export(&@import("start.zig")._start, .{ .name = "_start" });
 }

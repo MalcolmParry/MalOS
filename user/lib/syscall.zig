@@ -219,6 +219,20 @@ pub fn vmoRead(vmo: abi.Handle, vmo_offset: usize, buffer: []u8) !void {
     };
 }
 
+pub fn vmoGetSize(vmo: abi.Handle) !usize {
+    const result = syscall(.{
+        @intFromEnum(abi.Syscall.vmo_get_size),
+        @intFromEnum(vmo),
+    });
+
+    return switch (try readStatus(result[0])) {
+        .success => result[1],
+        .bad_handle => error.BadHandle,
+        .bad_handle_kind => error.BadHandleKind,
+        else => unexpected(result[0]),
+    };
+}
+
 pub fn vmarMap(vmar: abi.Handle, vmar_offset: usize, vmo: abi.Handle, vmo_offset: usize, len: usize, opts: abi.VmarMapOpts) ![*]u8 {
     const result = syscall(.{
         @intFromEnum(abi.Syscall.vmar_map),
@@ -244,13 +258,58 @@ pub fn vmarMap(vmar: abi.Handle, vmar_offset: usize, vmo: abi.Handle, vmo_offset
     };
 }
 
-pub fn exit(status: usize) noreturn {
-    _ = syscall(.{
-        @intFromEnum(abi.Syscall.exit),
-        status,
+pub fn processCreate() !struct { abi.Handle, abi.Handle } {
+    const result = syscall(.{@intFromEnum(abi.Syscall.process_create)});
+
+    return switch (try readStatus(result[0])) {
+        .success => .{
+            @enumFromInt(result[1]),
+            @enumFromInt(result[2]),
+        },
+        .out_of_memory => error.OutOfMemory,
+        .too_many_handles => error.TooManyHandles,
+        else => unexpected(result[0]),
+    };
+}
+
+pub fn threadCreate(proc: abi.Handle) !abi.Handle {
+    const result = syscall(.{
+        @intFromEnum(abi.Syscall.thread_create),
+        @intFromEnum(proc),
     });
 
-    @panic("exit syscall returned");
+    return switch (try readStatus(result[0])) {
+        .success => @enumFromInt(result[1]),
+        .bad_handle => error.BadHandle,
+        .bad_handle_kind => error.BadHandleKind,
+        .out_of_memory => error.OutOfMemory,
+        .too_many_handles => error.TooManyHandles,
+        else => unexpected(result[0]),
+    };
+}
+
+pub fn threadStart(thread: abi.Handle, info: *allowzero align(1) const abi.ThreadStartInfo) !void {
+    const result = syscall(.{
+        @intFromEnum(abi.Syscall.thread_start),
+        @intFromEnum(thread),
+        @intFromPtr(info),
+    });
+
+    return switch (try readStatus(result[0])) {
+        .success => {},
+
+        .bad_handle => error.BadHandle,
+        .bad_handle_kind => error.BadHandleKind,
+        .fault => error.Fault,
+        .bad_state => error.BadState,
+        .bad_arg => error.BadArg,
+        else => unexpected(result[0]),
+    };
+}
+
+pub fn threadExit() noreturn {
+    _ = syscall(.{@intFromEnum(abi.Syscall.thread_exit)});
+    unreachable;
 }
 
 fn readStatus(int: usize) error{Unexpected}!abi.Status {

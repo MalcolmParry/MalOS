@@ -67,7 +67,7 @@ pub fn destroy(proc: *Process) void {
 pub fn linkLiveThread(proc: *Process, thread: *Thread) !void {
     const l = proc.lock.lock();
     defer l.unlock();
-    if (proc.state == .dead) return error.Dead;
+    if (proc.state == .dead) return error.BadState;
 
     if (proc.state == .initial) proc.state = .running;
     if (proc.first_thread) |next| next.prev_sibling = thread;

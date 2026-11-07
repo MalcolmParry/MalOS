@@ -83,8 +83,8 @@ pub fn destroy(thread: *Thread) void {
 pub fn start(thread: *Thread, state: *align(1) const arch.cpu.State) !void {
     const l = scheduler.lock.lock();
     defer l.unlock();
+    if (thread.state != .initial) return error.BadState;
 
-    assert(thread.state == .initial);
     assert(thread.cpu_state == null);
     assert(thread.prev == null);
     assert(thread.next == null);

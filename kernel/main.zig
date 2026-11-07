@@ -171,9 +171,19 @@ fn init(initrd: []const u8, initrd_vmo: *Vmo) !noreturn {
     const init_elf = try ustar.lookup(initrd, "init") orelse return error.InitNotFound;
     const result = try elf_loader.load(proc.vmar, init_elf);
 
+    const stack_size = 32 * 1024;
+    const stack_vmo = try Vmo.create(stack_size);
+    try stack_vmo.commitLocked(0, stack_size / mem.page_size);
+    const stack_addr = proc.vmar.findGapLocked(stack_size / mem.page_size, null) orelse @panic("cant allocate init user stack");
+    try proc.vmar.mapLocked(stack_vmo, 0, stack_addr, stack_size / mem.page_size, .{
+        .w = true,
+        .x = false,
+    });
+
     var state = arch.cpu.getUserThreadFrame(.{
         .entry = result.entry,
         .args = .{ @intFromEnum(klog_h), @intFromEnum(initrd_h), @intFromEnum(vmar_h), 0, 0, 0 },
+        .sp = stack_addr * mem.page_size + stack_size - 8,
     });
 
     scheduler.preempt(&state);
