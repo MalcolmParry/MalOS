@@ -8,6 +8,10 @@ pub const std_options: std.Options = .{
     .logFn = lib.log,
 };
 
+comptime {
+    _ = lib;
+}
+
 pub fn main(initrd: abi.Handle) !void {
     const initrd_size = try lib.syscall.vmoGetSize(initrd);
 
@@ -108,7 +112,19 @@ pub fn main(initrd: abi.Handle) !void {
 
         const stack_size = 32 * 1024;
         const stack_vmo = try lib.syscall.vmoCreate(stack_size);
+        defer lib.syscall.handleClose(stack_vmo) catch unreachable;
         const stack_base = try lib.syscall.vmarMap(vmar, 0, stack_vmo, 0, stack_size, .{ .perm = .rw });
+
+        var klog_handle: abi.Handle = undefined;
+        try lib.syscall.processTransferHandles(
+            proc,
+            &.{.{
+                .op = .duplicate,
+                .handle = lib.klog,
+                .rights = .{ .same = true },
+            }},
+            (&klog_handle)[0..1],
+        );
 
         const thread = try lib.syscall.threadCreate(proc);
         defer lib.syscall.handleClose(thread) catch unreachable;
@@ -116,7 +132,7 @@ pub fn main(initrd: abi.Handle) !void {
             .ip = header.entry,
             .sp = @intFromPtr(stack_base) + stack_size - 8,
             // TODO: transfer klog
-            .args = @splat(0),
+            .args = .{ @intFromEnum(klog_handle), 0, 0, 0, 0, 0 },
         });
     }
 

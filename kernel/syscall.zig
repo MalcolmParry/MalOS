@@ -79,6 +79,7 @@ pub fn handler(args: [7]usize) [4]usize {
         .vmar_map => &vmarMap,
 
         .process_create => &processCreate,
+        .process_transfer_handles => &processTransferHandles,
 
         .thread_create => &threadCreate,
         .thread_start => &threadStart,
@@ -122,7 +123,7 @@ fn handleClose(args: [7]usize) abi.HandleCloseError![3]usize {
 
 fn handleDuplicate(args: [7]usize) abi.HandleDuplicateError![3]usize {
     const old: abi.Handle = try .fromUsize(args[1]);
-    const rights: abi.Rights = try .fromUsize(args[2]);
+    const requested_rights: abi.Rights = try .fromUsize(args[2]);
 
     const table = HandleTable.getCurrent();
     const l = table.lock.lock();
@@ -130,6 +131,7 @@ fn handleDuplicate(args: [7]usize) abi.HandleDuplicateError![3]usize {
 
     const old_desc = table.getLocked(old) orelse return error.BadHandle;
     if (!old_desc.rights.duplicate) return error.NoRight;
+    const rights = if (requested_rights.same) old_desc.rights else requested_rights;
     if (!old_desc.rights.hasAll(rights)) return error.NoRight;
 
     const new = try table.putLocked(.{ .obj = old_desc.obj, .rights = rights });
@@ -511,6 +513,78 @@ fn processCreate(_: [7]usize) abi.ProcessCreateError![3]usize {
     });
 
     return .{ @intFromEnum(proc_h), @intFromEnum(vmar_h), 0 };
+}
+
+fn processTransferHandles(args: [7]usize) abi.ProcessTransferHandlesError![3]usize {
+    const proc = Thread.current.proc.?;
+    const other_obj = try getObj(args[1], .{ .transfer_to = true });
+    defer other_obj.release();
+    const other = other_obj.get(Process) orelse return error.BadHandleKind;
+
+    const transfer_count = args[4];
+    if (transfer_count > abi.max_process_handle_transfers) return error.TooBig;
+    const user_handle_transfers = @as([*]allowzero align(1) const abi.HandleTransfer, @ptrFromInt(args[2]))[0..transfer_count];
+    var handle_transfer_buffer: [abi.max_process_handle_transfers]abi.HandleTransfer = undefined;
+    const handle_transfers = handle_transfer_buffer[0..transfer_count];
+    if (!arch.copyFromUser(std.mem.sliceAsBytes(handle_transfers), std.mem.sliceAsBytes(user_handle_transfers))) return error.Fault;
+
+    for (handle_transfers) |transfer| if (!transfer.isValid()) return error.BadArg;
+
+    var desc_buffer: [abi.max_process_handle_transfers]HandleTable.Desc = undefined;
+    const descs = desc_buffer[0..transfer_count];
+
+    {
+        const handle_table = &proc.handle_table;
+        const l = handle_table.lock.lock();
+        defer l.unlock();
+
+        for (handle_transfers, descs, 0..) |transfer, *desc, i| {
+            desc.* = proc.handle_table.getLocked(transfer.handle) orelse return error.BadHandle;
+            for (0..i) |k| if (transfer.handle == handle_transfers[k].handle) return error.BadArg;
+
+            if (!desc.rights.transfer or (transfer.op == .duplicate and !desc.rights.duplicate)) return error.NoRight;
+            if (!transfer.rights.same) {
+                if (!desc.rights.hasAll(transfer.rights)) return error.NoRight;
+                desc.rights = transfer.rights;
+            }
+        }
+
+        for (handle_transfers, descs) |transfer, desc| {
+            switch (transfer.op) {
+                .transfer => _ = handle_table.fetchRemoveLocked(transfer.handle).?,
+                .duplicate => desc.obj.acquire(),
+                _ => unreachable,
+            }
+        }
+    }
+
+    const user_out_handles = @as([*]allowzero align(1) abi.Handle, @ptrFromInt(args[3]))[0..transfer_count];
+    var out_handle_buffer: [abi.max_process_handle_transfers]abi.Handle = undefined;
+    const out_handles = out_handle_buffer[0..transfer_count];
+
+    {
+        errdefer for (descs) |desc| desc.obj.release();
+
+        const handle_table = &other.handle_table;
+        const l = other.lock.lock();
+        defer l.unlock();
+        if (other.state == .dead) return error.BadState;
+        _ = handle_table.lock.lock();
+        defer handle_table.lock.unlockNoPreserveInt();
+
+        var filled: usize = 0;
+        errdefer for (out_handles[0..filled]) |x| {
+            _ = handle_table.fetchRemoveLocked(x).?;
+        };
+
+        for (descs, out_handles) |desc, *out| {
+            out.* = try handle_table.putLocked(desc);
+            filled += 1;
+        }
+    }
+
+    if (!arch.copyToUser(std.mem.sliceAsBytes(user_out_handles), std.mem.sliceAsBytes(out_handles))) return error.Fault;
+    return @splat(0);
 }
 
 fn threadCreate(args: [7]usize) abi.ThreadCreateError![3]usize {

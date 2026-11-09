@@ -1,5 +1,7 @@
 const std = @import("std");
 
+pub const max_process_handle_transfers = 64;
+
 pub const Syscall = enum(usize) {
     handle_close,
     handle_duplicate,
@@ -22,6 +24,7 @@ pub const Syscall = enum(usize) {
     vmar_map,
 
     process_create,
+    process_transfer_handles,
 
     thread_create,
     thread_start,
@@ -59,7 +62,7 @@ pub const Handle = enum(u32) {
     }
 };
 
-pub const Rights = packed struct {
+pub const Rights = packed struct(u32) {
     duplicate: bool = false,
     transfer: bool = false,
     read: bool = false,
@@ -67,14 +70,25 @@ pub const Rights = packed struct {
     exec: bool = false,
     transfer_to: bool = false,
 
-    const Backing = @Int(.unsigned, @bitSizeOf(Rights));
+    same: bool = false,
+    unused: u25 = 0,
+
+    const Backing = u32;
     pub fn fromUsize(int: usize) !Rights {
         if (int > std.math.maxInt(Backing)) return error.BadArg;
-        return @bitCast(@as(Backing, @intCast(int)));
+        const rights: Rights = @bitCast(@as(Backing, @intCast(int)));
+        if (!rights.isValid()) return error.BadArg;
+        return rights;
     }
 
     pub fn toUsize(rights: Rights) usize {
         return @as(Backing, @bitCast(rights));
+    }
+
+    pub fn isValid(rights: Rights) bool {
+        if (rights.unused != 0) return false;
+        if (rights.same and rights != .{ .same = true }) return false;
+        return true;
     }
 
     pub fn intersect(left: Rights, right: Rights) Rights {
@@ -83,6 +97,28 @@ pub const Rights = packed struct {
 
     pub fn hasAll(left: Rights, right: Rights) bool {
         return left.intersect(right) == right;
+    }
+};
+
+pub const HandleTransfer = extern struct {
+    op: Op,
+    handle: Handle,
+    rights: Rights,
+
+    pub const Op = enum(u8) {
+        transfer,
+        duplicate,
+        _,
+    };
+
+    pub fn isValid(transfer: HandleTransfer) bool {
+        if (!transfer.rights.isValid()) return false;
+        switch (transfer.op) {
+            _ => return false,
+            else => {},
+        }
+
+        return true;
     }
 };
 
@@ -151,6 +187,7 @@ pub const VmoGetSizeError = error{ BadHandle, BadHandleKind };
 pub const VmarMapError = error{ BadHandle, BadHandleKind, NoRight, BadArg, NotAligned, OutOfRange, NoGap, OutOfMemory };
 
 pub const ProcessCreateError = error{ OutOfMemory, TooManyHandles };
+pub const ProcessTransferHandlesError = error{ OutOfMemory, TooManyHandles, BadHandle, BadHandleKind, TooBig, Fault, BadArg, NoRight, BadState };
 
 pub const ThreadCreateError = error{ BadHandle, BadHandleKind, OutOfMemory, TooManyHandles };
 pub const ThreadStartError = error{ BadHandle, BadHandleKind, Fault, BadState, BadArg };

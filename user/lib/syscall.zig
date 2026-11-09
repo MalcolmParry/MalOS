@@ -272,6 +272,31 @@ pub fn processCreate() !struct { abi.Handle, abi.Handle } {
     };
 }
 
+pub fn processTransferHandles(proc: abi.Handle, infos: []const abi.HandleTransfer, out: []abi.Handle) !void {
+    std.debug.assert(infos.len == out.len);
+    const result = syscall(.{
+        @intFromEnum(abi.Syscall.process_transfer_handles),
+        @intFromEnum(proc),
+        @intFromPtr(infos.ptr),
+        @intFromPtr(out.ptr),
+        infos.len,
+    });
+
+    return switch (try readStatus(result[0])) {
+        .success => {},
+        .bad_handle => error.BadHandle,
+        .bad_handle_kind => error.BadHandleKind,
+        .out_of_memory => error.OutOfMemory,
+        .too_many_handles => error.TooManyHandles,
+        .too_big => error.TooBig,
+        .fault => error.Fault,
+        .bad_arg => error.BadArg,
+        .bad_state => error.BadState,
+        .no_right => error.NoRight,
+        else => unexpected(result[0]),
+    };
+}
+
 pub fn threadCreate(proc: abi.Handle) !abi.Handle {
     const result = syscall(.{
         @intFromEnum(abi.Syscall.thread_create),

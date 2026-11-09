@@ -47,8 +47,6 @@ pub fn fromOwnedSlice(slice: []align(mem.page_size) mem.Phys(u8)) !*Vmo {
     errdefer vmo.destroy();
 
     const level = levelCount(page_count);
-    errdefer for (vmo.entries) |opt| if (opt.unwrap()) |x| freeNodes(x, level);
-
     try fillEntries(&vmo.entries, pages, level);
     vmo.tree_level = level;
     return vmo;
