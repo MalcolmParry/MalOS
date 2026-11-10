@@ -9,6 +9,7 @@ pub const interrupt = @import("interrupt.zig");
 pub const multiboot = @import("multiboot2.zig");
 pub const paging = @import("paging.zig");
 pub const cpu = @import("cpu.zig");
+pub const initSmp = @import("acpi.zig").initSmp;
 
 pub const initBootInfo = multiboot.initBootInfo;
 

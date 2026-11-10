@@ -2,6 +2,7 @@ const mem = @import("../../memory.zig");
 const pmm = @import("../../pmm.zig");
 const std = @import("std");
 const BootInfo = @import("../../BootInfo.zig");
+const acpi = @import("acpi.zig");
 
 const Phys = mem.Phys;
 const page_size = mem.page_size;
@@ -70,6 +71,16 @@ const Tag = extern struct {
             ega_text,
             _,
         };
+    };
+
+    const AcpiOld = extern struct {
+        tag: Tag,
+        rsdp: acpi.Rsdp,
+    };
+
+    const AcpiNew = extern struct {
+        tag: Tag,
+        xsdp: acpi.Xsdp,
     };
 
     const Type = enum(u32) {
@@ -315,6 +326,24 @@ pub fn initBootInfo() BootInfo {
                     else => {},
                 }
             },
+            .acpi_old => blk: {
+                if (acpi.maybe_sdp) |sdp| switch (sdp) {
+                    .rsdp => @panic("multiple acpi tags"),
+                    .xsdp => break :blk,
+                };
+
+                std.log.info("old acpi", .{});
+                const info: *Tag.AcpiOld = @fieldParentPtr("tag", tag);
+                if (info.tag.size < @sizeOf(Tag.AcpiOld)) @panic("acpi multiboot tag too small");
+                acpi.maybe_sdp = .{ .rsdp = info.rsdp };
+            },
+            .acpi_new => {
+                if (acpi.maybe_sdp) |sdp| if (sdp == .xsdp) @panic("multiple acpi tags");
+                std.log.info("new acpi", .{});
+                const info: *Tag.AcpiNew = @fieldParentPtr("tag", tag);
+                if (info.tag.size < @sizeOf(Tag.AcpiNew)) @panic("acpi multiboot tag too small");
+                acpi.maybe_sdp = .{ .xsdp = info.xsdp };
+            },
             else => std.log.info("multiboot tag: {}", .{tag.t}),
         }
     }
@@ -337,6 +366,14 @@ pub fn initBootInfo() BootInfo {
             }) catch @panic("too many kernel regions");
         },
     }
+
+    acpi.ap_trampoline_phys_page = blk: for (available_ranges.items, 0..) |*region, i| {
+        if (@intFromPtr(region.*.ptr) >= 0xa0000) continue;
+        const page = &region.*[0];
+        region.* = region.*[1..];
+        if (region.len == 0) _ = available_ranges.swapRemove(i);
+        break :blk page;
+    } else @panic("cant find memory for ap trampoline");
 
     boot_info.module_count = @intCast(modules.items.len);
     boot_info.kernel_region_count = @intCast(kernel_regions.items.len);

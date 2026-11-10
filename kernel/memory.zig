@@ -6,6 +6,7 @@ pub const page_size = arch.page_size;
 pub const log2_page_size = std.math.log2(page_size);
 pub const kernel_virt_base: usize = arch.kernel_virt_base;
 pub const direct_map: []mem.Page = arch.paging.direct_map;
+pub const direct_map_base = @intFromPtr(direct_map.ptr);
 
 pub const PhysPage = Phys(Page);
 pub const Page = extern struct {

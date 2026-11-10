@@ -66,6 +66,7 @@ pub fn kernelMain() !noreturn {
     const page_alloc = PageAllocator.global.allocator();
 
     pmm.init(&boot_info, page_alloc);
+    try arch.initSmp();
     try scheduler.init();
     pit.init();
 
