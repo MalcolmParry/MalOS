@@ -87,7 +87,7 @@ pub const Rights = packed struct(u32) {
 
     pub fn isValid(rights: Rights) bool {
         if (rights.unused != 0) return false;
-        if (rights.same and rights != .{ .same = true }) return false;
+        if (rights.same and rights != Rights{ .same = true }) return false;
         return true;
     }
 
