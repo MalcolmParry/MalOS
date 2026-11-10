@@ -34,7 +34,6 @@ const Tag = extern struct {
         tag: Tag,
         entry_size: u32,
         version: u32,
-        entries: Entry,
     };
 
     const Module = extern struct {
