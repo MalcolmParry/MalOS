@@ -14,6 +14,7 @@ pub const initSmp = @import("acpi.zig").initSmp;
 
 pub const initBootInfo = multiboot.initBootInfo;
 
+pub const initTimer = apic.init;
 pub const setTimerNs = apic.setTimerNs;
 pub const getMonotonicNs = apic.getMonotonicNs;
 

@@ -64,8 +64,9 @@ pub fn kernelMain() !noreturn {
     const page_alloc = PageAllocator.global.allocator();
 
     pmm.init(&boot_info, page_alloc);
-    try arch.initSmp();
+    try arch.initTimer();
     try scheduler.init();
+    try arch.initSmp();
 
     for (boot_info.module_buffer[0..boot_info.module_count]) |*module| {
         const phys_pages = mem.physPageAlignOutwards(module.phys_range);

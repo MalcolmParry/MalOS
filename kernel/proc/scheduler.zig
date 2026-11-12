@@ -189,7 +189,7 @@ fn unlinkReady(t: *Thread) void {
 
 /// assumes task list lock is held
 fn linkSleeping(t: *Thread) void {
-    const ticks = t.state.sleeping.until_ticks;
+    const ns = t.state.sleeping.until_ns;
     assert(t.next == null);
     assert(t.prev == null);
 
@@ -201,7 +201,7 @@ fn linkSleeping(t: *Thread) void {
     };
 
     while (true) {
-        if (next.state.sleeping.until_ticks <= ticks) {
+        if (next.state.sleeping.until_ns <= ns) {
             if (next.next) |x| {
                 next = x;
                 continue;

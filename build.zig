@@ -81,6 +81,11 @@ fn addBuildStep(b: *Build, optimize: std.builtin.OptimizeMode, target: Build.Res
     });
     kernel_compile.bundle_compiler_rt = true;
 
+    const ap_trampoline_compile = b.addSystemCommand(&.{"nasm"});
+    ap_trampoline_compile.addFileArg(b.path("kernel/arch/x86_64/ap_trampoline.asm"));
+    const ap_trampoline = ap_trampoline_compile.addPrefixedOutputFileArg("-o", "ap_trampoline.bin");
+    kernel_compile.root_module.addAnonymousImport("ap_trampoline", .{ .root_source_file = ap_trampoline });
+
     const user_target = b.resolveTargetQuery(.{
         .os_tag = .other,
         .abi = .none,
@@ -170,7 +175,14 @@ fn addBuildStep(b: *Build, optimize: std.builtin.OptimizeMode, target: Build.Res
     link.addArg("-o");
     const kernel = link.addOutputFileArg("kernel.elf");
     link.addFileArg(kernel_compile.getEmittedBin());
-    try linkAssembly(b, link);
+
+    for ([_][]const u8{
+        "kernel/arch/x86_64/boot/header.asm",
+        "kernel/arch/x86_64/boot/boot32.asm",
+        "kernel/arch/x86_64/boot/boot64.asm",
+    }) |path| {
+        try linkAsm(b, link, path);
+    }
 
     const kernel_install = b.addInstallFile(kernel, "kernel.elf");
     b.getInstallStep().dependOn(&kernel_install.step);
@@ -243,29 +255,11 @@ fn addBuildStep(b: *Build, optimize: std.builtin.OptimizeMode, target: Build.Res
     b.getInstallStep().dependOn(&disk_install.step);
 }
 
-fn linkAssembly(b: *Build, link: *Build.Step.Run) !void {
-    const asm_source_path = b.pathJoin(&.{ b.build_root.path.?, "kernel/arch/x86_64/" });
-    var asm_source_dir = try std.Io.Dir.cwd().openDir(b.graph.io, asm_source_path, .{ .iterate = true });
-    defer asm_source_dir.close(b.graph.io);
-
-    var iter = try asm_source_dir.walk(b.allocator);
-    defer iter.deinit();
-    while (try iter.next(b.graph.io)) |entry| {
-        if (entry.kind != .file) continue;
-        if (!std.mem.endsWith(u8, entry.basename, ".asm")) continue;
-
-        const source_file: Build.LazyPath = .{ .cwd_relative = b.pathJoin(&.{ asm_source_path, entry.path }) };
-        const asm_compile = b.addSystemCommand(&.{
-            "nasm",
-            "-f",
-            "elf64",
-        });
-
-        asm_compile.addFileArg(source_file);
-        const asm_object = asm_compile.addPrefixedOutputFileArg("-o", b.fmt("{s}.o", .{entry.basename}));
-
-        link.addFileArg(asm_object);
-    }
+fn linkAsm(b: *Build, link: *Build.Step.Run, path: []const u8) !void {
+    const compile = b.addSystemCommand(&.{ "nasm", "-f", "elf64" });
+    compile.addFileArg(b.path(path));
+    const obj = compile.addPrefixedOutputFileArg("-o", b.fmt("{s}.o", .{std.mem.cutScalarLast(u8, path, '/').?[1]}));
+    link.addFileArg(obj);
 }
 
 const OutputMode = enum {

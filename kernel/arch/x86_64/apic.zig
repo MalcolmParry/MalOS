@@ -59,7 +59,7 @@ const LocalApic = extern struct {
 const timer_int_vec = 0x30;
 
 pub var use_pic: bool = true;
-var local_apic: *volatile LocalApic = undefined;
+pub var local_apic: *volatile LocalApic = undefined;
 var apic_hz: u64 = undefined;
 var tsc_hz: u64 = undefined;
 var tsc_offset: u64 = undefined;
@@ -160,4 +160,13 @@ pub fn getMonotonicNs() u64 {
 
     const ticks = arch.cpu.rdtscOrdered() +% tsc_offset;
     return @intCast(@as(u128, ticks) * std.time.ns_per_s / tsc_hz);
+}
+
+pub fn tscBusyWait(ns: u64) void {
+    const ticks: u64 = @intCast((@as(u128, ns) * tsc_hz + std.time.ns_per_s - 1) / std.time.ns_per_s);
+    const end = arch.cpu.rdtscOrdered() + ticks;
+
+    while (arch.cpu.rdtsc() < end) {
+        std.atomic.spinLoopHint();
+    }
 }

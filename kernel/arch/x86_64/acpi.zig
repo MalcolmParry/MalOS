@@ -2,7 +2,8 @@ const std = @import("std");
 const mem = @import("../../memory.zig");
 const arch = @import("x86_64.zig");
 const apic = @import("apic.zig");
-const debug = @import("../../debug.zig");
+const ap_trampoline = @embedFile("ap_trampoline");
+const log = std.log.scoped(.acpi);
 
 pub var maybe_sdp: ?Sdp = null;
 pub var ap_trampoline_phys_page: *mem.PhysPage = undefined;
@@ -76,13 +77,12 @@ const Madt = extern struct {
 };
 
 pub fn initSmp() !void {
-    try apic.init();
-
+    if (apic.use_pic) return;
     const sdp = maybe_sdp orelse {
         return;
     };
 
-    std.log.info("{any}", .{sdp});
+    log.debug("{any}", .{sdp});
 
     switch (sdp) {
         .rsdp => |rsdp| {
@@ -112,8 +112,8 @@ pub fn initSmp() !void {
 
 fn parseSdt(sdt: *SdtHeader) !void {
     if (!sdt.doChecksum()) return error.BadChecksum;
-    std.log.info("{any}", .{sdt});
-    std.log.info("'{s}' '{s}'", .{ sdt.signature, sdt.oemid });
+    log.debug("{any}", .{sdt});
+    log.debug("'{s}' '{s}'", .{ sdt.signature, sdt.oemid });
 
     if (std.mem.eql(u8, &sdt.signature, "APIC")) {
         try parseMadt(sdt);
@@ -126,17 +126,48 @@ fn parseMadt(sdt: *SdtHeader) !void {
     var entry: *Madt.Entry = @ptrFromInt(@intFromPtr(madt) + @sizeOf(Madt));
 
     const boot_apic_id: u8 = @truncate(arch.cpu.cpuid(1, 0).ebx >> 24);
-    std.log.info("boot apic id: {}", .{boot_apic_id});
+    log.debug("boot apic id: {}", .{boot_apic_id});
 
     while (@intFromPtr(entry) < madt_end) : (entry = @ptrFromInt(@intFromPtr(entry) + entry.len)) {
         switch (entry.kind) {
             .local_apic => {
                 const local_apic: *Madt.LocalApic = @fieldParentPtr("entry", entry);
-                std.log.info("{any}", .{local_apic});
+                log.debug("{any}", .{local_apic});
             },
             else => {
-                std.log.info("{any}", .{entry});
+                log.debug("{any}", .{entry});
             },
+        }
+    }
+
+    const ap_trampoline_bytes = @as([*]u8, @ptrFromInt(@intFromPtr(ap_trampoline_phys_page) + mem.direct_map_base))[0..4096];
+    @memcpy(ap_trampoline_bytes[0..ap_trampoline.len], ap_trampoline);
+
+    const trampoline_page: u8 = @intCast(@intFromPtr(ap_trampoline_phys_page) / 4096);
+    entry = @ptrFromInt(@intFromPtr(madt) + @sizeOf(Madt));
+    while (@intFromPtr(entry) < madt_end) : (entry = @ptrFromInt(@intFromPtr(entry) + entry.len)) {
+        if (entry.kind != .local_apic) continue;
+        const lapic_entry: *Madt.LocalApic = @fieldParentPtr("entry", entry);
+        if (lapic_entry.apic_id == boot_apic_id) continue;
+        if (lapic_entry.flags & 1 == 0) continue;
+        const lapic = apic.local_apic;
+        const apic_id_shifted = @as(u32, lapic_entry.apic_id) << 24;
+
+        lapic.icr[1].val = apic_id_shifted;
+        lapic.icr[0].val = lapic.icr[0].val & 0xfff0_0000 | 0xc500;
+        while (lapic.icr[0].val & (1 << 12) > 0) std.atomic.spinLoopHint();
+
+        lapic.icr[1].val = apic_id_shifted;
+        lapic.icr[0].val = lapic.icr[0].val & 0xfff0_0000 | 0x8500;
+        while (lapic.icr[0].val & (1 << 12) > 0) std.atomic.spinLoopHint();
+        apic.tscBusyWait(10 * std.time.ns_per_ms);
+
+        for (0..2) |_| {
+            lapic.err_status.val = 0;
+            lapic.icr[1].val = apic_id_shifted;
+            lapic.icr[0].val = lapic.icr[0].val & 0xfff0_f800 | 0x0000_0600 | trampoline_page;
+            apic.tscBusyWait(std.time.ns_per_us * 200);
+            while (lapic.icr[0].val & (1 << 12) > 0) std.atomic.spinLoopHint();
         }
     }
 }
