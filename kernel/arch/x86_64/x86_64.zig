@@ -1,6 +1,7 @@
 const std = @import("std");
 const debug = @import("../../debug.zig");
 const gdt = @import("gdt.zig");
+const apic = @import("apic.zig");
 
 pub const page_size = 4096;
 pub const kernel_virt_base: u64 = 0xffff_ffff_c000_0000;
@@ -12,6 +13,9 @@ pub const cpu = @import("cpu.zig");
 pub const initSmp = @import("acpi.zig").initSmp;
 
 pub const initBootInfo = multiboot.initBootInfo;
+
+pub const setTimerNs = apic.setTimerNs;
+pub const getMonotonicNs = apic.getMonotonicNs;
 
 pub const halt = cpu.halt;
 pub const spinWait = cpu.spinWait;

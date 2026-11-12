@@ -34,11 +34,15 @@ pub fn init() void {
     arch.outb(pic2_data, icw4_8086);
     arch.ioWait();
 
-    // unmask timer
-    arch.outb(pic1_data, 0b1111_1110);
-    arch.outb(pic2_data, 0b1111_1111);
+    setMask(0xffff);
 }
 
-pub fn eoi() void {
+pub fn eoi(irq: u4) void {
+    if (irq >= 8) arch.outb(pic2_cmd, 0x20);
     arch.outb(pic1_cmd, 0x20);
+}
+
+pub fn setMask(mask: u16) void {
+    arch.outb(pic1_data, @truncate(mask));
+    arch.outb(pic2_data, @truncate(mask >> 8));
 }

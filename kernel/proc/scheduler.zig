@@ -2,11 +2,10 @@ const std = @import("std");
 const arch = @import("../arch/arch.zig").current;
 const Spinlock = @import("../sync/Spinlock.zig");
 const assert = std.debug.assert;
-const pit = @import("../drivers/x86/pit.zig");
 const Thread = @import("Thread.zig");
 
 pub var lock: Spinlock = .init;
-var idle_thread: *Thread = undefined;
+pub var idle_thread: *Thread = undefined;
 var first_sleeping: ?*Thread = null;
 var first_ready: ?*Thread = null;
 var last_ready: ?*Thread = null;
@@ -20,19 +19,16 @@ pub fn init() !void {
     Thread.current = boot;
 }
 
-pub fn sleepTicks(ticks: u64) void {
-    schedule(.{ .sleeping = .{
-        .until_ticks = pit.ticks.load(.monotonic) + ticks + 1,
-    } });
-}
-
 pub fn sleepNs(ns: u64) void {
-    sleepTicks((ns + pit.period_ns - 1) / pit.period_ns);
+    schedule(.{ .sleeping = .{
+        .until_ns = arch.getMonotonicNs() +| ns,
+    } });
 }
 
 pub fn preempt(state: *align(1) arch.cpu.State) noreturn {
     _ = lock.lock();
-    wakeSleeping();
+    const now = arch.getMonotonicNs();
+    wakeSleeping(now);
 
     const last = Thread.current;
     assert(last.state == .running);
@@ -48,6 +44,7 @@ pub fn preempt(state: *align(1) arch.cpu.State) noreturn {
         arch.cpu.prepareThreadSwitch(next, last);
     }
 
+    setPreemptionTimer(now, next == idle_thread);
     const s = next.cpu_state.?;
     next.cpu_state = null;
     s.restore();
@@ -65,7 +62,8 @@ pub fn schedule(next_state: Thread.State) void {
 
 /// returns true if the context switch happened
 pub fn scheduleLockHeld(next_state: Thread.State) bool {
-    wakeSleeping();
+    const now = arch.getMonotonicNs();
+    wakeSleeping(now);
 
     const last = Thread.current;
     assert(last.state == .running);
@@ -85,6 +83,7 @@ pub fn scheduleLockHeld(next_state: Thread.State) bool {
     Thread.current = next;
     arch.cpu.prepareThreadSwitch(next, last);
 
+    setPreemptionTimer(now, next == idle_thread);
     const s = next.cpu_state.?;
     next.cpu_state = null;
     s.saveAndRestore(&last.cpu_state);
@@ -101,11 +100,20 @@ pub fn wake(thread: *Thread) void {
 }
 
 /// assumes lock is held
-pub fn wakeSleeping() void {
-    const ticks = pit.ticks.load(.monotonic);
+pub fn setPreemptionTimer(now: u64, is_idle: bool) void {
+    if (is_idle) if (first_sleeping) |thread| {
+        arch.setTimerNs(thread.state.sleeping.until_ns - now);
+        return;
+    };
+
+    arch.setTimerNs(10 * std.time.ns_per_ms);
+}
+
+/// assumes lock is held
+pub fn wakeSleeping(now: u64) void {
     while (true) {
         const thread = first_sleeping orelse break;
-        if (thread.state.sleeping.until_ticks > ticks) break;
+        if (thread.state.sleeping.until_ns > now) break;
 
         assert(thread.prev == null);
         first_sleeping = thread.next;

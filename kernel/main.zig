@@ -15,8 +15,6 @@ const Vmo = @import("object/Vmo.zig");
 const Process = @import("proc/Process.zig");
 const Thread = @import("proc/Thread.zig");
 
-const pit = @import("drivers/x86/pit.zig");
-
 pub const debug = @import("debug.zig");
 pub const panic = std.debug.FullPanic(debug.panic);
 pub const std_options_debug_threaded_io = null;
@@ -68,7 +66,6 @@ pub fn kernelMain() !noreturn {
     pmm.init(&boot_info, page_alloc);
     try arch.initSmp();
     try scheduler.init();
-    pit.init();
 
     for (boot_info.module_buffer[0..boot_info.module_count]) |*module| {
         const phys_pages = mem.physPageAlignOutwards(module.phys_range);

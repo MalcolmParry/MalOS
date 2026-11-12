@@ -3,7 +3,7 @@ const builtin = @import("builtin");
 const options = @import("options");
 const mem = @import("../../memory.zig");
 const arch = @import("x86_64.zig");
-const pic = @import("pic.zig");
+const apic = @import("apic.zig");
 const scheduler = @import("../../proc/scheduler.zig");
 const Thread = @import("../../proc/Thread.zig");
 const log = @import("../../log.zig");
@@ -122,8 +122,6 @@ pub fn init() void {
         :
         : [idtr] "{rax}" (&idtr),
     );
-
-    pic.init();
 }
 
 const PageFaultFlags = packed struct(u64) {
@@ -141,11 +139,19 @@ fn handler(state: *align(1) arch.cpu.State) callconv(.{ .x86_64_sysv = .{ .incom
     switch (state.int_code) {
         0...31 => handleException(state),
         0x20 => {
-            pic.eoi();
+            apic.eoi(0);
 
             const pit = @import("../../drivers/x86/pit.zig");
             _ = pit.ticks.fetchAdd(1, .monotonic);
             scheduler.preempt(state);
+        },
+        0x30 => {
+            apic.eoi(0);
+            scheduler.preempt(state);
+        },
+        0xff => {
+            // spurious interrupt
+            state.restore();
         },
         0x80 => {
             const args: [7]usize = .{
@@ -191,6 +197,7 @@ fn handler(state: *align(1) arch.cpu.State) callconv(.{ .x86_64_sysv = .{ .incom
             scheduler.preempt(state);
         },
         else => {
+            std.log.warn("unknown interrupt\n{f}", .{state});
             arch.spinWait();
         },
     }

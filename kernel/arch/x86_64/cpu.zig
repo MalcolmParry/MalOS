@@ -139,6 +139,7 @@ pub const State = extern struct {
     ss: u64 = 0x10,
 
     pub const zero = std.mem.zeroes(State);
+    pub const format = dump;
     pub fn dump(s: *align(1) const State, w: *std.Io.Writer) !void {
         const name = if (s.int_code < exception_names.len) exception_names[s.int_code] else "interrupt";
         try w.print(
@@ -437,4 +438,50 @@ pub fn writeMsr(msr: u32, value: u64) void {
           [low] "{eax}" (low),
           [high] "{edx}" (high),
         : .{});
+}
+
+pub fn cpuid(leaf: u32, sub_leaf: u32) struct { eax: u32, ebx: u32, ecx: u32, edx: u32 } {
+    var a: u32 = undefined;
+    var b: u32 = undefined;
+    var c: u32 = undefined;
+    var d: u32 = undefined;
+
+    asm volatile (
+        \\ cpuid
+        : [a] "={eax}" (a),
+          [b] "={ebx}" (b),
+          [c] "={ecx}" (c),
+          [d] "={edx}" (d),
+        : [eax] "{eax}" (leaf),
+          [ecx] "{ecx}" (sub_leaf),
+    );
+
+    return .{ .eax = a, .ebx = b, .ecx = c, .edx = d };
+}
+
+pub fn rdtsc() u64 {
+    var low: u32 = undefined;
+    var high: u32 = undefined;
+
+    asm volatile (
+        \\ rdtsc
+        : [low] "={eax}" (low),
+          [high] "={edx}" (high),
+    );
+
+    return @as(u64, high) << 32 | low;
+}
+
+pub fn rdtscOrdered() u64 {
+    var low: u32 = undefined;
+    var high: u32 = undefined;
+
+    asm volatile (
+        \\ lfence
+        \\ rdtsc
+        : [low] "={eax}" (low),
+          [high] "={edx}" (high),
+    );
+
+    return @as(u64, high) << 32 | low;
 }

@@ -1,6 +1,8 @@
 const std = @import("std");
 const mem = @import("../../memory.zig");
 const arch = @import("x86_64.zig");
+const apic = @import("apic.zig");
+const debug = @import("../../debug.zig");
 
 pub var maybe_sdp: ?Sdp = null;
 pub var ap_trampoline_phys_page: *mem.PhysPage = undefined;
@@ -44,7 +46,38 @@ const SdtHeader = extern struct {
     }
 };
 
+const Madt = extern struct {
+    sdt: SdtHeader,
+    local_apic_addr: u32 align(1),
+    flags: u32 align(1),
+
+    const Entry = extern struct {
+        kind: Kind,
+        len: u8,
+
+        const Kind = enum(u8) {
+            local_apic = 0,
+            io_apic = 1,
+            io_apic_int_src_override = 2,
+            io_apic_non_maskable_int_src = 3,
+            local_apic_non_maskable_ints = 4,
+            local_apic_addr_override = 5,
+            local_x2_apic = 9,
+            _,
+        };
+    };
+
+    const LocalApic = extern struct {
+        entry: Entry,
+        acpi_proc_id: u8,
+        apic_id: u8,
+        flags: u32 align(1),
+    };
+};
+
 pub fn initSmp() !void {
+    try apic.init();
+
     const sdp = maybe_sdp orelse {
         return;
     };
@@ -80,4 +113,30 @@ pub fn initSmp() !void {
 fn parseSdt(sdt: *SdtHeader) !void {
     if (!sdt.doChecksum()) return error.BadChecksum;
     std.log.info("{any}", .{sdt});
+    std.log.info("'{s}' '{s}'", .{ sdt.signature, sdt.oemid });
+
+    if (std.mem.eql(u8, &sdt.signature, "APIC")) {
+        try parseMadt(sdt);
+    }
+}
+
+fn parseMadt(sdt: *SdtHeader) !void {
+    const madt: *Madt = @fieldParentPtr("sdt", sdt);
+    const madt_end = @intFromPtr(madt) + sdt.len;
+    var entry: *Madt.Entry = @ptrFromInt(@intFromPtr(madt) + @sizeOf(Madt));
+
+    const boot_apic_id: u8 = @truncate(arch.cpu.cpuid(1, 0).ebx >> 24);
+    std.log.info("boot apic id: {}", .{boot_apic_id});
+
+    while (@intFromPtr(entry) < madt_end) : (entry = @ptrFromInt(@intFromPtr(entry) + entry.len)) {
+        switch (entry.kind) {
+            .local_apic => {
+                const local_apic: *Madt.LocalApic = @fieldParentPtr("entry", entry);
+                std.log.info("{any}", .{local_apic});
+            },
+            else => {
+                std.log.info("{any}", .{entry});
+            },
+        }
+    }
 }

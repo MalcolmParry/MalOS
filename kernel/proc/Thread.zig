@@ -42,7 +42,8 @@ pub const State = union(enum) {
     running,
     blocked,
     sleeping: struct {
-        until_ticks: u64,
+        /// uses arch.getMonotonicNs
+        until_ns: u64,
     },
 };
 
@@ -141,12 +142,14 @@ pub fn exitCurrent() noreturn {
     thread.state = .dead;
     thread.obj.release();
 
-    scheduler.wakeSleeping();
+    const now = arch.getMonotonicNs();
+    scheduler.wakeSleeping(now);
     const next = scheduler.chooseThread();
     current = next;
     next.state = .running;
     arch.cpu.prepareThreadSwitch(next, null);
 
+    scheduler.setPreemptionTimer(now, next == scheduler.idle_thread);
     const s = next.cpu_state.?;
     next.cpu_state = null;
     s.restore();

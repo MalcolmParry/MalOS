@@ -2,8 +2,10 @@ const std = @import("std");
 const arch = @import("../../arch/arch.zig").current;
 
 pub const pit_hz = 1_193_182;
+pub const period_fs = 838_095_238;
+
 pub const divisor = pit_hz / 100;
-pub const period_ns = 9_999_315;
+pub const divisor_period_ns = period_fs * divisor / 1_000_000;
 
 pub var ticks: std.atomic.Value(u64) = .init(0);
 
@@ -12,11 +14,13 @@ const ports = struct {
     const ch1: u8 = 0x41;
     const ch2: u8 = 0x42;
     const cmd: u8 = 0x43;
+    const sys_ctrl_b: u8 = 0x61;
 };
 
 const Command = packed struct(u8) {
     const OpMode = enum(u3) {
         int_on_terminal_count = 0,
+        rate_generator = 2,
     };
 
     const AccessMode = enum(u2) {
@@ -51,4 +55,22 @@ pub fn init() void {
 
     arch.outb(ports.ch0, @truncate(divisor));
     arch.outb(ports.ch0, @truncate(divisor >> 8));
+}
+
+pub fn arm(count: u16) void {
+    arch.outb(ports.sys_ctrl_b, arch.in(u8, ports.sys_ctrl_b) & 0b1111_1100);
+    arch.out(ports.cmd, Command{
+        .op_mode = .int_on_terminal_count,
+        .access_mode = .low_high,
+        .channel = 2,
+    });
+
+    write_count(2, count);
+    arch.outb(ports.sys_ctrl_b, arch.in(u8, ports.sys_ctrl_b) | 1);
+}
+
+pub fn busyWait() void {
+    while (arch.in(u8, ports.sys_ctrl_b) & (1 << 5) == 0) {
+        std.atomic.spinLoopHint();
+    }
 }
