@@ -2,6 +2,7 @@ const std = @import("std");
 const mem = @import("../../memory.zig");
 const arch = @import("x86_64.zig");
 const apic = @import("apic.zig");
+const PageAlloc = @import("../../heap/PageAllocator.zig");
 const ap_trampoline = @embedFile("ap_trampoline");
 const log = std.log.scoped(.acpi);
 
@@ -111,7 +112,8 @@ pub fn initSmp() !void {
 }
 
 fn parseSdt(sdt: *SdtHeader) !void {
-    if (!sdt.doChecksum()) return error.BadChecksum;
+    if (sdt.len < @sizeOf(SdtHeader)) return;
+    if (!sdt.doChecksum()) log.warn("bad checksum, continuing anyway", .{});
     log.debug("{any}", .{sdt});
     log.debug("'{s}' '{s}'", .{ sdt.signature, sdt.oemid });
 
@@ -142,6 +144,17 @@ fn parseMadt(sdt: *SdtHeader) !void {
 
     const ap_trampoline_bytes = @as([*]u8, @ptrFromInt(@intFromPtr(ap_trampoline_phys_page) + mem.direct_map_base))[0..4096];
     @memcpy(ap_trampoline_bytes[0..ap_trampoline.len], ap_trampoline);
+    const ap_params: *ApParams = @ptrFromInt(@intFromPtr(ap_trampoline_bytes) + 0xd00);
+
+    const ap_page_table = try arch.paging.createTable();
+    try arch.paging.mapPage(ap_page_table, .l4, @ptrCast(ap_trampoline_phys_page), ap_trampoline_phys_page, .{
+        .cache_mode = .full,
+        .executable = true,
+        .global = false,
+        // have to map as user page bc it is in lower half
+        .user = true,
+        .writable = true,
+    });
 
     const trampoline_page: u8 = @intCast(@intFromPtr(ap_trampoline_phys_page) / 4096);
     entry = @ptrFromInt(@intFromPtr(madt) + @sizeOf(Madt));
@@ -152,6 +165,23 @@ fn parseMadt(sdt: *SdtHeader) !void {
         if (lapic_entry.flags & 1 == 0) continue;
         const lapic = apic.local_apic;
         const apic_id_shifted = @as(u32, lapic_entry.apic_id) << 24;
+
+        const stack_size = 32 * 1024;
+        const stack = try PageAlloc.global.alloc(stack_size / 4096, .{
+            .cache_mode = .full,
+            .global = true,
+            .writable = true,
+            .user = false,
+            .executable = false,
+        });
+
+        if (@intFromPtr(ap_page_table.physPage()) > std.math.maxInt(u32)) @panic("ap page table cant fit in u32");
+        ap_params.* = .{
+            .cr3 = @intFromPtr(ap_page_table.physPage()),
+            .sp = @intFromPtr(stack.ptr) + stack_size,
+            .entry = @intFromPtr(&apEntry),
+            .started = .init(0),
+        };
 
         lapic.icr[1].val = apic_id_shifted;
         lapic.icr[0].val = lapic.icr[0].val & 0xfff0_0000 | 0xc500;
@@ -169,5 +199,29 @@ fn parseMadt(sdt: *SdtHeader) !void {
             apic.tscBusyWait(std.time.ns_per_us * 200);
             while (lapic.icr[0].val & (1 << 12) > 0) std.atomic.spinLoopHint();
         }
+
+        const started = apic.getMonotonicNs();
+        while (ap_params.started.load(.acquire) == 0) {
+            if (apic.getMonotonicNs() - started > std.time.ns_per_s) {
+                log.warn("timeout while starting ap {}", .{lapic_entry.apic_id});
+                return;
+            }
+            std.atomic.spinLoopHint();
+        }
     }
+}
+
+const ApParams = extern struct {
+    cr3: u64,
+    sp: u64,
+    entry: u64,
+    started: std.atomic.Value(u64),
+};
+
+fn apEntry() callconv(.{ .x86_64_sysv = .{} }) noreturn {
+    arch.outb(0x3f8, 'a');
+    arch.outb(0x3f8, 'p');
+    arch.outb(0x3f8, '\r');
+    arch.outb(0x3f8, '\n');
+    arch.spinWait();
 }

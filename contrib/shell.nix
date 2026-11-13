@@ -16,6 +16,7 @@ pkgs.mkShell {
     gf
     e2fsprogs
     parted
+    tio
   ];
 
   shellHook = ''
