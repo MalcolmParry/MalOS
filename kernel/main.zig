@@ -64,9 +64,6 @@ pub fn kernelMain() !noreturn {
     const page_alloc = PageAllocator.global.allocator();
 
     pmm.init(&boot_info, page_alloc);
-    try arch.initTimer();
-    try scheduler.init();
-    try arch.initSmp();
 
     for (boot_info.module_buffer[0..boot_info.module_count]) |*module| {
         const phys_pages = mem.physPageAlignOutwards(module.phys_range);
@@ -104,6 +101,10 @@ pub fn kernelMain() !noreturn {
     }
 
     debug.init(&boot_info);
+    try arch.initTimer();
+    try scheduler.init();
+    try arch.initSmp();
+
     std.log.info("{Bi:.2} used out of {Bi:.2}", .{ pmm.used_pages.load(.monotonic) * mem.page_size, pmm.total_pages * mem.page_size });
 
     const initrd = blk: for (boot_info.modules()) |*mod| {

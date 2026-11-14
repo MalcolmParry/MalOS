@@ -37,6 +37,13 @@ pub fn tempInit(boot_info: *const BootInfo) void {
         total_pages += range.len;
     }
 
+    // done as a hack so that early allocations are below 4gb
+    std.mem.sort([]mem.PhysPage, init_free_ranges.items, {}, struct {
+        fn lessThan(_: void, left: []mem.PhysPage, right: []mem.PhysPage) bool {
+            return @intFromPtr(left.ptr) < @intFromPtr(right.ptr);
+        }
+    }.lessThan);
+
     var free_pages: usize = 0;
     for (init_free_ranges.items) |range| {
         free_pages += range.len;

@@ -29,7 +29,10 @@ pub fn main(initrd: abi.Handle) !void {
         lib.syscall.klogWrite(lib.klog, buffer[0..bytes]) catch {};
     }
 
-    for ("direct writing to serial in userspace\r\n") |c| outb(0x3f8, c);
+    for ("direct writing to serial in userspace\r\n") |c| {
+        while (in(u8, 0x3f8 + 5) & 0x20 == 0) std.atomic.spinLoopHint();
+        outb(0x3f8, c);
+    }
 
     {
         const h0, const h1 = try lib.syscall.socketCreatePair();

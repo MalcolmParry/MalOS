@@ -169,7 +169,7 @@ fn parseMadt(sdt: *SdtHeader) !void {
         const stack_size = 32 * 1024;
         const stack = try PageAlloc.global.alloc(stack_size / 4096, .{
             .cache_mode = .full,
-            .global = true,
+            .global = false,
             .writable = true,
             .user = false,
             .executable = false,
@@ -219,9 +219,6 @@ const ApParams = extern struct {
 };
 
 fn apEntry() callconv(.{ .x86_64_sysv = .{} }) noreturn {
-    arch.outb(0x3f8, 'a');
-    arch.outb(0x3f8, 'p');
-    arch.outb(0x3f8, '\r');
-    arch.outb(0x3f8, '\n');
+    std.log.info("ap", .{});
     arch.spinWait();
 }
