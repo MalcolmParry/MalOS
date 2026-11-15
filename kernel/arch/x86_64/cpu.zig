@@ -5,6 +5,7 @@ const arch = @import("x86_64.zig");
 const Thread = @import("../../proc/Thread.zig");
 const scheduler = @import("../../proc/scheduler.zig");
 const mem = @import("../../memory.zig");
+const PerCpu = @import("../../PerCpu.zig");
 
 pub const Fxsave = struct {
     data: [512]u8 align(16),
@@ -179,6 +180,7 @@ pub const State = extern struct {
         std.debug.assert(@intFromEnum(Status.unlocked) == 0);
     }
 
+    // TODO: fix nmi after swapgs
     fn nakedRestore() callconv(.naked) noreturn {
         asm volatile (
             \\ movb $0, %[lock:P](%rip)
@@ -200,6 +202,10 @@ pub const State = extern struct {
             \\ popq %r15
             \\
             \\ addq $0x10, %rsp
+            \\ testb $3, 8(%rsp)
+            \\ jz 1f
+            \\ swapgs
+            \\ 1:
             \\ iretq
             :
             : [lock] "i" (&scheduler.lock.status.raw),
@@ -485,3 +491,20 @@ pub fn rdtscOrdered() u64 {
 
     return @as(u64, high) << 32 | low;
 }
+
+pub const CpuLocal = struct {
+    per_cpu: *PerCpu,
+};
+
+pub fn getPerCpu() *PerCpu {
+    return asm volatile (
+        \\ movq %%gs:0, %[result]
+        : [result] "=r" (-> *PerCpu),
+    );
+}
+
+pub const msrs = struct {
+    pub const gs_base = 0xc000_0101;
+    pub const kernel_gs_base = 0xc000_0102;
+    pub const fs_base = 0xc000_0100;
+};

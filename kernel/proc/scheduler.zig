@@ -1,4 +1,5 @@
 const std = @import("std");
+const PerCpu = @import("../PerCpu.zig");
 const arch = @import("../arch/arch.zig").current;
 const Spinlock = @import("../sync/Spinlock.zig");
 const assert = std.debug.assert;
@@ -6,19 +7,19 @@ const Thread = @import("Thread.zig");
 const boot_info = @import("../boot_info.zig");
 
 pub var lock: Spinlock = .init;
-pub var idle_thread: *Thread = undefined;
 var first_sleeping: ?*Thread = null;
 var first_ready: ?*Thread = null;
 var last_ready: ?*Thread = null;
 
 pub fn init() !void {
-    idle_thread = try .spawn(idleThread, .{});
+    const idle_thread = try Thread.spawn(idleThread, .{});
     unlinkReady(idle_thread);
+    PerCpu.bsp.thread.idle = idle_thread;
 
     const boot: *Thread = try .create(null);
     boot.state = .running;
     boot.stack = boot_info.boot_stack;
-    Thread.current = boot;
+    PerCpu.bsp.thread.current = boot;
 }
 
 pub fn sleepNs(ns: u64) void {
@@ -29,24 +30,25 @@ pub fn sleepNs(ns: u64) void {
 
 pub fn preempt(state: *align(1) arch.cpu.State) noreturn {
     _ = lock.lock();
+    const pc = PerCpu.get();
     const now = arch.getMonotonicNs();
     wakeSleeping(now);
 
-    const last = Thread.current;
+    const last = pc.thread.current;
     assert(last.state == .running);
     last.state = .ready;
     last.cpu_state = state;
-    if (last != idle_thread) linkReady(last);
+    if (last != pc.thread.idle) linkReady(last);
 
     const next = chooseThread();
     next.state = .running;
-    Thread.current = next;
+    pc.thread.current = next;
 
     if (last != next) {
         arch.cpu.prepareThreadSwitch(next, last);
     }
 
-    setPreemptionTimer(now, next == idle_thread);
+    setPreemptionTimer(now, next == pc.thread.idle);
     const s = next.cpu_state.?;
     next.cpu_state = null;
     s.restore();
@@ -64,6 +66,7 @@ pub fn schedule(next_state: Thread.State) void {
 
 /// returns true if the context switch happened
 pub fn scheduleLockHeld(next_state: Thread.State) bool {
+    const pc = PerCpu.get();
     const now = arch.getMonotonicNs();
     wakeSleeping(now);
 
@@ -82,10 +85,10 @@ pub fn scheduleLockHeld(next_state: Thread.State) bool {
     next.state = .running;
     if (next == last) return false;
 
-    Thread.current = next;
+    pc.thread.current = next;
     arch.cpu.prepareThreadSwitch(next, last);
 
-    setPreemptionTimer(now, next == idle_thread);
+    setPreemptionTimer(now, next == pc.thread.idle);
     const s = next.cpu_state.?;
     next.cpu_state = null;
     s.saveAndRestore(&last.cpu_state);
@@ -144,7 +147,7 @@ pub fn chooseThread() *Thread {
         return thread;
     }
 
-    const thread = idle_thread;
+    const thread = PerCpu.get().thread.idle;
     assert(thread.state == .ready);
     assert(thread.prev == null);
     assert(thread.next == null);

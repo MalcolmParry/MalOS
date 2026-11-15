@@ -9,6 +9,7 @@ const Process = @import("Process.zig");
 const gpa = @import("../heap/gpa.zig").allocator;
 const scheduler = @import("scheduler.zig");
 const PageAllocator = @import("../heap/PageAllocator.zig");
+const PerCpu = @import("../PerCpu.zig");
 const Thread = @This();
 const assert = std.debug.assert;
 
@@ -47,6 +48,16 @@ pub const State = union(enum) {
         until_ns: u64,
     },
 };
+
+pub const CpuLocal = struct {
+    current: *Thread,
+    idle: *Thread,
+    last_stack: ?[]mem.Page = null,
+};
+
+pub fn current() *Thread {
+    return PerCpu.get().thread.current;
+}
 
 pub fn create(maybe_proc: ?*Process) !*Thread {
     const thread = try gpa.create(Thread);
@@ -140,13 +151,11 @@ pub fn startWrapped(thread: *Thread, func: anytype, args: std.meta.ArgsTuple(@Ty
     try thread.startLocked(&state);
 }
 
-pub var current: *Thread = undefined;
-var last_stack: ?[]mem.Page = null;
-
 pub fn exitCurrent() noreturn {
     const l = scheduler.lock.lock();
     arch.paging.getGlobalKernelTable().use();
-    const thread = current;
+    const pc = PerCpu.get();
+    const thread = pc.thread.current;
 
     assert(thread.state == .running);
     if (thread.proc) |proc| {
@@ -157,8 +166,8 @@ pub fn exitCurrent() noreturn {
         _ = scheduler.lock.lock();
     }
 
-    if (last_stack) |last| PageAllocator.global.free(last);
-    last_stack = if (thread.stack.?.ptr == boot_info.boot_stack.ptr) null else thread.stack;
+    if (pc.thread.last_stack) |last| PageAllocator.global.free(last);
+    pc.thread.last_stack = if (thread.stack.?.ptr == boot_info.boot_stack.ptr) null else thread.stack;
     thread.stack = null;
 
     thread.state = .dead;
@@ -167,11 +176,11 @@ pub fn exitCurrent() noreturn {
     const now = arch.getMonotonicNs();
     scheduler.wakeSleeping(now);
     const next = scheduler.chooseThread();
-    current = next;
+    pc.thread.current = next;
     next.state = .running;
     arch.cpu.prepareThreadSwitch(next, null);
 
-    scheduler.setPreemptionTimer(now, next == scheduler.idle_thread);
+    scheduler.setPreemptionTimer(now, next == pc.thread.idle);
     const s = next.cpu_state.?;
     next.cpu_state = null;
     s.restore();

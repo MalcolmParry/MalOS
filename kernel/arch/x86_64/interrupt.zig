@@ -166,7 +166,7 @@ fn handler(state: *align(1) arch.cpu.State) callconv(.{ .x86_64_sysv = .{ .incom
 
             if (options.strace) {
                 std.log.info("thread 0x{x} syscall {{\x1b[94m.{s}\x1b[m (#{}), {}, {}, {}, {}, {}, {}}}", .{
-                    @intFromPtr(Thread.current),
+                    @intFromPtr(Thread.current()),
                     if (std.enums.fromInt(abi.Syscall, args[0])) |x| @tagName(x) else "invalid",
                     args[0],
                     args[1],
@@ -181,7 +181,7 @@ fn handler(state: *align(1) arch.cpu.State) callconv(.{ .x86_64_sysv = .{ .incom
             const result = syscall.handler(args);
             if (options.strace) {
                 std.log.info("thread 0x{x} syscall ret = {{\x1b[92m.{s}\x1b[m (#{}), {}, {}, {}}}", .{
-                    @intFromPtr(Thread.current),
+                    @intFromPtr(Thread.current()),
                     @tagName(@as(abi.Status, @enumFromInt(result[0]))),
                     result[0],
                     result[1],
@@ -253,8 +253,14 @@ fn handleException(state: *align(1) arch.cpu.State) noreturn {
     arch.spinWait();
 }
 
+// TODO: fix nmi before swapgs
 fn commonStub() callconv(.naked) void {
     asm volatile (
+        \\ testb $3, 0x18(%rsp)
+        \\ jz 1f
+        \\ swapgs
+        \\ 1:
+        \\
         \\ pushq %r15
         \\ pushq %r14
         \\ pushq %r13
@@ -271,13 +277,7 @@ fn commonStub() callconv(.naked) void {
         \\ pushq %rax
         \\ pushq %rbp
         \\
-        \\ xor %ax, %ax
-        \\ mov %ax, %ss
-        \\ mov %ax, %ds
-        \\ mov %ax, %es
-        \\ mov %ax, %fs
-        \\ mov %ax, %gs
-        \\
+        \\ cld
         \\ xor %ebp, %ebp
         \\ movq %rsp, %rdi // 1st arg in rdi
         \\ jmp %[handler:P]
@@ -300,10 +300,6 @@ const stub_table = blk: {
 fn generateInterruptStub(comptime int_num: u8) Stub {
     return struct {
         fn func() callconv(.naked) void {
-            asm volatile (
-                \\ cli
-            );
-
             if (int_num != 8 and !(int_num >= 10 and int_num <= 14) and int_num != 17 and int_num != 21) {
                 asm volatile (
                     \\ pushq $0

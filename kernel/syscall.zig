@@ -515,7 +515,7 @@ fn processCreate(_: [7]usize) abi.ProcessCreateError![3]usize {
 }
 
 fn processTransferHandles(args: [7]usize) abi.ProcessTransferHandlesError![3]usize {
-    const proc = Thread.current.proc.?;
+    const proc = Thread.current().proc.?;
     const other_obj = try getObj(args[1], .{ .transfer_to = true });
     defer other_obj.release();
     const other = other_obj.get(Process) orelse return error.BadHandleKind;

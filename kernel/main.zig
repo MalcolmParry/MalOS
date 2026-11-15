@@ -88,7 +88,7 @@ pub fn kernelMain() !noreturn {
 }
 
 fn init(initrd: []const u8, initrd_vmo: *Vmo) !noreturn {
-    const thread = Thread.current;
+    const thread = Thread.current();
     const proc = thread.proc.?;
 
     const klog_h = try proc.handle_table.putLocked(.{

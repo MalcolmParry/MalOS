@@ -2,6 +2,7 @@ const std = @import("std");
 const debug = @import("../../debug.zig");
 const gdt = @import("gdt.zig");
 const apic = @import("apic.zig");
+const PerCpu = @import("../../PerCpu.zig");
 
 pub const page_size = 4096;
 pub const kernel_virt_base: u64 = 0xffff_ffff_c000_0000;
@@ -32,7 +33,18 @@ const user_copy = @import("user_copy.zig");
 pub const copyFromUser = user_copy.copyFromUser;
 pub const copyToUser = user_copy.copyToUser;
 
+pub const CpuLocal = cpu.CpuLocal;
+pub const getPerCpu = cpu.getPerCpu;
+
 pub fn kernelEntry() callconv(.{ .x86_64_sysv = .{} }) noreturn {
+    PerCpu.bsp.arch_specific = .{
+        .per_cpu = &PerCpu.bsp,
+    };
+
+    cpu.writeMsr(cpu.msrs.gs_base, @intFromPtr(&PerCpu.bsp.arch_specific.per_cpu));
+    cpu.writeMsr(cpu.msrs.kernel_gs_base, 0);
+    cpu.writeMsr(cpu.msrs.fs_base, 0);
+
     @import("../../main.zig").kernelMain() catch |err| {
         debug.dumpErrorAndPanic(err);
     };

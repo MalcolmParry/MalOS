@@ -1,6 +1,5 @@
 global _start64
 extern kernelEntry 
-global _start64
 
 section .text
 bits 64
