@@ -190,4 +190,4 @@ pub const ProcessCreateError = error{ OutOfMemory, TooManyHandles };
 pub const ProcessTransferHandlesError = error{ OutOfMemory, TooManyHandles, BadHandle, BadHandleKind, TooBig, Fault, BadArg, NoRight, BadState };
 
 pub const ThreadCreateError = error{ BadHandle, BadHandleKind, OutOfMemory, TooManyHandles };
-pub const ThreadStartError = error{ BadHandle, BadHandleKind, Fault, BadState, BadArg };
+pub const ThreadStartError = error{ BadHandle, BadHandleKind, Fault, BadState, BadArg, OutOfMemory };

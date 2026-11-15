@@ -328,6 +328,7 @@ pub fn threadStart(thread: abi.Handle, info: *allowzero align(1) const abi.Threa
         .fault => error.Fault,
         .bad_state => error.BadState,
         .bad_arg => error.BadArg,
+        .out_of_memory => error.OutOfMemory,
         else => unexpected(result[0]),
     };
 }

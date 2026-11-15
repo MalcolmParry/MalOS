@@ -102,7 +102,7 @@ pub fn kernelMain() !noreturn {
 
     debug.init(&boot_info);
     try arch.initTimer();
-    try scheduler.init();
+    try scheduler.init(&boot_info);
     try arch.initSmp();
 
     std.log.info("{Bi:.2} used out of {Bi:.2}", .{ pmm.used_pages.load(.monotonic) * mem.page_size, pmm.total_pages * mem.page_size });
@@ -114,18 +114,9 @@ pub fn kernelMain() !noreturn {
 
     const vmo = try Vmo.fromOwnedSlice(initrd.phys_range);
 
-    const stack_size = 1024 * 32;
-    const stack = try PageAllocator.global.alloc(stack_size / mem.page_size, .{
-        .global = true,
-        .cache_mode = .full,
-        .executable = false,
-        .user = false,
-        .writable = true,
-    });
-
     const init_proc = try Process.create();
     init_proc.arch_specific.giveAllPermissions();
-    const init_thread = try Thread.create(init_proc, stack);
+    const init_thread = try Thread.create(init_proc);
     try init_thread.startWrapped(init, .{ initrd.data.?, vmo });
 
     init_thread.obj.release();

@@ -27,7 +27,7 @@ prev_sibling: ?*Thread,
 next_sibling: ?*Thread,
 
 /// owned by scheduler lock
-kernel_stack: ?[]mem.Page,
+stack: ?[]mem.Page,
 /// owned by scheduler lock
 cpu_state: ?*align(1) arch.cpu.State,
 /// owned by scheduler lock
@@ -47,7 +47,7 @@ pub const State = union(enum) {
     },
 };
 
-pub fn create(maybe_proc: ?*Process, maybe_stack: ?[]mem.Page) !*Thread {
+pub fn create(maybe_proc: ?*Process) !*Thread {
     const thread = try gpa.create(Thread);
     thread.* = .{
         .obj = .{
@@ -62,7 +62,7 @@ pub fn create(maybe_proc: ?*Process, maybe_stack: ?[]mem.Page) !*Thread {
         .prev_sibling = null,
         .next_sibling = null,
 
-        .kernel_stack = maybe_stack,
+        .stack = null,
         .cpu_state = null,
         .arch_specific = .init,
     };
@@ -75,23 +75,40 @@ pub fn destroy(thread: *Thread) void {
     assert(thread.obj.ref_count.load(.monotonic) == 0);
     assert(thread.state == .initial or thread.state == .dead);
 
-    if (thread.kernel_stack) |x| PageAllocator.global.free(x);
+    if (thread.stack) |x| PageAllocator.global.free(x);
     const maybe_proc = thread.proc;
     gpa.destroy(thread);
     if (maybe_proc) |proc| proc.obj.release();
 }
 
+pub fn maybeAllocStackLocked(thread: *Thread) !void {
+    if (thread.stack != null) return;
+    const stack_size = 32 * 1024;
+    thread.stack = try PageAllocator.global.alloc(stack_size / mem.page_size, .{
+        .global = true,
+        .writable = true,
+        .user = false,
+        .executable = false,
+        .cache_mode = .full,
+    });
+}
+
 pub fn start(thread: *Thread, state: *align(1) const arch.cpu.State) !void {
     const l = scheduler.lock.lock();
     defer l.unlock();
+    try thread.startLocked(state);
+}
+
+pub fn startLocked(thread: *Thread, state: *align(1) const arch.cpu.State) !void {
     if (thread.state != .initial) return error.BadState;
+    try thread.maybeAllocStackLocked();
 
     assert(thread.cpu_state == null);
     assert(thread.prev == null);
     assert(thread.next == null);
     if (thread.proc) |proc| try proc.linkLiveThread(thread);
 
-    const stack = thread.kernel_stack orelse unreachable;
+    const stack = thread.stack.?;
     const base = @intFromPtr(stack.ptr + stack.len);
     const pushed_state: *align(1) arch.cpu.State = @ptrFromInt(base - @sizeOf(arch.cpu.State));
     pushed_state.* = state.*;
@@ -108,14 +125,18 @@ pub fn startWrapped(thread: *Thread, func: anytype, args: std.meta.ArgsTuple(@Ty
     errdefer gpa.destroy(args_ptr);
     args_ptr.* = args;
 
-    const stack = thread.kernel_stack.?;
+    const l = scheduler.lock.lock();
+    defer l.unlock();
+
+    try thread.maybeAllocStackLocked();
+    const stack = thread.stack.?;
     const state = arch.cpu.getInitThreadFrame(.{
         .entry = @intFromPtr(&WrapThreadFunc(func)),
         .arg = @intFromPtr(args_ptr),
         .stack_top = @intFromPtr(stack.ptr + stack.len),
     });
 
-    try thread.start(&state);
+    try thread.startLocked(&state);
 }
 
 pub var current: *Thread = undefined;
@@ -136,8 +157,14 @@ pub fn exitCurrent() noreturn {
     }
 
     if (last_stack) |last| PageAllocator.global.free(last);
-    last_stack = thread.kernel_stack;
-    thread.kernel_stack = null;
+    last_stack = null;
+
+    const stack = thread.stack.?;
+    const heap = arch.paging.heap_range;
+    // dont free the boot stack
+    if (@intFromPtr(stack.ptr) >= @intFromPtr(heap.ptr) and @intFromPtr(stack.ptr + stack.len) <= @intFromPtr(heap.ptr + heap.len))
+        last_stack = stack;
+    thread.stack = null;
 
     thread.state = .dead;
     thread.obj.release();
@@ -156,15 +183,22 @@ pub fn exitCurrent() noreturn {
 }
 
 const ThreadFn = fn (arg: usize) callconv(arch.cpu.thread_callconv) noreturn;
-pub fn spawnRaw(func: *const ThreadFn, arg: usize, stack: []mem.Page) !*Thread {
+pub fn spawnRaw(func: *const ThreadFn, arg: usize) !*Thread {
+    const l = scheduler.lock.lock();
+    defer l.unlock();
+
+    const thread = try create(null);
+    errdefer thread.obj.release();
+    try thread.maybeAllocStackLocked();
+
+    const stack = thread.stack.?;
     const state = arch.cpu.getInitThreadFrame(.{
         .entry = @intFromPtr(func),
         .arg = arg,
         .stack_top = @intFromPtr(stack.ptr + stack.len),
     });
 
-    const thread = try create(null, stack);
-    thread.start(&state) catch unreachable;
+    thread.startLocked(&state) catch unreachable;
     return thread;
 }
 
@@ -174,17 +208,7 @@ pub fn spawn(func: anytype, args: std.meta.ArgsTuple(@TypeOf(func))) !*Thread {
     errdefer gpa.destroy(args_ptr);
     args_ptr.* = args;
 
-    const stack_size = 32 * 1024;
-    const stack = try PageAllocator.global.alloc(stack_size / mem.page_size, .{
-        .cache_mode = .full,
-        .global = true,
-        .executable = false,
-        .user = false,
-        .writable = true,
-    });
-    errdefer PageAllocator.global.free(stack);
-
-    return spawnRaw(&WrapThreadFunc(func), @intFromPtr(args_ptr), stack);
+    return spawnRaw(&WrapThreadFunc(func), @intFromPtr(args_ptr));
 }
 
 fn WrapThreadFunc(func: anytype) ThreadFn {

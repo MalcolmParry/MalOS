@@ -160,10 +160,10 @@ pub fn initBootInfo() BootInfo {
     const kernel_start: [*]mem.Phys(u8) = @ptrCast(&__KERNEL_START__);
     const kernel_size = @intFromPtr(&__KERNEL_END__) - @intFromPtr(&__KERNEL_START__);
 
-    const stack_ptr: [*]align(mem.page_size) u8 = @ptrCast(&stack_bottom);
-    const stack_top_ptr: [*]align(mem.page_size) u8 = @ptrCast(&stack_top);
-    const stack_size = stack_top_ptr - stack_ptr;
-    const stack = stack_ptr[0..stack_size];
+    const stack_ptr: [*]mem.Page = @ptrCast(&stack_bottom);
+    const stack_top_ptr: [*]mem.Page = @ptrCast(&stack_top);
+    const stack_page_count = stack_top_ptr - stack_ptr;
+    const stack = stack_ptr[0..stack_page_count];
 
     var boot_info: BootInfo = .{
         .stack = stack,

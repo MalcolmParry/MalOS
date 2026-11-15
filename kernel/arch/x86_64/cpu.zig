@@ -95,8 +95,8 @@ pub const PerProcess = struct {
 };
 
 pub fn prepareThreadSwitch(new: *Thread, maybe_old: ?*Thread) void {
-    if (new.kernel_stack) |stack|
-        gdt.setKernelStackPtr(@intFromPtr(stack.ptr + stack.len));
+    const stack = new.stack.?;
+    gdt.setKernelStackPtr(@intFromPtr(stack.ptr + stack.len));
 
     if (maybe_old) |old|
         old.arch_specific.simd_state.save();

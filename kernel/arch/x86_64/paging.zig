@@ -390,7 +390,7 @@ pub fn init(boot_info: *const BootInfo) void {
         };
     }
 
-    const stack_guard_page: *mem.Page = @ptrCast(boot_info.stack.ptr);
+    const stack_guard_page = &boot_info.stack[0];
 
     l2_kernel_table.clear();
     for (boot_info.kernelRegions()) |region| {

@@ -3,6 +3,7 @@ const arch = @import("../arch/arch.zig").current;
 const Spinlock = @import("../sync/Spinlock.zig");
 const assert = std.debug.assert;
 const Thread = @import("Thread.zig");
+const BootInfo = @import("../BootInfo.zig");
 
 pub var lock: Spinlock = .init;
 pub var idle_thread: *Thread = undefined;
@@ -10,12 +11,13 @@ var first_sleeping: ?*Thread = null;
 var first_ready: ?*Thread = null;
 var last_ready: ?*Thread = null;
 
-pub fn init() !void {
+pub fn init(boot_info: *const BootInfo) !void {
     idle_thread = try .spawn(idleThread, .{});
     unlinkReady(idle_thread);
 
-    const boot: *Thread = try .create(null, null);
+    const boot: *Thread = try .create(null);
     boot.state = .running;
+    boot.stack = boot_info.stack;
     Thread.current = boot;
 }
 

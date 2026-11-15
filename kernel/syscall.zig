@@ -12,7 +12,6 @@ const Thread = @import("proc/Thread.zig");
 const Vmo = @import("object/Vmo.zig");
 const Vmar = @import("object/Vmar.zig");
 const Process = @import("proc/Process.zig");
-const PageAlloc = @import("heap/PageAllocator.zig");
 const scheduler = @import("proc/scheduler.zig");
 
 const Handler = fn (args: [7]usize) Error![3]usize;
@@ -597,19 +596,7 @@ fn threadCreate(args: [7]usize) abi.ThreadCreateError![3]usize {
     defer proc_obj.release();
     const proc = proc_obj.get(Process) orelse return error.BadHandleKind;
 
-    const stack_size = 32 * 1024;
-    const kernel_stack = PageAlloc.global.alloc(stack_size / mem.page_size, .{
-        .global = true,
-        .cache_mode = .full,
-        .executable = false,
-        .user = false,
-        .writable = true,
-    }) catch return error.OutOfMemory;
-
-    const thread = Thread.create(proc, kernel_stack) catch |err| {
-        PageAlloc.global.free(kernel_stack);
-        return err;
-    };
+    const thread = try Thread.create(proc);
 
     const l = handle_table.lock.lock();
     defer l.unlock();
@@ -646,7 +633,11 @@ fn threadStart(args: [7]usize) abi.ThreadStartError![3]usize {
     defer thread_obj.release();
     const thread = thread_obj.get(Thread) orelse return error.BadHandleKind;
 
-    try thread.start(&state);
+    thread.start(&state) catch |err| return switch (err) {
+        error.NoAvailableVirtualAddressSpace, error.CantAllocateKernelL3Table => error.OutOfMemory,
+        else => |x| x,
+    };
+
     return @splat(0);
 }
 
