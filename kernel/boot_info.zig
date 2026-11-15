@@ -23,8 +23,7 @@ pub const KernelRegion = struct {
 pub const Module = struct {
     pub const max_name_len = 32;
 
-    phys_range: []align(mem.page_size) mem.Phys(u8),
-    data: ?[]align(mem.page_size) u8,
+    data: []align(mem.page_size) mem.Phys(u8),
     name_buf: [max_name_len]u8,
     name_len: u8,
 
@@ -39,8 +38,7 @@ pub const Display = union(enum) {
 };
 
 pub const ElfSection = struct {
-    phys_range: []mem.Phys(u8),
-    data: []u8 = &.{},
+    data: []mem.Phys(u8),
     header: std.elf.Elf64.Shdr,
 
     pub const Id = enum {

@@ -25,12 +25,12 @@ pub fn tempInit() void {
     init_free_ranges.appendSliceBounded(boot_info.available_phys_ranges.items) catch @panic("too many ranges");
     reserveAvailableRegion(boot_info.kernel_phys_range);
     for (boot_info.modules.items) |module| {
-        reserveAvailableRegion(module.phys_range);
+        reserveAvailableRegion(module.data);
     }
 
     for (&boot_info.elf_sections.values) |maybe_section| {
         const section = maybe_section orelse continue;
-        reserveAvailableRegion(section.phys_range);
+        reserveAvailableRegion(section.data);
     }
 
     for (boot_info.available_phys_ranges.items) |range| {

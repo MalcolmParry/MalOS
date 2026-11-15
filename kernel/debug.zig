@@ -17,13 +17,13 @@ pub fn init() void {
 
     for (boot_info.modules.items) |module| {
         if (!std.mem.eql(u8, module.name(), "kernel_src_tar")) continue;
-        maybe_src_tar = module.data;
+        maybe_src_tar = mem.physToDirect(module.data);
     }
 
     for (0..@typeInfo(std.debug.Dwarf.Section.Id).@"enum".fields.len) |i| {
         const section = boot_info.elf_sections.values[i] orelse continue;
         dwarf.sections[i] = .{
-            .data = section.data,
+            .data = mem.physToDirect(section.data),
             .owned = false,
         };
     }

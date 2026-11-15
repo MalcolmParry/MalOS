@@ -187,13 +187,14 @@ pub fn initBootInfo() void {
 
                 const module = boot_info.modules.addOneBounded() catch @panic("too many modules");
                 module.* = .{
-                    .phys_range = start[0..len],
-                    .data = null,
+                    .data = start[0..len],
                     .name_buf = undefined,
                     .name_len = @intCast(name.len),
                 };
 
                 @memcpy(module.name_buf[0..name.len], name);
+
+                log.info("module '{s}' at {f}", .{ name, mem.fmtRange(module.data) });
             },
             .mmap => {
                 const mmap: *Tag.MMap = @ptrCast(tag);
@@ -246,10 +247,13 @@ pub fn initBootInfo() void {
                             continue;
                         }
 
+                        const data = @as([*]Phys(u8), @ptrFromInt(section.addr))[0..section.size];
                         section_info.* = .{
-                            .phys_range = @as([*]Phys(u8), @ptrFromInt(section.addr))[0..section.size],
+                            .data = data,
                             .header = section,
                         };
+
+                        log.info("elf section '{s}' at {f}", .{ @tagName(id), mem.fmtRange(data) });
                         continue;
                     }
 

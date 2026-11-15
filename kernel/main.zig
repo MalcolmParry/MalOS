@@ -64,42 +64,6 @@ pub fn kernelMain() !noreturn {
     const page_alloc = PageAllocator.global.allocator();
 
     pmm.init(page_alloc);
-
-    for (boot_info.modules.items) |*module| {
-        const phys_pages = mem.physPageAlignOutwards(module.phys_range);
-        const pages = try PageAllocator.global.map(phys_pages, .{
-            .writable = false,
-            .executable = false,
-            .global = true,
-            .user = false,
-            .cache_mode = .full,
-        });
-        const bytes = std.mem.sliceAsBytes(pages);
-        module.data = bytes;
-
-        std.log.info("Module '{s}' at {f} and mapped at 0x{x}", .{ module.name(), mem.fmtRange(module.phys_range), @intFromPtr(module.data.?.ptr) });
-    }
-
-    for (&boot_info.elf_sections.values, 0..) |*maybe_section, i| {
-        const section = if (maybe_section.*) |*x| x else continue;
-        const id: boot_info.ElfSection.Id = @enumFromInt(i);
-
-        const page_offset = @intFromPtr(section.phys_range.ptr) % mem.page_size;
-        const phys_pages = mem.physPageAlignOutwards(section.phys_range);
-        const pages = try PageAllocator.global.map(phys_pages, .{
-            .writable = false,
-            .executable = false,
-            .global = true,
-            .user = false,
-            .cache_mode = .full,
-        });
-
-        const bytes = std.mem.sliceAsBytes(pages);
-        section.data = (bytes.ptr + page_offset)[0..section.phys_range.len];
-
-        std.log.info("Elf Section {} at {f} mapped at 0x{x}", .{ id, mem.fmtRange(section.phys_range), @intFromPtr(section.data.ptr) });
-    }
-
     debug.init();
     try arch.initTimer();
     try scheduler.init();
@@ -112,12 +76,11 @@ pub fn kernelMain() !noreturn {
         break :blk mod;
     } else @panic("initrd not found");
 
-    const vmo = try Vmo.fromOwnedSlice(initrd.phys_range);
-
+    const vmo = try Vmo.fromOwnedSlice(initrd.data);
     const init_proc = try Process.create();
     init_proc.arch_specific.giveAllPermissions();
     const init_thread = try Thread.create(init_proc);
-    try init_thread.startWrapped(init, .{ initrd.data.?, vmo });
+    try init_thread.startWrapped(init, .{ mem.physToDirect(initrd.data), vmo });
 
     init_thread.obj.release();
     init_proc.obj.release();

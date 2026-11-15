@@ -81,10 +81,32 @@ pub fn addrInSlice(T: type, slice: T, addr: anytype) bool {
     return (addr_int >= start) and (addr_int < end);
 }
 
-pub fn Phys(comptime Child: type) type {
+pub fn PhysToDirectResult(T: type) type {
+    const ptr_info = @typeInfo(T).pointer;
+    const PhysChild = ptr_info.child;
+    const Child = PhysChild.Child;
+    return @Pointer(ptr_info.size, .{
+        .@"addrspace" = ptr_info.address_space,
+        .@"align" = ptr_info.alignment,
+        .@"allowzero" = ptr_info.is_allowzero,
+        .@"const" = ptr_info.is_const,
+        .@"volatile" = ptr_info.is_volatile,
+    }, Child, null);
+}
+
+pub fn physToDirect(ptr: anytype) PhysToDirectResult(@TypeOf(ptr)) {
+    return switch (@typeInfo(@TypeOf(ptr)).pointer.size) {
+        .one, .many => @ptrFromInt(@intFromPtr(ptr) + direct_map_base),
+        .slice => if (ptr.len > 0) physToDirect(ptr.ptr)[0..ptr.len] else &.{},
+        .c => @compileError("not supported"),
+    };
+}
+
+pub fn Phys(comptime ChildT: type) type {
     return struct {
         data: Child,
 
+        pub const Child = ChildT;
         comptime {
             std.debug.assert(@sizeOf(@This()) == @sizeOf(Child));
             std.debug.assert(@alignOf(@This()) == @alignOf(Child));
