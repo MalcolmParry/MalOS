@@ -1,6 +1,7 @@
 const std = @import("std");
 const mem = @import("../memory.zig");
 const debug = @import("../debug.zig");
+const boot_info = @import("../boot_info.zig");
 const arch = @import("../arch/arch.zig").current;
 const Spinlock = @import("../sync/Spinlock.zig");
 const Object = @import("../object/Object.zig");
@@ -157,13 +158,7 @@ pub fn exitCurrent() noreturn {
     }
 
     if (last_stack) |last| PageAllocator.global.free(last);
-    last_stack = null;
-
-    const stack = thread.stack.?;
-    const heap = arch.paging.heap_range;
-    // dont free the boot stack
-    if (@intFromPtr(stack.ptr) >= @intFromPtr(heap.ptr) and @intFromPtr(stack.ptr + stack.len) <= @intFromPtr(heap.ptr + heap.len))
-        last_stack = stack;
+    last_stack = if (thread.stack.?.ptr == boot_info.boot_stack.ptr) null else thread.stack;
     thread.stack = null;
 
     thread.state = .dead;

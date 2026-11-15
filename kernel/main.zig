@@ -1,5 +1,5 @@
 const arch = @import("arch/arch.zig").current;
-const BootInfo = @import("BootInfo.zig");
+const boot_info = @import("boot_info.zig");
 const mem = @import("memory.zig");
 const pmm = @import("pmm.zig");
 const Vmm = @import("Vmm.zig");
@@ -35,10 +35,10 @@ pub fn kernelMain() !noreturn {
     try log.preinit();
     arch.interrupt.init();
 
-    var boot_info = arch.initBootInfo();
-    try log.init(boot_info);
+    arch.initBootInfo();
+    try log.init();
 
-    for (boot_info.availablePhysRanges()) |range| {
+    for (boot_info.available_phys_ranges.items) |range| {
         std.log.info("Available: {f}\x1b[48G{Bi}", .{ mem.fmtRange(range), range.len * mem.page_size });
     }
 
@@ -46,9 +46,9 @@ pub fn kernelMain() !noreturn {
     std.log.info("KernelVirtBase: 0x{x}", .{mem.kernel_virt_base});
     std.log.info("Max Physical Address: 0x{x}", .{@intFromPtr(boot_info.max_phys_addr)});
 
-    pmm.tempInit(&boot_info);
+    pmm.tempInit();
 
-    arch.paging.init(&boot_info);
+    arch.paging.init();
     PageAllocator.global = .{
         .table = arch.paging.getGlobalKernelTable(),
         .vmm = try Vmm.init(arch.paging.heap_range),
@@ -63,9 +63,9 @@ pub fn kernelMain() !noreturn {
     };
     const page_alloc = PageAllocator.global.allocator();
 
-    pmm.init(&boot_info, page_alloc);
+    pmm.init(page_alloc);
 
-    for (boot_info.module_buffer[0..boot_info.module_count]) |*module| {
+    for (boot_info.modules.items) |*module| {
         const phys_pages = mem.physPageAlignOutwards(module.phys_range);
         const pages = try PageAllocator.global.map(phys_pages, .{
             .writable = false,
@@ -82,7 +82,7 @@ pub fn kernelMain() !noreturn {
 
     for (&boot_info.elf_sections.values, 0..) |*maybe_section, i| {
         const section = if (maybe_section.*) |*x| x else continue;
-        const id: BootInfo.ElfSection.Id = @enumFromInt(i);
+        const id: boot_info.ElfSection.Id = @enumFromInt(i);
 
         const page_offset = @intFromPtr(section.phys_range.ptr) % mem.page_size;
         const phys_pages = mem.physPageAlignOutwards(section.phys_range);
@@ -100,14 +100,14 @@ pub fn kernelMain() !noreturn {
         std.log.info("Elf Section {} at {f} mapped at 0x{x}", .{ id, mem.fmtRange(section.phys_range), @intFromPtr(section.data.ptr) });
     }
 
-    debug.init(&boot_info);
+    debug.init();
     try arch.initTimer();
-    try scheduler.init(&boot_info);
+    try scheduler.init();
     try arch.initSmp();
 
     std.log.info("{Bi:.2} used out of {Bi:.2}", .{ pmm.used_pages.load(.monotonic) * mem.page_size, pmm.total_pages * mem.page_size });
 
-    const initrd = blk: for (boot_info.modules()) |*mod| {
+    const initrd = blk: for (boot_info.modules.items) |*mod| {
         if (!std.mem.eql(u8, mod.name(), "initrd")) continue;
         break :blk mod;
     } else @panic("initrd not found");

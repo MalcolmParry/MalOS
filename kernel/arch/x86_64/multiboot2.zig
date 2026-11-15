@@ -1,8 +1,9 @@
 const mem = @import("../../memory.zig");
 const pmm = @import("../../pmm.zig");
 const std = @import("std");
-const BootInfo = @import("../../BootInfo.zig");
+const boot_info = @import("../../boot_info.zig");
 const acpi = @import("acpi.zig");
+const log = std.log.scoped(.mb2);
 
 const Phys = mem.Phys;
 const page_size = mem.page_size;
@@ -113,7 +114,7 @@ const Tag = extern struct {
     size: u32,
 };
 
-const elf_section_name_map: std.StaticStringMap(BootInfo.ElfSection.Id) = .initComptime(.{
+const elf_section_name_map: std.StaticStringMap(boot_info.ElfSection.Id) = .initComptime(.{
     .{ ".debug_info", .debug_info },
     .{ ".debug_abbrev", .debug_abbrev },
     .{ ".debug_str", .debug_str },
@@ -156,35 +157,18 @@ extern var __KERNEL_END__: anyopaque;
 extern var stack_bottom: u8 align(mem.page_size);
 extern var stack_top: u8 align(mem.page_size);
 
-pub fn initBootInfo() BootInfo {
+pub fn initBootInfo() void {
     const kernel_start: [*]mem.Phys(u8) = @ptrCast(&__KERNEL_START__);
     const kernel_size = @intFromPtr(&__KERNEL_END__) - @intFromPtr(&__KERNEL_START__);
 
     const stack_ptr: [*]mem.Page = @ptrCast(&stack_bottom);
     const stack_top_ptr: [*]mem.Page = @ptrCast(&stack_top);
     const stack_page_count = stack_top_ptr - stack_ptr;
-    const stack = stack_ptr[0..stack_page_count];
-
-    var boot_info: BootInfo = .{
-        .stack = stack,
-        .max_phys_addr = @ptrFromInt(4096),
-        .kernel_phys_range = kernel_start[0..kernel_size],
-        .available_phys_range_buffer = undefined,
-        .available_phys_range_count = 0,
-        .kernel_region_buffer = undefined,
-        .kernel_region_count = 0,
-        .module_buffer = undefined,
-        .module_count = 0,
-        .elf_sections = .initFill(null),
-        .display = .none,
-    };
-
-    var available_ranges: std.ArrayList([]mem.PhysPage) = .initBuffer(&boot_info.available_phys_range_buffer);
-    var kernel_regions: std.ArrayList(BootInfo.KernelRegion) = .initBuffer(&boot_info.kernel_region_buffer);
-    var modules: std.ArrayList(mem.Module) = .initBuffer(&boot_info.module_buffer);
+    boot_info.boot_stack = stack_ptr[0..stack_page_count];
+    boot_info.max_phys_addr = @ptrFromInt(4096);
+    boot_info.kernel_phys_range = kernel_start[0..kernel_size];
 
     multiboot_info = @ptrFromInt(@intFromPtr(phys_multiboot_info) + mem.kernel_virt_base);
-
     var iter: BootInfoIterater = undefined;
     iter.reset();
     while (iter.next()) |tag| {
@@ -193,19 +177,20 @@ pub fn initBootInfo() BootInfo {
                 const module_tag: *Tag.Module = @ptrCast(tag);
 
                 const name_start: [*]u8 = @ptrFromInt(@intFromPtr(module_tag) + @sizeOf(Tag.Module));
-                const name_end: *u8 = @ptrFromInt(@intFromPtr(tag) + tag.size - 1);
-                const name: []u8 = name_start[0 .. @intFromPtr(name_end) - @intFromPtr(name_start)];
-                if (name.len > mem.Module.max_name_len) @panic("module name too long");
+                const name_end: [*]u8 = @ptrFromInt(@intFromPtr(tag) + tag.size - 1);
+                const full_name: []u8 = name_start[0 .. name_end - name_start];
+                const name = full_name[0..@min(boot_info.Module.max_name_len, full_name.len)];
+                if (full_name.len != name.len) log.warn("module '{s}' has long name, truncating to '{s}'", .{ full_name, name });
 
                 const len: u32 = module_tag.end - module_tag.start;
                 const start: [*]align(page_size) Phys(u8) = @ptrFromInt(module_tag.start);
 
-                const module = modules.addOneBounded() catch @panic("too many modules");
+                const module = boot_info.modules.addOneBounded() catch @panic("too many modules");
                 module.* = .{
                     .phys_range = start[0..len],
                     .data = null,
                     .name_buf = undefined,
-                    .name_len = name.len,
+                    .name_len = @intCast(name.len),
                 };
 
                 @memcpy(module.name_buf[0..name.len], name);
@@ -232,11 +217,11 @@ pub fn initBootInfo() BootInfo {
                         const start_many_ptr: [*]mem.PhysPage = @ptrFromInt(start);
                         const range = start_many_ptr[0..len];
 
-                        available_ranges.appendBounded(range) catch @panic("too many memory ranges");
+                        boot_info.available_phys_ranges.appendBounded(range) catch @panic("too many memory ranges");
                         if (end > @intFromPtr(boot_info.max_phys_addr)) boot_info.max_phys_addr = @ptrFromInt(end);
                     },
                     .acpi_reclaimable => {
-                        std.log.info("ACPI Reclaimable memory at 0x{x} - 0x{x}", .{ entry.base, entry.base + entry.length });
+                        log.debug("ACPI Reclaimable memory at 0x{x} - 0x{x}", .{ entry.base, entry.base + entry.length });
                     },
                     else => {},
                 };
@@ -257,7 +242,7 @@ pub fn initBootInfo() BootInfo {
                         const id = elf_section_name_map.get(name) orelse continue;
                         const section_info = boot_info.elf_sections.getPtr(id);
                         if (section_info.* != null) {
-                            std.log.warn("elf section {s} appeared twice", .{name});
+                            log.warn("elf section {s} appeared twice", .{name});
                             continue;
                         }
 
@@ -268,7 +253,7 @@ pub fn initBootInfo() BootInfo {
                         continue;
                     }
 
-                    std.log.info("R{c}{c} 0x{x} - 0x{x}", .{
+                    log.debug("R{c}{c} 0x{x} - 0x{x}", .{
                         @as(u8, if (section.flags.shf.WRITE) 'W' else '-'),
                         @as(u8, if (section.flags.shf.EXECINSTR) 'X' else '-'),
                         section.addr,
@@ -283,7 +268,7 @@ pub fn initBootInfo() BootInfo {
                     const start_ptr: [*]mem.Page = @ptrFromInt(start);
                     const page_count = (end - start) / mem.page_size;
 
-                    kernel_regions.appendBounded(.{
+                    boot_info.kernel_regions.appendBounded(.{
                         .pages = start_ptr[0..page_count],
                         .flags = .{
                             .cache_mode = .full,
@@ -302,7 +287,7 @@ pub fn initBootInfo() BootInfo {
             },
             .framebuffer => blk: {
                 const fb: *Tag.Framebuffer = @ptrCast(tag);
-                std.log.info("framebuffer at 0x{x} {s} {}x{} pitch {} bpp {}", .{
+                log.info("framebuffer at 0x{x} {s} {}x{} pitch {} bpp {}", .{
                     fb.addr,
                     @tagName(fb.t),
                     fb.width,
@@ -332,19 +317,19 @@ pub fn initBootInfo() BootInfo {
                     .xsdp => break :blk,
                 };
 
-                std.log.info("old acpi", .{});
+                log.debug("old acpi", .{});
                 const info: *Tag.AcpiOld = @fieldParentPtr("tag", tag);
                 if (info.tag.size < @sizeOf(Tag.AcpiOld)) @panic("acpi multiboot tag too small");
                 acpi.maybe_sdp = .{ .rsdp = info.rsdp };
             },
             .acpi_new => {
                 if (acpi.maybe_sdp) |sdp| if (sdp == .xsdp) @panic("multiple acpi tags");
-                std.log.info("new acpi", .{});
+                log.debug("new acpi", .{});
                 const info: *Tag.AcpiNew = @fieldParentPtr("tag", tag);
                 if (info.tag.size < @sizeOf(Tag.AcpiNew)) @panic("acpi multiboot tag too small");
                 acpi.maybe_sdp = .{ .xsdp = info.xsdp };
             },
-            else => std.log.info("multiboot tag: {}", .{tag.t}),
+            else => log.debug("multiboot tag: {}", .{tag.t}),
         }
     }
 
@@ -354,7 +339,7 @@ pub fn initBootInfo() BootInfo {
             const size = 80 * 25 * 2;
             const page_count = (size + mem.page_size - 1) / mem.page_size;
             const pages = @as([*]mem.Page, @ptrFromInt(0xb8000 + mem.kernel_virt_base))[0..page_count];
-            kernel_regions.appendBounded(.{
+            boot_info.kernel_regions.appendBounded(.{
                 .pages = pages,
                 .flags = .{
                     .global = true,
@@ -367,16 +352,11 @@ pub fn initBootInfo() BootInfo {
         },
     }
 
-    acpi.ap_trampoline_phys_page = blk: for (available_ranges.items, 0..) |*region, i| {
+    acpi.ap_trampoline_phys_page = blk: for (boot_info.available_phys_ranges.items, 0..) |*region, i| {
         if (@intFromPtr(region.*.ptr) >= 0xa0000) continue;
         const page = &region.*[0];
         region.* = region.*[1..];
-        if (region.len == 0) _ = available_ranges.swapRemove(i);
+        if (region.len == 0) _ = boot_info.available_phys_ranges.swapRemove(i);
         break :blk page;
     } else @panic("cant find memory for ap trampoline");
-
-    boot_info.module_count = @intCast(modules.items.len);
-    boot_info.kernel_region_count = @intCast(kernel_regions.items.len);
-    boot_info.available_phys_range_count = @intCast(available_ranges.items.len);
-    return boot_info;
 }

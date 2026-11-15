@@ -107,16 +107,3 @@ pub fn RangeFormatter(Range: type) type {
         }
     };
 }
-
-pub const Module = struct {
-    pub const max_name_len = 16;
-
-    phys_range: []align(page_size) Phys(u8),
-    data: ?[]align(page_size) u8,
-    name_buf: [max_name_len]u8,
-    name_len: usize,
-
-    pub inline fn name(this: @This()) []const u8 {
-        return this.name_buf[0..this.name_len];
-    }
-};

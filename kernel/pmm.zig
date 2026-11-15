@@ -2,7 +2,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const mem = @import("memory.zig");
 const Spinlock = @import("sync/Spinlock.zig");
-const BootInfo = @import("BootInfo.zig");
+const boot_info = @import("boot_info.zig");
 const debug = switch (builtin.mode) {
     .Debug, .ReleaseSafe => true,
     else => false,
@@ -21,10 +21,10 @@ var spinlock: Spinlock = .init;
 var page_descs: []PageDesc = &.{};
 var maybe_first_free: OptIndex = .none;
 
-pub fn tempInit(boot_info: *const BootInfo) void {
-    init_free_ranges.appendSliceBounded(boot_info.availablePhysRanges()) catch @panic("too many ranges");
+pub fn tempInit() void {
+    init_free_ranges.appendSliceBounded(boot_info.available_phys_ranges.items) catch @panic("too many ranges");
     reserveAvailableRegion(boot_info.kernel_phys_range);
-    for (boot_info.modules()) |module| {
+    for (boot_info.modules.items) |module| {
         reserveAvailableRegion(module.phys_range);
     }
 
@@ -33,11 +33,12 @@ pub fn tempInit(boot_info: *const BootInfo) void {
         reserveAvailableRegion(section.phys_range);
     }
 
-    for (boot_info.availablePhysRanges()) |range| {
+    for (boot_info.available_phys_ranges.items) |range| {
         total_pages += range.len;
     }
 
     // done as a hack so that early allocations are below 4gb
+    // TODO: add proper way to allocate below 4gb
     std.mem.sort([]mem.PhysPage, init_free_ranges.items, {}, struct {
         fn lessThan(_: void, left: []mem.PhysPage, right: []mem.PhysPage) bool {
             return @intFromPtr(left.ptr) < @intFromPtr(right.ptr);
@@ -52,7 +53,7 @@ pub fn tempInit(boot_info: *const BootInfo) void {
     largest_bump_alloc = @intCast(free_pages);
 }
 
-pub fn init(boot_info: *const BootInfo, alloc: std.mem.Allocator) void {
+pub fn init(alloc: std.mem.Allocator) void {
     const desc_count = @intFromPtr(boot_info.max_phys_addr) / mem.page_size;
     page_descs = alloc.alloc(PageDesc, desc_count) catch @panic("cant allocate physical page descs");
 }

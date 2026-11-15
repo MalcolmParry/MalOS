@@ -1,7 +1,7 @@
 const std = @import("std");
 const Spinlock = @import("sync/Spinlock.zig");
 const serial = @import("drivers/x86/serial.zig");
-const BootInfo = @import("BootInfo.zig");
+const boot_info = @import("boot_info.zig");
 const Terminal = @import("tty/Terminal.zig");
 const Object = @import("object/Object.zig");
 const vga_text = @import("drivers/x86/vga_text.zig");
@@ -40,7 +40,7 @@ pub fn preinit() !void {
     if (temp_overflow) std.log.warn("temp writer buffer overflow", .{});
 }
 
-pub fn init(boot_info: BootInfo) !void {
+pub fn init() !void {
     if (boot_info.display == .vga_text) {
         vga_text.init();
         using_vga_text = true;

@@ -4,7 +4,7 @@ const mem = @import("../../memory.zig");
 const Vmm = @import("../../Vmm.zig");
 const pmm = @import("../../pmm.zig");
 const arch = @import("x86_64.zig");
-const BootInfo = @import("../../BootInfo.zig");
+const boot_info = @import("../../boot_info.zig");
 const Vmo = @import("../../object/Vmo.zig");
 
 pub const Entry = packed struct(u64) {
@@ -320,7 +320,7 @@ fn enableExecuteDisable() void {
     arch.cpu.writeMsr(msr, old | (1 << 11));
 }
 
-pub fn init(boot_info: *const BootInfo) void {
+pub fn init() void {
     enableExecuteDisable();
     gdt.init();
 
@@ -390,10 +390,10 @@ pub fn init(boot_info: *const BootInfo) void {
         };
     }
 
-    const stack_guard_page = &boot_info.stack[0];
+    const stack_guard_page = &boot_info.boot_stack[0];
 
     l2_kernel_table.clear();
-    for (boot_info.kernelRegions()) |region| {
+    for (boot_info.kernel_regions.items) |region| {
         for (region.pages) |*page| {
             if (@intFromPtr(page) < mem.kernel_virt_base) continue;
             if (page == stack_guard_page) continue;

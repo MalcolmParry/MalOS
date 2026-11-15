@@ -5,17 +5,17 @@ const log = @import("log.zig");
 const mem = @import("memory.zig");
 const builtin = @import("builtin");
 const gpa = @import("heap/gpa.zig");
-const BootInfo = @import("BootInfo.zig");
+const boot_info = @import("boot_info.zig");
 const ustar = @import("shared").ustar;
 
 var kernel_range: ?[]u8 = null;
 var dwarf: std.debug.Dwarf = .{};
 var maybe_src_tar: ?[]align(mem.page_size) const u8 = null;
 
-pub fn init(boot_info: *const BootInfo) void {
+pub fn init() void {
     kernel_range = @as([*]u8, @ptrFromInt(@intFromPtr(boot_info.kernel_phys_range.ptr) + mem.kernel_virt_base))[0..boot_info.kernel_phys_range.len];
 
-    for (boot_info.modules()) |module| {
+    for (boot_info.modules.items) |module| {
         if (!std.mem.eql(u8, module.name(), "kernel_src_tar")) continue;
         maybe_src_tar = module.data;
     }
