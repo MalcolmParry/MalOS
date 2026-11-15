@@ -275,6 +275,7 @@ const DiskMode = enum {
 fn addRunStep(b: *Build) !void {
     const output_mode = b.option(OutputMode, "output", "") orelse .serial;
     const disk_mode = b.option(DiskMode, "disk", "") orelse .ide;
+    const mem = b.option([]const u8, "mem", "") orelse "32M";
 
     const display = switch (output_mode) {
         .serial => "none",
@@ -293,7 +294,7 @@ fn addRunStep(b: *Build) !void {
         // "-D", "qemu.log",
         "--no-reboot",
         "--no-shutdown",
-        "-m", "32M",
+        "-m", mem,
         "-smp", "4",
         // zig fmt: on
     });

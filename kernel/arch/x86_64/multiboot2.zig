@@ -221,7 +221,7 @@ pub fn initBootInfo() BootInfo {
                         var start: usize = std.mem.alignForward(usize, entry.base, mem.page_size);
                         const end: usize = std.mem.alignBackward(usize, entry.base + entry.length, mem.page_size);
 
-                        const min_available_addr = 64 * 1024;
+                        const min_available_addr = 4 * 4096;
                         if (start < min_available_addr)
                             start = min_available_addr;
 
