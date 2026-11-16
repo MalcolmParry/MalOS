@@ -2,16 +2,13 @@
   pkgs ? import <nixpkgs> { },
 }:
 
-pkgs.mkShell {
+pkgs.mkShellNoCC {
   packages = with pkgs; [
     zig_0_16
     zls_0_16
     nasm
     binutils
     grub2
-    libisoburn
-    mtools
-    dosfstools
     qemu
     gf
     e2fsprogs

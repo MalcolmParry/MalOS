@@ -262,60 +262,45 @@ fn linkAsm(b: *Build, link: *Build.Step.Run, path: []const u8) !void {
     link.addFileArg(obj);
 }
 
-const OutputMode = enum {
-    serial,
-    vga,
-};
-
-const DiskMode = enum {
-    ide,
-    ahci,
-};
-
 fn addRunStep(b: *Build) !void {
-    const output_mode = b.option(OutputMode, "output", "") orelse .serial;
-    const disk_mode = b.option(DiskMode, "disk", "") orelse .ide;
+    const vga = b.option(bool, "vga", "") orelse false;
+    const serial = b.option(bool, "serial", "") orelse true;
     const mem = b.option([]const u8, "mem", "") orelse "32M";
-
-    const display = switch (output_mode) {
-        .serial => "none",
-        .vga => "gtk",
-    };
+    const int_log = b.option(bool, "int-log", "") orelse false;
+    const kvm = b.option(bool, "kvm", "") orelse !int_log;
+    const cpus = b.option(u32, "cpus", "") orelse 4;
 
     const run_step = b.step("run", "Run the iso in qemu");
     const run = b.addSystemCommand(&.{
         // zig fmt: off
         "qemu-system-x86_64",
-        "-enable-kvm",
         "-cpu", "Penryn",
-        "-display", display,
         "-nodefaults",
-        // "-d", "int,cpu_reset",
         // "-D", "qemu.log",
         "--no-reboot",
         "--no-shutdown",
         "-m", mem,
-        "-smp", "4",
+        "-smp", b.fmt("{}", .{cpus}),
+        "-drive", "file=disk.img,format=raw,if=ide,id=disk0",
         // zig fmt: on
     });
     run.setCwd(.{ .cwd_relative = b.install_prefix });
 
-    switch (output_mode) {
-        .serial => run.addArgs(&.{ "-serial", "mon:stdio" }),
-        .vga => run.addArgs(&.{ "-vga", "std", "-serial", "vc" }),
+    if (kvm) run.addArgs(&.{ "-accel", "kvm" });
+    run.addArgs(&.{ "-accel", "tcg" });
+
+    if (int_log) run.addArgs(&.{ "-d", "int,cpu_reset" });
+    if (vga) {
+        run.addArgs(&.{ "-display", "gtk", "-vga", "std" });
+    } else {
+        run.addArgs(&.{ "-display", "none" });
     }
 
-    switch (disk_mode) {
-        .ide => run.addArgs(&.{
-            "-drive", "file=disk.img,format=raw,if=ide,id=disk0",
-        }),
-        .ahci => run.addArgs(&.{
-            "-drive",  "file=disk.img,format=raw,if=none,id=disk0",
-            "-device", "pci-bridge,id=bridge1,chassis_nr=1",
-            "-device", "ahci,id=ahci0,bus=bridge1",
-            "-device", "ide-hd,drive=disk0,bus=ahci0.0",
-        }),
-    }
+    if (serial) if (vga) {
+        run.addArgs(&.{ "-serial", "vc" });
+    } else {
+        run.addArgs(&.{ "-serial", "mon:stdio" });
+    };
 
     if (b.option(bool, "gdb", "Use gdb with qemu") orelse false)
         run.addArgs(&.{ "-s", "-S" });
