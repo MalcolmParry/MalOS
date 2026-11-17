@@ -37,6 +37,9 @@ fn addBuildStep(b: *Build, optimize: std.builtin.OptimizeMode, target: Build.Res
     const alloc = b.allocator;
     const cwd = std.Io.Dir.cwd();
 
+    const strace = b.option(bool, "strace", "kernel: log syscalls (default false)") orelse false;
+    const max_cpus = b.option(u32, "max-cpus", "kernel: maximum supported cores (default 64)") orelse 64;
+
     const grub_dir = b.graph.environ_map.get("GRUB_DIR") orelse "/usr/lib/grub/";
     const grub_i386_pc = b.fmt("{s}/i386-pc/", .{grub_dir});
 
@@ -69,7 +72,7 @@ fn addBuildStep(b: *Build, optimize: std.builtin.OptimizeMode, target: Build.Res
             .target = target,
             .optimize = optimize,
             .code_model = .kernel,
-            .single_threaded = true,
+            .single_threaded = false,
             .strip = !debug_info,
             .omit_frame_pointer = !debug_info,
             .red_zone = false,
@@ -153,8 +156,8 @@ fn addBuildStep(b: *Build, optimize: std.builtin.OptimizeMode, target: Build.Res
 
     const options = b.addOptions();
     options.addOption([]const u8, "build_root", b.build_root.path.?);
-    options.addOption(bool, "single_core", false);
-    options.addOption(bool, "strace", b.option(bool, "strace", "") orelse false);
+    options.addOption(bool, "single_core", max_cpus == 1);
+    options.addOption(bool, "strace", strace);
     kernel_compile.root_module.addOptions("options", options);
 
     const link = b.addSystemCommand(&.{
@@ -263,17 +266,19 @@ fn linkAsm(b: *Build, link: *Build.Step.Run, path: []const u8) !void {
 }
 
 fn addRunStep(b: *Build) !void {
-    const vga = b.option(bool, "vga", "") orelse false;
-    const serial = b.option(bool, "serial", "") orelse true;
-    const mem = b.option([]const u8, "mem", "") orelse "32M";
-    const int_log = b.option(bool, "int-log", "") orelse false;
-    const kvm = b.option(bool, "kvm", "") orelse !int_log;
-    const cpus = b.option(u32, "cpus", "") orelse 4;
+    const vga = b.option(bool, "vga", "qemu: add vga framebuffer (default false)") orelse false;
+    const serial = b.option(bool, "serial", "qemu: add serial device (default true)") orelse true;
+    const mem = b.option([]const u8, "mem", "qemu: memory allocated to vm (default 32mb)") orelse "32M";
+    const int_log = b.option(bool, "int-log", "qemu: log interrupts and cpu resets (default false)") orelse false;
+    const kvm = b.option(bool, "kvm", "qemu: use kvm (default true unless int-log)") orelse !int_log;
+    const cpus = b.option(u32, "cpus", "qemu: number of cores to use (default 4)") orelse 4;
+    const gdb = b.option(bool, "gdb", "qemu: use gdb (default false)") orelse false;
 
     const run_step = b.step("run", "Run the iso in qemu");
     const run = b.addSystemCommand(&.{
         // zig fmt: off
         "qemu-system-x86_64",
+        // "-machine", "q35",
         "-cpu", "Penryn",
         "-nodefaults",
         // "-D", "qemu.log",
@@ -282,10 +287,12 @@ fn addRunStep(b: *Build) !void {
         "-m", mem,
         "-smp", b.fmt("{}", .{cpus}),
         "-drive", "file=disk.img,format=raw,if=ide,id=disk0",
+        // "-device", "intel-iommu",
         // zig fmt: on
     });
     run.setCwd(.{ .cwd_relative = b.install_prefix });
 
+    if (gdb) run.addArgs(&.{ "-s", "-S" });
     if (kvm) run.addArgs(&.{ "-accel", "kvm" });
     run.addArgs(&.{ "-accel", "tcg" });
 
@@ -301,9 +308,6 @@ fn addRunStep(b: *Build) !void {
     } else {
         run.addArgs(&.{ "-serial", "mon:stdio" });
     };
-
-    if (b.option(bool, "gdb", "Use gdb with qemu") orelse false)
-        run.addArgs(&.{ "-s", "-S" });
 
     run.step.dependOn(b.getInstallStep());
     run_step.dependOn(&run.step);
