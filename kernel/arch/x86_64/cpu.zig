@@ -493,6 +493,7 @@ pub fn rdtscOrdered() u64 {
 }
 
 pub const CpuLocal = struct {
+    apic_id: u8,
     per_cpu: *PerCpu,
 };
 

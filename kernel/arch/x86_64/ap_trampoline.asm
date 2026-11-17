@@ -45,6 +45,7 @@ long_mode:
 
 	mov rsp, [rel param_sp]
 	mov rax, [rel param_entry]
+	mov rdi, [rel param_per_cpu]
 	mov [rel param_started], qword 1
 
 	push 0
@@ -77,4 +78,6 @@ param_sp:
 param_entry:
 	dq 0
 param_started:
+	dq 0
+param_per_cpu:
 	dq 0

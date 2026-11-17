@@ -3,6 +3,7 @@ const pmm = @import("../../pmm.zig");
 const std = @import("std");
 const boot_info = @import("../../boot_info.zig");
 const acpi = @import("acpi.zig");
+const smp = @import("smp.zig");
 const log = std.log.scoped(.mb2);
 
 const Phys = mem.Phys;
@@ -356,7 +357,7 @@ pub fn initBootInfo() void {
         },
     }
 
-    acpi.ap_trampoline_phys_page = blk: for (boot_info.available_phys_ranges.items, 0..) |*region, i| {
+    smp.ap_trampoline_phys_page = blk: for (boot_info.available_phys_ranges.items, 0..) |*region, i| {
         if (@intFromPtr(region.*.ptr) >= 0xa0000) continue;
         const page = &region.*[0];
         region.* = region.*[1..];

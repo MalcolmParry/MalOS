@@ -72,7 +72,7 @@ fn addBuildStep(b: *Build, optimize: std.builtin.OptimizeMode, target: Build.Res
             .target = target,
             .optimize = optimize,
             .code_model = .kernel,
-            .single_threaded = false,
+            .single_threaded = max_cpus == 1,
             .strip = !debug_info,
             .omit_frame_pointer = !debug_info,
             .red_zone = false,
@@ -157,6 +157,7 @@ fn addBuildStep(b: *Build, optimize: std.builtin.OptimizeMode, target: Build.Res
     const options = b.addOptions();
     options.addOption([]const u8, "build_root", b.build_root.path.?);
     options.addOption(bool, "single_core", max_cpus == 1);
+    options.addOption(u32, "max_cpus", max_cpus);
     options.addOption(bool, "strace", strace);
     kernel_compile.root_module.addOptions("options", options);
 

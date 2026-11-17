@@ -11,7 +11,7 @@ pub const interrupt = @import("interrupt.zig");
 pub const multiboot = @import("multiboot2.zig");
 pub const paging = @import("paging.zig");
 pub const cpu = @import("cpu.zig");
-pub const initSmp = @import("acpi.zig").initSmp;
+pub const initSmp = @import("smp.zig").init;
 
 pub const initBootInfo = multiboot.initBootInfo;
 
@@ -38,6 +38,7 @@ pub const getPerCpu = cpu.getPerCpu;
 
 pub fn kernelEntry() callconv(.{ .x86_64_sysv = .{} }) noreturn {
     PerCpu.bsp.arch_specific = .{
+        .apic_id = undefined,
         .per_cpu = &PerCpu.bsp,
     };
 

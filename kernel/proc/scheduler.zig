@@ -22,6 +22,20 @@ pub fn init() !void {
     PerCpu.bsp.thread.current = boot;
 }
 
+pub fn initAp(cpu_local: *Thread.CpuLocal) !void {
+    const idle_thread = try Thread.spawn(idleThread, .{});
+    unlinkReady(idle_thread);
+
+    const boot: *Thread = try .create(null);
+    try boot.maybeAllocStackLocked();
+    boot.state = .running;
+
+    cpu_local.* = .{
+        .idle = idle_thread,
+        .current = boot,
+    };
+}
+
 pub fn sleepNs(ns: u64) void {
     schedule(.{ .sleeping = .{
         .until_ns = arch.getMonotonicNs() +| ns,

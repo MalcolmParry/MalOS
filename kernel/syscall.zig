@@ -342,6 +342,8 @@ fn klogWrite(args: [7]usize) abi.KLogWriteError![3]usize {
     const data = buffer[0..len];
     if (!arch.copyFromUser(data, user_data)) return error.Fault;
 
+    const l = log.spinlock.lock();
+    defer l.unlock();
     log.writer.writeAll(data) catch {};
 
     return @splat(0);

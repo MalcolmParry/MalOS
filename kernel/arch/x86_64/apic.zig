@@ -4,6 +4,7 @@ const mem = @import("../../memory.zig");
 const PageAlloc = @import("../../heap/PageAllocator.zig");
 const pic = @import("pic.zig");
 const pit = @import("../../drivers/x86/pit.zig");
+const acpi = @import("acpi.zig");
 
 const LocalApic = extern struct {
     reserved: [2]Slot,
@@ -65,6 +66,8 @@ var tsc_hz: u64 = undefined;
 var tsc_offset: u64 = undefined;
 
 pub fn init() !void {
+    try acpi.parse();
+
     pic.init();
     if (arch.cpu.cpuid(1, 0).edx & (1 << 9) == 0) {
         std.log.warn("no apic, falling back to pic", .{});

@@ -23,6 +23,7 @@ pub const std_options: std.Options = .{
     .logFn = log.log,
     .page_size_min = mem.page_size,
     .page_size_max = mem.page_size,
+    .log_level = .debug,
 };
 
 pub const os = struct {
