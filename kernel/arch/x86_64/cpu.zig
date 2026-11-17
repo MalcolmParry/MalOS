@@ -109,7 +109,7 @@ pub fn prepareThreadSwitch(new: *Thread, maybe_old: ?*Thread) void {
     };
 
     proc.vmar.page_table.use();
-    gdt.setIoMap(proc.arch_specific.io_map0, proc.arch_specific.io_map1);
+    gdt.setIoMap(.{ proc.arch_specific.io_map0, proc.arch_specific.io_map1 });
 }
 
 pub const State = extern struct {
@@ -491,11 +491,6 @@ pub fn rdtscOrdered() u64 {
 
     return @as(u64, high) << 32 | low;
 }
-
-pub const CpuLocal = struct {
-    apic_id: u8,
-    per_cpu: *PerCpu,
-};
 
 pub fn getPerCpu() *PerCpu {
     return asm volatile (

@@ -125,7 +125,7 @@ fn getOrCreateTable(entry: *Entry) !*Table {
     return table;
 }
 
-fn walk(l4: *Table, page_index: usize) *Table {
+pub fn walk(l4: *Table, page_index: usize) *Table {
     const il2 = (page_index >> 9) & 0x1ff;
     const il3 = (page_index >> 18) & 0x1ff;
     const il4 = (page_index >> 27) & 0x1ff;
@@ -322,7 +322,6 @@ fn enableExecuteDisable() void {
 
 pub fn init() void {
     enableExecuteDisable();
-    gdt.init();
 
     @memset(l4_table.entries[0..511], .blank);
     @memset(l3_kernel_table.entries[0..511], .blank);
@@ -418,17 +417,8 @@ pub fn init() void {
 
     invalidatePages();
 
-    {
-        const page_index = @intFromPtr(&gdt.tss_and_io_map.io_map0) / mem.page_size;
-        const l1 = walk(&l4_table, page_index);
-        gdt.io_map_entry0 = &l1.entries[page_index & 0x1ff];
-    }
-
-    {
-        const page_index = @intFromPtr(&gdt.tss_and_io_map.io_map1) / mem.page_size;
-        const l1 = walk(&l4_table, page_index);
-        gdt.io_map_entry1 = &l1.entries[page_index & 0x1ff];
-    }
+    gdt.init(.get());
+    gdt.load();
 }
 
 pub fn invalidatePages() void {

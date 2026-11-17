@@ -2,6 +2,7 @@ const std = @import("std");
 const arch = @import("x86_64.zig");
 const mem = @import("../../memory.zig");
 const apic = @import("apic.zig");
+const gdt = @import("gdt.zig");
 const gpa = @import("../../heap/gpa.zig").allocator;
 const PerCpu = @import("../../PerCpu.zig");
 const Thread = @import("../../proc/Thread.zig");
@@ -40,11 +41,13 @@ pub fn init() !void {
             .arch_specific = .{
                 .per_cpu = per_cpu,
                 .apic_id = apic_id,
+                .gdt = .{},
             },
             .thread = undefined,
         };
 
         try scheduler.initAp(&per_cpu.thread);
+        gdt.init(per_cpu);
     }
 
     const lapic = apic.local_apic;
@@ -110,6 +113,11 @@ const ApParams = extern struct {
 
 fn apEntry(per_cpu: *PerCpu) callconv(.{ .x86_64_sysv = .{} }) noreturn {
     arch.paging.getGlobalKernelTable().use();
+    arch.cpu.writeMsr(arch.cpu.msrs.fs_base, 0);
+    arch.cpu.writeMsr(arch.cpu.msrs.kernel_gs_base, 0);
+    arch.cpu.writeMsr(arch.cpu.msrs.gs_base, @intFromPtr(&per_cpu.arch_specific.per_cpu));
+
+    gdt.load();
 
     log.info("cpu {}", .{per_cpu.id});
     arch.spinWait();

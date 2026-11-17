@@ -33,13 +33,18 @@ const user_copy = @import("user_copy.zig");
 pub const copyFromUser = user_copy.copyFromUser;
 pub const copyToUser = user_copy.copyToUser;
 
-pub const CpuLocal = cpu.CpuLocal;
 pub const getPerCpu = cpu.getPerCpu;
+pub const CpuLocal = struct {
+    apic_id: u8,
+    per_cpu: *PerCpu,
+    gdt: gdt.CpuLocal,
+};
 
 pub fn kernelEntry() callconv(.{ .x86_64_sysv = .{} }) noreturn {
     PerCpu.bsp.arch_specific = .{
         .apic_id = undefined,
         .per_cpu = &PerCpu.bsp,
+        .gdt = .{},
     };
 
     cpu.writeMsr(cpu.msrs.gs_base, @intFromPtr(&PerCpu.bsp.arch_specific.per_cpu));

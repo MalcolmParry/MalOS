@@ -43,6 +43,10 @@ long_mode:
 	mov ds, ax
 	mov ss, ax
 
+	xor ax, ax
+	mov gs, ax
+	mov fs, ax
+
 	mov rsp, [rel param_sp]
 	mov rax, [rel param_entry]
 	mov rdi, [rel param_per_cpu]
