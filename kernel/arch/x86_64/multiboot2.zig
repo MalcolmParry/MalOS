@@ -4,6 +4,7 @@ const std = @import("std");
 const boot_info = @import("../../boot_info.zig");
 const acpi = @import("acpi.zig");
 const smp = @import("smp.zig");
+const cpu = @import("cpu.zig");
 const log = std.log.scoped(.mb2);
 
 const Phys = mem.Phys;
@@ -364,4 +365,34 @@ pub fn initBootInfo() void {
         if (region.len == 0) _ = boot_info.available_phys_ranges.swapRemove(i);
         break :blk page;
     } else @panic("cant find memory for ap trampoline");
+
+    cpu.Cr0.set(.{
+        .pe = true,
+        .mp = true,
+        .et = true,
+        .ne = true,
+        .wp = true,
+        .pg = true,
+    });
+
+    const max_leaf = cpu.cpuid(0, 0).eax;
+    const leaf_7: cpu.CpuId = if (max_leaf >= 7) cpu.cpuid(7, 0) else .zeroed;
+
+    cpu.Cr4.set(.{
+        .pae = true,
+        .pge = true,
+        .osfxsr = true,
+        .osxmmexcpt = true,
+        .umip = leaf_7.ecx & (1 << 2) > 0,
+        .smep = leaf_7.ebx & (1 << 7) > 0,
+        .de = true,
+    });
+
+    if (cpu.cpuid(0x8000_0001, 0).edx & (1 << 20) == 0) @panic("execute disable bit not supported");
+    const efer_or_mask: u64 = @bitCast(cpu.Efer{ .nxe = true });
+    cpu.writeMsr(cpu.msrs.efer, cpu.readMsr(cpu.msrs.efer) | efer_or_mask);
+
+    log.debug("cr0  = [ {f} ]", .{cpu.Cr0.get()});
+    log.debug("cr4  = [ {f} ]", .{cpu.Cr4.get()});
+    log.debug("efer = [ {f} ]", .{@as(cpu.Efer, @bitCast(cpu.readMsr(cpu.msrs.efer)))});
 }

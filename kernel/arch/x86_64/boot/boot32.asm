@@ -82,15 +82,18 @@ _start32:
 	mov cr3, eax
 
 	mov eax, cr4
+	; physical address extension
 	or eax, 1 << 5
 	mov cr4, eax
 
 	mov ecx, 0xc000_0080
 	rdmsr
+	; long mode enable
 	or eax, 1 << 8
 	wrmsr
 
 	mov eax, cr0
+	; enable paging
 	or eax, 1 << 31
 	mov cr0, eax
 

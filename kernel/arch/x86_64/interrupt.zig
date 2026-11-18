@@ -218,7 +218,7 @@ fn handleException(state: *align(1) arch.cpu.State) noreturn {
         .allow_unsafe_unwind = true,
     }, log.term) catch {};
 
-    state.dump(log.term.writer) catch {};
+    log.term.writer.print("{f}", .{state}) catch {};
 
     if (state.int_code == 0x0e) {
         const flags: PageFaultFlags = @bitCast(state.error_code);

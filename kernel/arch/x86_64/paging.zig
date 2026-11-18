@@ -194,15 +194,16 @@ pub fn unmap(l4: *Table, first_page: usize, page_count: usize) void {
 
 pub fn mapPage(table: *Table, level: Table.Level, virt: *allowzero mem.Page, phys: *mem.PhysPage, page_flags: Vmm.PageFlags) !void {
     const indices = getIndicesFromVirtAddr(@intFromPtr(virt));
-    std.debug.assert((@intFromPtr(virt) < @intFromPtr(getVirtAddrFromIndices(256, 0, 0, 0))) == page_flags.user);
 
     var cur = table;
     var cur_level: u8 = @intFromEnum(level);
     while (cur_level > 0) : (cur_level -= 1) {
         const entry = &cur.entries[indices[cur_level]];
 
-        if (@as(Table.Level, @enumFromInt(cur_level)) == .l4 and !page_flags.user)
+        if (@as(Table.Level, @enumFromInt(cur_level)) == .l4 and indices[3] >= 256) {
             cur = entry.getLowerSafe() orelse return error.CantAllocateKernelL3Table;
+            continue;
+        }
 
         cur = try getOrCreateTable(entry);
     }
@@ -314,15 +315,7 @@ comptime {
     @export(&l2_init_kernel_table.entries, .{ .name = "page_table_l2_virt" });
 }
 
-fn enableExecuteDisable() void {
-    const msr = 0xc000_0080;
-    const old = arch.cpu.readMsr(msr);
-    arch.cpu.writeMsr(msr, old | (1 << 11));
-}
-
 pub fn init() void {
-    enableExecuteDisable();
-
     @memset(l4_table.entries[0..511], .blank);
     @memset(l3_kernel_table.entries[0..511], .blank);
 

@@ -140,8 +140,7 @@ pub const State = extern struct {
     ss: u64 = 0x10,
 
     pub const zero = std.mem.zeroes(State);
-    pub const format = dump;
-    pub fn dump(s: *align(1) const State, w: *std.Io.Writer) !void {
+    pub fn format(s: *align(1) const State, w: *std.Io.Writer) !void {
         const name = if (s.int_code < exception_names.len) exception_names[s.int_code] else "interrupt";
         try w.print(
             \\{s} (#{d}) err=0x{x}
@@ -151,7 +150,8 @@ pub const State = extern struct {
             \\r8  {x:0>16}  r9  {x:0>16}  r10 {x:0>16}
             \\r11 {x:0>16}  r12 {x:0>16}  r13 {x:0>16}
             \\r14 {x:0>16}  r15 {x:0>16}
-            \\cs {x:0>2} ss {x:0>2} rflags {x:0>8} [
+            \\cs {x:0>2} ss {x:0>2} rflags {x:0>8} [ {f} ]
+            \\
         , .{
             // zig fmt: off
             name, s.int_code, s.error_code,
@@ -161,17 +161,9 @@ pub const State = extern struct {
             s.r8,  s.r9,  s.r10,
             s.r11, s.r12, s.r13,
             s.r14, s.r15,
-            s.cs,  s.ss,  @as(u64, @bitCast(s.flags)),
+            s.cs,  s.ss,  @as(u64, @bitCast(s.flags)), s.flags,
             // zig fmt: on
         });
-
-        inline for (std.meta.fields(Flags)) |f| {
-            if (f.type == bool and f.name[0] != '_' and @field(s.flags, f.name)) {
-                try w.writeAll(" " ++ f.name);
-            }
-        }
-
-        try w.writeAll(" ]\n");
     }
 
     comptime {
@@ -341,6 +333,8 @@ pub const Flags = packed struct(u64) {
     VIP: bool = false,
     ID: bool = false,
     _22_63: u42 = 0,
+
+    pub const format = flagsFormat(Flags);
 };
 
 pub fn halt() void {
@@ -443,10 +437,19 @@ pub fn writeMsr(msr: u32, value: u64) void {
         : [msr] "{ecx}" (msr),
           [low] "{eax}" (low),
           [high] "{edx}" (high),
-        : .{});
+        : .{ .memory = true });
 }
 
-pub fn cpuid(leaf: u32, sub_leaf: u32) struct { eax: u32, ebx: u32, ecx: u32, edx: u32 } {
+pub const CpuId = struct {
+    eax: u32,
+    ebx: u32,
+    ecx: u32,
+    edx: u32,
+
+    pub const zeroed: CpuId = .{ .eax = 0, .ebx = 0, .ecx = 0, .edx = 0 };
+};
+
+pub fn cpuid(leaf: u32, sub_leaf: u32) CpuId {
     var a: u32 = undefined;
     var b: u32 = undefined;
     var c: u32 = undefined;
@@ -503,4 +506,107 @@ pub const msrs = struct {
     pub const gs_base = 0xc000_0101;
     pub const kernel_gs_base = 0xc000_0102;
     pub const fs_base = 0xc000_0100;
+    pub const efer = 0xc000_0080;
 };
+
+pub const Cr0 = packed struct(u64) {
+    pe: bool = false,
+    mp: bool = false,
+    em: bool = false,
+    ts: bool = false,
+    et: bool = false,
+    ne: bool = false,
+    reserved: u10 = 0,
+    wp: bool = false,
+    reserved2: u1 = 0,
+    am: bool = false,
+    reserved3: u10 = 0,
+    nw: bool = false,
+    cd: bool = false,
+    pg: bool = false,
+    reserved4: u32 = 0,
+
+    pub const format = flagsFormat(Cr0);
+    pub fn get() Cr0 {
+        return asm volatile ("mov %%cr0, %[reg]"
+            : [reg] "=r" (-> Cr0),
+        );
+    }
+
+    pub fn set(cr0: Cr0) void {
+        asm volatile ("mov %[reg], %%cr0"
+            :
+            : [reg] "r" (cr0),
+            : .{ .memory = true });
+    }
+};
+
+pub const Cr4 = packed struct(u64) {
+    vme: bool = false,
+    pvi: bool = false,
+    tsd: bool = false,
+    de: bool = false,
+    pse: bool = false,
+    pae: bool = false,
+    mce: bool = false,
+    pge: bool = false,
+    pce: bool = false,
+    osfxsr: bool = false,
+    osxmmexcpt: bool = false,
+    umip: bool = false,
+    la57: bool = false,
+    vmxe: bool = false,
+    smxe: bool = false,
+    reserved: u1 = 0,
+    fsgsbase: bool = false,
+    pcide: bool = false,
+    osxsave: bool = false,
+    reserved2: u1 = 0,
+    smep: bool = false,
+    smap: bool = false,
+    pke: bool = false,
+    cet: bool = false,
+    pks: bool = false,
+    reserved3: u39 = 0,
+
+    pub const format = flagsFormat(Cr4);
+    pub fn get() Cr4 {
+        return asm volatile ("mov %%cr4, %[reg]"
+            : [reg] "=r" (-> Cr4),
+        );
+    }
+
+    pub fn set(cr4: Cr4) void {
+        asm volatile ("mov %[reg], %%cr4"
+            :
+            : [reg] "r" (cr4),
+            : .{ .memory = true });
+    }
+};
+
+pub const Efer = packed struct(u64) {
+    sce: bool = false,
+    reserved: u7 = 0,
+    lme: bool = false,
+    reserved2: u1 = 0,
+    lma: bool = false,
+    nxe: bool = false,
+    reserved3: u52 = 0,
+
+    pub const format = flagsFormat(Efer);
+};
+
+fn flagsFormat(T: type) fn (T, *std.Io.Writer) std.Io.Writer.Error!void {
+    return struct {
+        fn format(flags: T, w: *std.Io.Writer) !void {
+            var first: bool = true;
+            inline for (std.meta.fields(T)) |f| {
+                if (f.type == bool and f.name[0] != '_' and @field(flags, f.name)) {
+                    if (!first) try w.writeAll(" ");
+                    first = false;
+                    try w.writeAll(f.name);
+                }
+            }
+        }
+    }.format;
+}

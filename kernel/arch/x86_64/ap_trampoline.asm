@@ -21,7 +21,8 @@ bits 16
 
 	mov ecx, 0xc000_0080
 	rdmsr
-	or eax, (1 << 8) | (1 << 11)
+	; long mode enable
+	or eax, (1 << 8)
 	wrmsr
 
 	mov eax, cr0
@@ -46,6 +47,17 @@ long_mode:
 	xor ax, ax
 	mov gs, ax
 	mov fs, ax
+
+	mov ecx, 0xc000_0080
+	mov eax, [rel param_efer]
+	mov edx, [rel param_efer + 4]
+	wrmsr
+
+	mov rax, [rel param_cr0]
+	mov cr0, rax
+
+	mov rax, [rel param_cr4]
+	mov cr4, rax
 
 	mov rsp, [rel param_sp]
 	mov rax, [rel param_entry]
@@ -84,4 +96,10 @@ param_entry:
 param_started:
 	dq 0
 param_per_cpu:
+	dq 0
+param_efer:
+	dq 0
+param_cr0:
+	dq 0
+param_cr4:
 	dq 0

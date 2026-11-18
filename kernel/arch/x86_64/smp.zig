@@ -29,8 +29,7 @@ pub fn init() !void {
         .cache_mode = .full,
         .executable = true,
         .global = false,
-        // have to map as user page bc it is in lower half
-        .user = true,
+        .user = false,
         .writable = true,
     });
 
@@ -65,6 +64,18 @@ pub fn init() !void {
         while (lapic.icr[0].val & (1 << 12) > 0) std.atomic.spinLoopHint();
     }
 
+    ap_params.* = .{
+        .cr3 = @intFromPtr(ap_page_table.physPage()),
+        .entry = @intFromPtr(&apEntry),
+        .efer = arch.cpu.readMsr(arch.cpu.msrs.efer),
+        .cr0 = @bitCast(arch.cpu.Cr0.get()),
+        .cr4 = @bitCast(arch.cpu.Cr4.get()),
+
+        .started = undefined,
+        .sp = undefined,
+        .per_cpu = undefined,
+    };
+
     apic.tscBusyWait(10 * std.time.ns_per_ms);
     for (ap_per_cpus) |*per_cpu| {
         const apic_id = per_cpu.arch_specific.apic_id;
@@ -72,13 +83,9 @@ pub fn init() !void {
 
         per_cpu.id = PerCpu.cpu_count;
         const stack = per_cpu.thread.current.stack.?;
-        ap_params.* = .{
-            .cr3 = @intFromPtr(ap_page_table.physPage()),
-            .sp = @intFromPtr(stack.ptr + stack.len),
-            .entry = @intFromPtr(&apEntry),
-            .started = .init(0),
-            .per_cpu = @intFromPtr(per_cpu),
-        };
+        ap_params.started = .init(0);
+        ap_params.sp = @intFromPtr(stack.ptr + stack.len);
+        ap_params.per_cpu = @intFromPtr(per_cpu);
 
         for (0..2) |_| {
             lapic.err_status.val = 0;
@@ -109,6 +116,9 @@ const ApParams = extern struct {
     entry: u64,
     started: std.atomic.Value(u64),
     per_cpu: u64,
+    efer: u64,
+    cr0: u64,
+    cr4: u64,
 };
 
 fn apEntry(per_cpu: *PerCpu) callconv(.{ .x86_64_sysv = .{} }) noreturn {

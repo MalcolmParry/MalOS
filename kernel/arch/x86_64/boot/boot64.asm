@@ -11,16 +11,6 @@ _start64:
 	mov fs, ax
 	mov gs, ax
 
-	mov rax, cr0
-	; write protect
-	or rax, (1 << 16)
-	mov cr0, rax
-
-	mov rax, cr4
-	; allow simd stuff, enable global pages
-	or rax, (1 << 9) | (1 << 7)
-	mov cr4, rax
-	
 	; sysv callconv requires 16 byte alignment before pushing return addr
 	and rsp, ~15
 	xor ebp, ebp
