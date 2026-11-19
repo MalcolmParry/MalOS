@@ -30,22 +30,36 @@ pub fn tryLock(sl: *Spinlock) ?Lock {
 pub fn lock(sl: *Spinlock) Lock {
     while (true) {
         const int = arch.interrupt.popDisable();
-        if (sl.status.cmpxchgWeak(.unlocked, .locked, .acquire, .monotonic) == null) {
+        const result = sl.status.cmpxchgWeak(.unlocked, .locked, .acquire, .monotonic) orelse {
             @branchHint(.likely);
 
             return .{
                 .sl = sl,
                 .int_enable = int,
             };
-        }
+        };
 
-        if (options.single_core) @panic("deadlock");
+        if (options.single_core and result == .locked) @panic("deadlock");
 
         arch.interrupt.set(int);
         while (sl.status.load(.monotonic) == .locked) {
             if (builtin.is_test) @panic("");
             std.atomic.spinLoopHint();
         }
+    }
+}
+
+pub fn lockNoPreserveInt(sl: *Spinlock) void {
+    arch.interrupt.assertDisabled();
+
+    while (true) {
+        const result = sl.status.cmpxchgWeak(.unlocked, .locked, .acquire, .monotonic) orelse {
+            @branchHint(.likely);
+            return;
+        };
+
+        if (options.single_core and result == .locked) @panic("deadlock");
+        while (sl.status.load(.monotonic) == .locked) std.atomic.spinLoopHint();
     }
 }
 
