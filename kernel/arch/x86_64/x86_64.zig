@@ -1,7 +1,6 @@
 const std = @import("std");
 const debug = @import("../../debug.zig");
 const gdt = @import("gdt.zig");
-const apic = @import("apic.zig");
 const PerCpu = @import("../../PerCpu.zig");
 
 pub const page_size = 4096;
@@ -11,13 +10,10 @@ pub const interrupt = @import("interrupt.zig");
 pub const multiboot = @import("multiboot2.zig");
 pub const paging = @import("paging.zig");
 pub const cpu = @import("cpu.zig");
+pub const time = @import("time.zig");
 pub const initSmp = @import("smp.zig").init;
 
 pub const initBootInfo = multiboot.initBootInfo;
-
-pub const initTimer = apic.init;
-pub const setTimerNs = apic.setTimerNs;
-pub const getMonotonicNs = apic.getMonotonicNs;
 
 pub const halt = cpu.halt;
 pub const spinWait = cpu.spinWait;

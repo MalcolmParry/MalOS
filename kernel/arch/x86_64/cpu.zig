@@ -507,6 +507,7 @@ pub const msrs = struct {
     pub const kernel_gs_base = 0xc000_0102;
     pub const fs_base = 0xc000_0100;
     pub const efer = 0xc000_0080;
+    pub const apic_base = 0x1b;
 };
 
 pub const Cr0 = packed struct(u64) {

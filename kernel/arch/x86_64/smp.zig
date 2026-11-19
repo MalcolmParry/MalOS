@@ -3,6 +3,7 @@ const arch = @import("x86_64.zig");
 const mem = @import("../../memory.zig");
 const apic = @import("apic.zig");
 const gdt = @import("gdt.zig");
+const time = @import("time.zig");
 const gpa = @import("../../heap/gpa.zig").allocator;
 const PerCpu = @import("../../PerCpu.zig");
 const Thread = @import("../../proc/Thread.zig");
@@ -49,7 +50,7 @@ pub fn init() !void {
         gdt.init(per_cpu);
     }
 
-    const lapic = apic.local_apic;
+    const lapic = apic.lapic;
     const trampoline_page: u8 = @intCast(@intFromPtr(ap_trampoline_phys_page) / 4096);
     for (ap_per_cpus) |*per_cpu| {
         const apic_id = per_cpu.arch_specific.apic_id;
@@ -76,37 +77,38 @@ pub fn init() !void {
         .per_cpu = undefined,
     };
 
-    apic.tscBusyWait(10 * std.time.ns_per_ms);
+    time.busyWaitNs(10 * std.time.ns_per_ms);
     for (ap_per_cpus) |*per_cpu| {
         const apic_id = per_cpu.arch_specific.apic_id;
         const apic_id_shifted = @as(u32, apic_id) << 24;
 
         per_cpu.id = PerCpu.cpu_count;
+        PerCpu.cpus[PerCpu.cpu_count] = per_cpu;
+        PerCpu.cpu_count += 1;
+
         const stack = per_cpu.thread.current.stack.?;
-        ap_params.started = .init(0);
         ap_params.sp = @intFromPtr(stack.ptr + stack.len);
         ap_params.per_cpu = @intFromPtr(per_cpu);
+        ap_params.started.store(0, .release);
 
         for (0..2) |_| {
             lapic.err_status.val = 0;
             lapic.icr[1].val = apic_id_shifted;
             lapic.icr[0].val = lapic.icr[0].val & 0xfff0_0000 | 0x4600 | trampoline_page;
-            apic.tscBusyWait(std.time.ns_per_us * 200);
+            time.busyWaitNs(std.time.ns_per_us * 200);
             while (lapic.icr[0].val & (1 << 12) > 0) std.atomic.spinLoopHint();
         }
 
-        const started = apic.getMonotonicNs();
+        const timer = time.startPolledTimerNs(std.time.ns_per_s);
         while (ap_params.started.load(.acquire) == 0) {
-            if (apic.getMonotonicNs() - started > std.time.ns_per_s) {
+            if (timer.poll()) {
                 log.warn("timeout while starting ap {}", .{apic_id});
+                PerCpu.cpu_count -= 1;
                 return;
             }
 
             std.atomic.spinLoopHint();
         }
-
-        PerCpu.cpus[PerCpu.cpu_count] = per_cpu;
-        PerCpu.cpu_count += 1;
     }
 }
 
@@ -128,6 +130,8 @@ fn apEntry(per_cpu: *PerCpu) callconv(.{ .x86_64_sysv = .{} }) noreturn {
     arch.cpu.writeMsr(arch.cpu.msrs.gs_base, @intFromPtr(&per_cpu.arch_specific.per_cpu));
 
     gdt.load();
+    arch.interrupt.initAp();
+    apic.initAp();
 
     log.info("cpu {}", .{per_cpu.id});
     arch.spinWait();

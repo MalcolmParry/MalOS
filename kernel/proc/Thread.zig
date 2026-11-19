@@ -44,7 +44,7 @@ pub const State = union(enum) {
     running,
     blocked,
     sleeping: struct {
-        /// uses arch.getMonotonicNs
+        /// uses arch.time.getBootNs
         until_ns: u64,
     },
 };
@@ -154,7 +154,7 @@ pub fn startWrapped(thread: *Thread, func: anytype, args: std.meta.ArgsTuple(@Ty
 pub fn exitCurrent() noreturn {
     const l = scheduler.lock.lock();
     arch.paging.getGlobalKernelTable().use();
-    const pc = PerCpu.get();
+    var pc = PerCpu.get();
     const thread = pc.thread.current;
 
     assert(thread.state == .running);
@@ -164,6 +164,7 @@ pub fn exitCurrent() noreturn {
         proc.unlinkLiveThread(thread);
         proc.obj.release();
         _ = scheduler.lock.lock();
+        pc = PerCpu.get();
     }
 
     if (pc.thread.last_stack) |last| PageAllocator.global.free(last);
@@ -173,7 +174,7 @@ pub fn exitCurrent() noreturn {
     thread.state = .dead;
     thread.obj.release();
 
-    const now = arch.getMonotonicNs();
+    const now = arch.time.getBootNsOrdered();
     scheduler.wakeSleeping(now);
     const next = scheduler.chooseThread();
     pc.thread.current = next;

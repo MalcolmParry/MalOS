@@ -7,8 +7,6 @@ pub const period_fs = 838_095_238;
 pub const divisor = pit_hz / 100;
 pub const divisor_period_ns = period_fs * divisor / 1_000_000;
 
-pub var ticks: std.atomic.Value(u64) = .init(0);
-
 const ports = struct {
     const ch0: u8 = 0x40;
     const ch1: u8 = 0x41;

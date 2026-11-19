@@ -117,7 +117,10 @@ pub fn init() void {
 
     idtr.size = @sizeOf([256]IDT) - 1;
     idtr.base = &idts;
+    initAp();
+}
 
+pub fn initAp() void {
     asm volatile ("lidt (%%rax)"
         :
         : [idtr] "{rax}" (&idtr),
@@ -138,14 +141,7 @@ fn handler(state: *align(1) arch.cpu.State) callconv(.{ .x86_64_sysv = .{ .incom
 
     switch (state.int_code) {
         0...31 => handleException(state),
-        0x20 => {
-            apic.eoi(0);
-
-            const pit = @import("../../drivers/x86/pit.zig");
-            _ = pit.ticks.fetchAdd(1, .monotonic);
-            scheduler.preempt(state);
-        },
-        0x30 => {
+        0x20, 0x30 => {
             apic.eoi(0);
             scheduler.preempt(state);
         },

@@ -66,7 +66,7 @@ pub fn kernelMain() !noreturn {
 
     pmm.init(page_alloc);
     debug.init();
-    try arch.initTimer();
+    try arch.time.init();
     try scheduler.init();
     try arch.initSmp();
 

@@ -38,14 +38,14 @@ pub fn initAp(cpu_local: *Thread.CpuLocal) !void {
 
 pub fn sleepNs(ns: u64) void {
     schedule(.{ .sleeping = .{
-        .until_ns = arch.getMonotonicNs() +| ns,
+        .until_ns = arch.time.getBootNsOrdered() +| ns,
     } });
 }
 
 pub fn preempt(state: *align(1) arch.cpu.State) noreturn {
     _ = lock.lock();
     const pc = PerCpu.get();
-    const now = arch.getMonotonicNs();
+    const now = arch.time.getBootNsOrdered();
     wakeSleeping(now);
 
     const last = pc.thread.current;
@@ -81,7 +81,7 @@ pub fn schedule(next_state: Thread.State) void {
 /// returns true if the context switch happened
 pub fn scheduleLockHeld(next_state: Thread.State) bool {
     const pc = PerCpu.get();
-    const now = arch.getMonotonicNs();
+    const now = arch.time.getBootNsOrdered();
     wakeSleeping(now);
 
     const last = Thread.current;
@@ -121,11 +121,11 @@ pub fn wake(thread: *Thread) void {
 /// assumes lock is held
 pub fn setPreemptionTimer(now: u64, is_idle: bool) void {
     if (is_idle) if (first_sleeping) |thread| {
-        arch.setTimerNs(thread.state.sleeping.until_ns - now);
+        arch.time.setTimerNs(thread.state.sleeping.until_ns - now);
         return;
     };
 
-    arch.setTimerNs(10 * std.time.ns_per_ms);
+    arch.time.setTimerNs(10 * std.time.ns_per_ms);
 }
 
 /// assumes lock is held
