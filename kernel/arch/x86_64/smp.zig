@@ -110,7 +110,45 @@ pub fn init() !void {
             std.atomic.spinLoopHint();
         }
     }
+
+    for (1..PerCpu.cpu_count) |i| {
+        var readings: [tsc_ping_pong_count]i64 = undefined;
+        var largest_t1_minus_t2: i64 = std.math.minInt(i64);
+        var smallest_t1_minus_t0: i64 = std.math.maxInt(i64);
+
+        for (&readings) |*reading| {
+            const t0 = arch.cpu.rdtscOrdered();
+            current_ap_id.store(@intCast(i), .monotonic);
+            while (current_ap_id.load(.acquire) != 0) std.atomic.spinLoopHint();
+            const t2 = arch.cpu.rdtscOrdered();
+            const t1 = tsc_reading.load(.monotonic);
+
+            const offset: i64 = @bitCast(t1 -% (t0 + t2) / 2);
+            const t1_minus_t2: i64 = @bitCast(t1 -% t2);
+            const t1_minus_t0: i64 = @bitCast(t1 -% t0);
+
+            reading.* = offset;
+            largest_t1_minus_t2 = @max(largest_t1_minus_t2, t1_minus_t2);
+            smallest_t1_minus_t0 = @min(smallest_t1_minus_t0, t1_minus_t0);
+
+            time.busyWaitNs(10 * std.time.ns_per_us);
+        }
+
+        std.mem.sort(i64, &readings, {}, std.sort.asc(i64));
+        const median_offset = readings[readings.len / 2];
+
+        log.debug("cpu {} tsc offset {}, largest t1 - t2: {}, smallest t1 - t0: {}", .{ i, median_offset, largest_t1_minus_t2, smallest_t1_minus_t0 });
+
+        // TODO: switch to hpet
+        if (largest_t1_minus_t2 > 0 or smallest_t1_minus_t0 < 0) {
+            log.warn("cpu {} tsc not synced, continuing anyways", .{i});
+        }
+    }
 }
+
+const tsc_ping_pong_count = 64;
+var tsc_reading: std.atomic.Value(u64) align(std.atomic.cache_line) = undefined;
+var current_ap_id: std.atomic.Value(u32) align(std.atomic.cache_line) = .init(0);
 
 const ApParams = extern struct {
     cr3: u64,
@@ -132,6 +170,12 @@ fn apEntry(per_cpu: *PerCpu) callconv(.{ .x86_64_sysv = .{} }) noreturn {
     gdt.load();
     arch.interrupt.initAp();
     apic.initAp();
+
+    for (0..tsc_ping_pong_count) |_| {
+        while (current_ap_id.load(.monotonic) != per_cpu.id) std.atomic.spinLoopHint();
+        tsc_reading.store(arch.cpu.rdtscOrdered(), .monotonic);
+        current_ap_id.store(0, .release);
+    }
 
     log.info("cpu {}", .{per_cpu.id});
     arch.spinWait();

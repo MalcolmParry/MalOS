@@ -490,7 +490,8 @@ pub fn rdtscOrdered() u64 {
         \\ rdtsc
         : [low] "={eax}" (low),
           [high] "={edx}" (high),
-    );
+        :
+        : .{ .memory = true });
 
     return @as(u64, high) << 32 | low;
 }
