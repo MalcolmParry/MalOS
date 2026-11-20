@@ -50,19 +50,17 @@ pub fn init() !void {
         gdt.init(per_cpu);
     }
 
-    const lapic = apic.lapic;
     const trampoline_page: u8 = @intCast(@intFromPtr(ap_trampoline_phys_page) / 4096);
     for (ap_per_cpus) |*per_cpu| {
         const apic_id = per_cpu.arch_specific.apic_id;
-        const apic_id_shifted = @as(u32, apic_id) << 24;
 
-        lapic.icr[1].val = apic_id_shifted;
-        lapic.icr[0].val = lapic.icr[0].val & 0xfff0_0000 | 0xc500;
-        while (lapic.icr[0].val & (1 << 12) > 0) std.atomic.spinLoopHint();
+        apic.writeReg(.icr_high, .{ .apic_id = apic_id });
+        apic.writeReg(.icr_low, .{ .delivery_mode = .init, .level = .assert, .trigger_mode = .level });
+        while (apic.readReg(.icr_low).delivery_status) std.atomic.spinLoopHint();
 
-        lapic.icr[1].val = apic_id_shifted;
-        lapic.icr[0].val = lapic.icr[0].val & 0xfff0_0000 | 0x8500;
-        while (lapic.icr[0].val & (1 << 12) > 0) std.atomic.spinLoopHint();
+        apic.writeReg(.icr_high, .{ .apic_id = apic_id });
+        apic.writeReg(.icr_low, .{ .delivery_mode = .init, .level = .deassert, .trigger_mode = .level });
+        while (apic.readReg(.icr_low).delivery_status) std.atomic.spinLoopHint();
     }
 
     ap_params.* = .{
@@ -80,7 +78,6 @@ pub fn init() !void {
     time.busyWaitNs(10 * std.time.ns_per_ms);
     for (ap_per_cpus) |*per_cpu| {
         const apic_id = per_cpu.arch_specific.apic_id;
-        const apic_id_shifted = @as(u32, apic_id) << 24;
 
         per_cpu.id = PerCpu.cpu_count;
         PerCpu.cpus[PerCpu.cpu_count] = per_cpu;
@@ -92,11 +89,11 @@ pub fn init() !void {
         ap_params.started.store(0, .release);
 
         for (0..2) |_| {
-            lapic.err_status.val = 0;
-            lapic.icr[1].val = apic_id_shifted;
-            lapic.icr[0].val = lapic.icr[0].val & 0xfff0_0000 | 0x4600 | trampoline_page;
+            apic.writeReg(.err_status, 0);
+            apic.writeReg(.icr_high, .{ .apic_id = apic_id });
+            apic.writeReg(.icr_low, .{ .delivery_mode = .sipi, .int_vec = trampoline_page });
             time.busyWaitNs(std.time.ns_per_us * 200);
-            while (lapic.icr[0].val & (1 << 12) > 0) std.atomic.spinLoopHint();
+            while (apic.readReg(.icr_low).delivery_status) std.atomic.spinLoopHint();
         }
 
         const timer = time.startPolledTimerNs(std.time.ns_per_s);

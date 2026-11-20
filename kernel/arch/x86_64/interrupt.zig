@@ -141,13 +141,9 @@ fn handler(state: *align(1) arch.cpu.State) callconv(.{ .x86_64_sysv = .{ .incom
 
     switch (state.int_code) {
         0...31 => handleException(state),
-        0x20, 0x30 => {
+        0x20, apic.timer_int_vec => {
             apic.eoi(0);
             scheduler.preempt(state);
-        },
-        0xff => {
-            // spurious interrupt
-            state.restore();
         },
         0x80 => {
             const args: [7]usize = .{
@@ -191,6 +187,10 @@ fn handler(state: *align(1) arch.cpu.State) callconv(.{ .x86_64_sysv = .{ .incom
             state.rsi = result[2];
             state.rdx = result[3];
             scheduler.preempt(state);
+        },
+        apic.error_int_vec => apic.handleError(state),
+        0xff => { // spurious interrupt
+            state.restore();
         },
         else => {
             std.log.warn("unknown interrupt\n{f}", .{state});

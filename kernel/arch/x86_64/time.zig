@@ -38,11 +38,11 @@ fn calibrate() void {
     const use_apic = !apic.use_pic;
     for (&apic_readings, &tsc_readings) |*apic_reading, *tsc_reading| {
         pit.arm(calibrate_fs / pit.period_fs);
-        if (use_apic) apic.lapic.initial_count.val = 0xffff_ffff;
+        if (use_apic) apic.writeReg(.initial_count, 0xffff_ffff);
         const start_tsc = arch.cpu.rdtsc();
 
         pit.busyWait();
-        const end_apic = if (use_apic) apic.lapic.current_count.val else 0;
+        const end_apic = if (use_apic) apic.readReg(.current_count) else 0;
         const end_tsc = arch.cpu.rdtsc();
 
         apic_reading.* = 0xffff_ffff - end_apic;
@@ -50,7 +50,7 @@ fn calibrate() void {
     }
 
     if (use_apic) {
-        apic.lapic.initial_count.val = 0;
+        apic.writeReg(.initial_count, 0);
         std.mem.sort(u64, &apic_readings, {}, std.sort.asc(u64));
         const median_apic_reading = apic_readings[apic_readings.len / 2];
         apic_hz = @intCast(@as(u128, median_apic_reading) * fs_per_s / calibrate_fs);
@@ -61,7 +61,7 @@ fn calibrate() void {
     const median_tsc_reading = tsc_readings[tsc_readings.len / 2];
     tsc_hz = @intCast(@as(u128, median_tsc_reading) * fs_per_s / calibrate_fs);
     log.info("{} tsc ticks in {f}, {} hz", .{ median_tsc_reading, calibrate_duration, tsc_hz });
-    log.info("tsc offset: -{}, -{f}", .{ -%tsc_offset, std.Io.Duration{ .nanoseconds = -%tsc_offset } });
+    log.info("tsc offset: -{}, -{f}", .{ -%tsc_offset, std.Io.Duration{ .nanoseconds = tscTicksToNs(-%tsc_offset) } });
 }
 
 fn tscTicksToNs(ticks: u64) u64 {
@@ -85,7 +85,7 @@ pub fn setTimerNs(ns: u64) void {
         std.log.warn("tried to set apic timer for {} ticks, clamping to {} ticks", .{ ticks128, std.math.maxInt(u32) });
     }
 
-    apic.lapic.initial_count.val = ticks;
+    apic.writeReg(.initial_count, ticks);
 }
 
 pub fn getBootNs() u64 {

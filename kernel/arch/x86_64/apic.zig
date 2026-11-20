@@ -5,8 +5,10 @@ const PageAlloc = @import("../../heap/PageAllocator.zig");
 const pic = @import("pic.zig");
 const pit = @import("../../drivers/x86/pit.zig");
 const acpi = @import("acpi.zig");
+const PerCpu = @import("../../PerCpu.zig");
+const log = std.log.scoped(.apic);
 
-const LocalApic = extern struct {
+pub const Lapic = extern struct {
     reserved: [2]Slot,
     lapic_id: Slot,
     lapic_version: Slot,
@@ -25,7 +27,8 @@ const LocalApic = extern struct {
     err_status: Slot,
     reserved3: [6]Slot,
     cmci: Slot,
-    icr: [2]Slot,
+    icr_low: IcrLowSlot,
+    icr_high: IcrHighSlot,
     lvt_timer: LvtTimerSlot,
     lvt_thermal_sensor: Slot,
     lvt_perf_monitor_counter: Slot,
@@ -38,7 +41,7 @@ const LocalApic = extern struct {
     divide_config: Slot,
 
     const LvtTimerSlot = extern struct { val: LvtTimer, pad: [3]u32 };
-    const LvtTimer = packed struct(u32) {
+    pub const LvtTimer = packed struct(u32) {
         vec: u8,
         reserved: u4 = 0,
         delivery_status: bool = false,
@@ -54,13 +57,49 @@ const LocalApic = extern struct {
         };
     };
 
+    const IcrLowSlot = extern struct { val: IcrLow, pad: [3]u32 };
+    pub const IcrLow = packed struct(u32) {
+        int_vec: u8 = 0,
+        delivery_mode: DeliveryMode = .normal,
+        dest_mode: DestinationMode = .physical,
+        delivery_status: bool = false,
+        reserved: u1 = 0,
+        level: Level = .assert,
+        trigger_mode: TriggerMode = .edge,
+        reserved2: u2 = 0,
+        dest_short: DestShort = .none,
+        reserved3: u12 = 0,
+
+        const DeliveryMode = enum(u3) {
+            normal = 0,
+            low_priority = 1,
+            smi = 2,
+            nmi = 4,
+            init = 5,
+            sipi = 6,
+            _,
+        };
+
+        const DestinationMode = enum(u1) { physical = 0, logical = 1 };
+        const Level = enum(u1) { deassert = 0, assert = 1 };
+        const TriggerMode = enum(u1) { edge = 0, level = 1 };
+        const DestShort = enum(u2) { none = 0, self = 1, all = 2, all_except_self = 3 };
+    };
+
+    const IcrHighSlot = extern struct { val: IcrHigh, pad: [3]u32 };
+    pub const IcrHigh = packed struct(u32) {
+        reserved: u24 = 0,
+        apic_id: u8,
+    };
+
     const Slot = extern struct { val: u32, pad: [3]u32 };
 };
 
-const timer_int_vec = 0x30;
+pub const timer_int_vec = 0x30;
+pub const error_int_vec = 0xfe;
 
 pub var use_pic: bool = true;
-pub var lapic: *volatile LocalApic = undefined;
+pub var lapic: *volatile Lapic = undefined;
 
 pub fn init() !void {
     const msr_apic_base_enable = 0x800;
@@ -82,11 +121,13 @@ pub fn init() !void {
 }
 
 pub fn initAp() void {
-    lapic.spurious_int_vec.val = 0x1ff;
-    lapic.divide_config.val = 3;
-    lapic.initial_count.val = 0;
-    lapic.lvt_timer.val = .{ .vec = timer_int_vec, .mask = false, .mode = .one_shot };
-    lapic.lvt_lint0.val = 1 << 16;
+    writeReg(.spurious_int_vec, 0x1ff);
+    writeReg(.divide_config, 3);
+    writeReg(.initial_count, 0);
+    writeReg(.lvt_timer, .{ .vec = timer_int_vec, .mask = false, .mode = .one_shot });
+    writeReg(.lvt_lint0, 1 << 16);
+    writeReg(.lvt_err, error_int_vec);
+    writeReg(.err_status, 0);
 }
 
 pub fn eoi(irq: u8) void {
@@ -95,5 +136,32 @@ pub fn eoi(irq: u8) void {
         return;
     }
 
-    lapic.eoi.val = 0;
+    writeReg(.eoi, 0);
+}
+
+pub fn handleError(state: *align(1) arch.cpu.State) noreturn {
+    writeReg(.err_status, 0);
+    const err = readReg(.err_status);
+
+    if (err != 0) {
+        log.err("apic error 0x{x} 0b{b}", .{ err, err });
+    }
+
+    writeReg(.eoi, 0);
+    state.restore();
+}
+
+fn GetRegTypeFromName(comptime name: @EnumLiteral()) type {
+    return @FieldType(@FieldType(Lapic, @tagName(name)), "val");
+}
+
+pub fn writeReg(comptime reg_name: @EnumLiteral(), val: GetRegTypeFromName(reg_name)) void {
+    const reg = &@field(lapic, @tagName(reg_name)).val;
+    @as(*volatile u32, @ptrCast(reg)).* = @bitCast(val);
+}
+
+pub fn readReg(comptime reg_name: @EnumLiteral()) GetRegTypeFromName(reg_name) {
+    const reg = &@field(lapic, @tagName(reg_name)).val;
+    const int_ptr: *volatile u32 = @ptrCast(reg);
+    return @bitCast(int_ptr.*);
 }
