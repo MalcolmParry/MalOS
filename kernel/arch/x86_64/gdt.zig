@@ -132,7 +132,7 @@ pub fn setIoMap(indices: [2]pmm.Index) void {
             .writable = false,
             .user = false,
             .global = true,
-            .address = @intFromEnum(index),
+            .address = @backingInt(index),
             .disable_cache = false,
             .disable_execute = true,
             .huge = false,

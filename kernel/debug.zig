@@ -20,7 +20,7 @@ pub fn init() void {
         maybe_src_tar = mem.physToDirect(module.data);
     }
 
-    for (0..@typeInfo(std.debug.Dwarf.Section.Id).@"enum".fields.len) |i| {
+    for (0..@typeInfo(std.debug.Dwarf.Section.Id).@"enum".field_names.len) |i| {
         const section = boot_info.elf_sections.values[i] orelse continue;
         dwarf.sections[i] = .{
             .data = mem.physToDirect(section.data),

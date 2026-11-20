@@ -7,7 +7,7 @@ pub const std_options: std.Options = .{
 };
 
 pub export fn _start(klog_i: usize) callconv(.{ .x86_64_sysv = .{} }) noreturn {
-    lib.klog = @enumFromInt(klog_i);
+    lib.klog = .fromUsizeUnsafe(klog_i);
     std.log.info("hello world from other process", .{});
     lib.syscall.threadExit();
 }

@@ -54,7 +54,7 @@ fn errorToStatus(err: Error) abi.Status {
 }
 
 pub fn handler(args: [7]usize) [4]usize {
-    const code = std.enums.fromInt(abi.Syscall, args[0]) orelse return .{ @intFromEnum(abi.Status.bad_syscall), 0, 0, 0 };
+    const code = std.enums.fromInt(abi.Syscall, args[0]) orelse return .{ @backingInt(abi.Status.bad_syscall), 0, 0, 0 };
 
     const inner_handler: *const Handler = switch (code) {
         .handle_close => &handleClose,
@@ -86,10 +86,10 @@ pub fn handler(args: [7]usize) [4]usize {
     };
 
     const result = inner_handler(args) catch |err| {
-        return .{ @intFromEnum(errorToStatus(err)), 0, 0, 0 };
+        return .{ @backingInt(errorToStatus(err)), 0, 0, 0 };
     };
 
-    return [1]usize{@intFromEnum(abi.Status.success)} ++ result;
+    return [1]usize{@backingInt(abi.Status.success)} ++ result;
 }
 
 fn getObj(handle_usize: usize, required_rights: abi.Rights) !*Object {
@@ -135,7 +135,7 @@ fn handleDuplicate(args: [7]usize) abi.HandleDuplicateError![3]usize {
 
     const new = try table.putLocked(.{ .obj = old_desc.obj, .rights = rights });
     old_desc.obj.acquire();
-    return .{ @intFromEnum(new), 0, 0 };
+    return .{ @backingInt(new), 0, 0 };
 }
 
 fn socketCreatePair(_: [7]usize) abi.SocketCreatePairError![3]usize {
@@ -163,7 +163,7 @@ fn socketCreatePair(_: [7]usize) abi.SocketCreatePairError![3]usize {
     errdefer std.debug.assert(table.fetchRemoveLocked(h0) != null);
     const h1 = try table.putLocked(d1);
 
-    return .{ @intFromEnum(h0), @intFromEnum(h1), 0 };
+    return .{ @backingInt(h0), @backingInt(h1), 0 };
 }
 
 fn socketSend(args: [7]usize) abi.SocketSendError![3]usize {
@@ -220,7 +220,7 @@ fn channelCreatePair(_: [7]usize) abi.ChannelCreatePairError![3]usize {
     errdefer std.debug.assert(table.fetchRemoveLocked(h0) != null);
     const h1 = try table.putLocked(d1);
 
-    return .{ @intFromEnum(h0), @intFromEnum(h1), 0 };
+    return .{ @backingInt(h0), @backingInt(h1), 0 };
 }
 
 fn channelSend(args: [7]usize) abi.ChannelSendError![3]usize {
@@ -368,7 +368,7 @@ fn vmoCreate(args: [7]usize) abi.VmoCreateError![3]usize {
         },
     });
 
-    return .{ @intFromEnum(h), 0, 0 };
+    return .{ @backingInt(h), 0, 0 };
 }
 
 fn vmoWrite(args: [7]usize) abi.VmoWriteError![3]usize {
@@ -513,7 +513,7 @@ fn processCreate(_: [7]usize) abi.ProcessCreateError![3]usize {
         },
     });
 
-    return .{ @intFromEnum(proc_h), @intFromEnum(vmar_h), 0 };
+    return .{ @backingInt(proc_h), @backingInt(vmar_h), 0 };
 }
 
 fn processTransferHandles(args: [7]usize) abi.ProcessTransferHandlesError![3]usize {
@@ -612,7 +612,7 @@ fn threadCreate(args: [7]usize) abi.ThreadCreateError![3]usize {
         },
     });
 
-    return .{ @intFromEnum(h), 0, 0 };
+    return .{ @backingInt(h), 0, 0 };
 }
 
 fn threadStart(args: [7]usize) abi.ThreadStartError![3]usize {

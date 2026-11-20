@@ -4,9 +4,9 @@ const lib = @import("lib.zig");
 const root = @import("root");
 
 pub fn _start(klog_h: usize, initrd_i: usize, vmar_h: usize) callconv(.{ .x86_64_sysv = .{} }) noreturn {
-    lib.klog = @enumFromInt(klog_h);
-    lib.vmar = @enumFromInt(vmar_h);
-    const initrd: abi.Handle = @enumFromInt(initrd_i);
+    lib.klog = .fromUsizeUnsafe(klog_h);
+    lib.vmar = .fromUsizeUnsafe(vmar_h);
+    const initrd: abi.Handle = .fromUsizeUnsafe(initrd_i);
 
     const Ret = @typeInfo(@TypeOf(root.main)).@"fn".return_type.?;
     switch (@typeInfo(Ret)) {

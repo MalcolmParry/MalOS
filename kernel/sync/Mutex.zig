@@ -97,7 +97,7 @@ pub fn unlock(m: *Mutex) void {
         m.last_waiter = null;
 
     const c_bit = if (w.next != null) contended else 0;
-    const owner = if (debug_info) @as(u32, @intFromEnum(wtid)) << owner_shift else 0;
+    const owner = if (debug_info) @as(u32, @backingInt(wtid)) << owner_shift else 0;
 
     m.state.store(locked | c_bit | owner, .release);
     scheduler.wake(wtid);

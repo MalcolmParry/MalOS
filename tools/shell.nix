@@ -1,11 +1,15 @@
 {
   pkgs ? import <nixpkgs> { },
 }:
-
+let
+  unstable =
+    import (fetchTarball "https://github.com/NixOS/nixpkgs/archive/nixos-unstable.tar.gz")
+      { };
+in
 pkgs.mkShellNoCC {
   packages = with pkgs; [
-    zig_0_16
-    zls_0_16
+    unstable.zig_0_17
+    unstable.zls_0_17
     nasm
     binutils
     grub2

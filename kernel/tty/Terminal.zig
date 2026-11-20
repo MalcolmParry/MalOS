@@ -139,7 +139,7 @@ fn colorFromAnsi(ansi: u16) TextGrid.Color {
 }
 
 fn brighten(color: TextGrid.Color) TextGrid.Color {
-    return @enumFromInt(@intFromEnum(color) | 8);
+    return @fromBackingInt(@backingInt(color) | 8);
 }
 
 pub fn writer(term: *Terminal, buffer: []u8) Writer {

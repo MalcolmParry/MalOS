@@ -1,7 +1,7 @@
 .{
     .name = .MalOS,
     .version = "0.0.1",
-    .minimum_zig_version = "0.15.2",
+    .minimum_zig_version = "0.17.1",
     .paths = .{""},
     .fingerprint = 0x21959a43bd3334f4,
 }

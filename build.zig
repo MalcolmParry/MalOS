@@ -12,7 +12,7 @@ pub fn build(b: *Build) !void {
     };
 
     const Feature = std.Target.x86.Feature;
-    query.cpu_features_add.addFeature(@intFromEnum(Feature.soft_float));
+    query.cpu_features_add.addFeature(@backingInt(Feature.soft_float));
 
     for ([_]Feature{
         // zig fmt: off
@@ -22,7 +22,7 @@ pub fn build(b: *Build) !void {
         .aes, .pclmul, .sha, .vaes, .vpclmulqdq, .gfni,
         // zig fmt: on
     }) |f| {
-        query.cpu_features_sub.addFeature(@intFromEnum(f));
+        query.cpu_features_sub.addFeature(@backingInt(f));
     }
 
     const optimize = b.standardOptimizeOption(.{});
@@ -32,10 +32,10 @@ pub fn build(b: *Build) !void {
     try addRunStep(b);
 }
 
-fn addBuildStep(b: *Build, optimize: std.builtin.OptimizeMode, target: Build.ResolvedTarget) !void {
+fn addBuildStep(b: *Build, optimize: std.lang.Optimize, target: Build.ResolvedTarget) !void {
     const io = b.graph.io;
     const alloc = b.allocator;
-    const cwd = std.Io.Dir.cwd();
+    const build_root = b.fmt("{f}", .{b.root});
 
     const strace = b.option(bool, "strace", "kernel: log syscalls (default false)") orelse false;
     const max_cpus = b.option(u32, "max-cpus", "kernel: maximum supported cores (default 64)") orelse 64;
@@ -155,7 +155,7 @@ fn addBuildStep(b: *Build, optimize: std.builtin.OptimizeMode, target: Build.Res
     }).step);
 
     const options = b.addOptions();
-    options.addOption([]const u8, "build_root", b.build_root.path.?);
+    options.addOption([]const u8, "build_root", build_root);
     options.addOption(bool, "single_core", max_cpus == 1);
     options.addOption(u32, "max_cpus", max_cpus);
     options.addOption(bool, "strace", strace);
@@ -205,16 +205,20 @@ fn addBuildStep(b: *Build, optimize: std.builtin.OptimizeMode, target: Build.Res
         "-cf",
     });
     const src_tar = tar.addOutputFileArg("kernel_src.tar");
-    tar.addArgs(&.{ "-C", b.build_root.path.?, "kernel" });
+    tar.addArgs(&.{ "-C", build_root, "kernel" });
 
-    var src_dir = try cwd.openDir(io, b.pathJoin(&.{ b.build_root.path.?, "kernel" }), .{ .iterate = true });
+    b.dependOnDirectoryContents(b.path("kernel"));
+    var src_dir = try b.root.openDir(io, "kernel", .{ .iterate = true });
     defer src_dir.close(io);
 
     var src_iter = try src_dir.walk(alloc);
     defer src_iter.deinit();
     while (try src_iter.next(io)) |entry| {
-        if (entry.kind != .file) continue;
-        tar.addFileInput(.{ .cwd_relative = b.pathJoin(&.{ b.build_root.path.?, "kernel", entry.path }) });
+        switch (entry.kind) {
+            .file => tar.addFileInput(b.path(b.pathJoin(&.{ "kernel", entry.path }))),
+            .directory => b.dependOnDirectoryContents(b.path(b.pathJoin(&.{ "kernel", entry.path }))),
+            else => continue,
+        }
     }
 
     const root = b.addWriteFiles();
@@ -291,7 +295,7 @@ fn addRunStep(b: *Build) !void {
         // "-device", "intel-iommu",
         // zig fmt: on
     });
-    run.setCwd(.{ .cwd_relative = b.install_prefix });
+    run.setCwd(.{ .relative = .{ .base = .install_prefix } });
 
     if (gdb) run.addArgs(&.{ "-s", "-S" });
     if (kvm) run.addArgs(&.{ "-accel", "kvm" });

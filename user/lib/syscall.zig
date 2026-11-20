@@ -4,8 +4,8 @@ const abi = @import("abi");
 
 pub fn handleClose(handle: abi.Handle) !void {
     const result = syscall(.{
-        @intFromEnum(abi.Syscall.handle_close),
-        @intFromEnum(handle),
+        @backingInt(abi.Syscall.handle_close),
+        @backingInt(handle),
     });
 
     return switch (try readStatus(result[0])) {
@@ -17,13 +17,13 @@ pub fn handleClose(handle: abi.Handle) !void {
 
 pub fn handleDuplicate(handle: abi.Handle, rights: abi.Rights) !abi.Handle {
     const result = syscall(.{
-        @intFromEnum(abi.Syscall.handle_duplicate),
-        @intFromEnum(handle),
+        @backingInt(abi.Syscall.handle_duplicate),
+        @backingInt(handle),
         rights.toUsize(),
     });
 
     return switch (try readStatus(result[0])) {
-        .success => @enumFromInt(result[1]),
+        .success => .fromUsizeUnsafe(result[1]),
         .bad_handle => error.BadHandle,
         .out_of_memory => error.OutOfMemory,
         .too_many_handles => error.TooManyHandles,
@@ -33,12 +33,12 @@ pub fn handleDuplicate(handle: abi.Handle, rights: abi.Rights) !abi.Handle {
 }
 
 pub fn channelCreatePair() !struct { abi.Handle, abi.Handle } {
-    const result = syscall(.{@intFromEnum(abi.Syscall.channel_create_pair)});
+    const result = syscall(.{@backingInt(abi.Syscall.channel_create_pair)});
 
     return switch (try readStatus(result[0])) {
         .success => .{
-            @enumFromInt(result[1]),
-            @enumFromInt(result[2]),
+            .fromUsizeUnsafe(result[1]),
+            .fromUsizeUnsafe(result[2]),
         },
         .out_of_memory => error.OutOfMemory,
         .too_many_handles => error.TooManyHandles,
@@ -48,8 +48,8 @@ pub fn channelCreatePair() !struct { abi.Handle, abi.Handle } {
 
 pub fn channelSend(channel: abi.Handle, bytes: []const u8, handles: []const abi.Handle) !void {
     const result = syscall(.{
-        @intFromEnum(abi.Syscall.channel_send),
-        @intFromEnum(channel),
+        @backingInt(abi.Syscall.channel_send),
+        @backingInt(channel),
         @intFromPtr(bytes.ptr),
         bytes.len,
         @intFromPtr(handles.ptr),
@@ -71,8 +71,8 @@ pub fn channelSend(channel: abi.Handle, bytes: []const u8, handles: []const abi.
 
 pub fn channelReceive(channel: abi.Handle, bytes: []u8, handles: []abi.Handle) !struct { usize, usize } {
     const result = syscall(.{
-        @intFromEnum(abi.Syscall.channel_receive),
-        @intFromEnum(channel),
+        @backingInt(abi.Syscall.channel_receive),
+        @backingInt(channel),
         @intFromPtr(bytes.ptr),
         bytes.len,
         @intFromPtr(handles.ptr),
@@ -93,12 +93,12 @@ pub fn channelReceive(channel: abi.Handle, bytes: []u8, handles: []abi.Handle) !
 }
 
 pub fn socketCreatePair() !struct { abi.Handle, abi.Handle } {
-    const result = syscall(.{@intFromEnum(abi.Syscall.socket_create_pair)});
+    const result = syscall(.{@backingInt(abi.Syscall.socket_create_pair)});
 
     return switch (try readStatus(result[0])) {
         .success => .{
-            @enumFromInt(result[1]),
-            @enumFromInt(result[2]),
+            .fromUsizeUnsafe(result[1]),
+            .fromUsizeUnsafe(result[2]),
         },
         .out_of_memory => error.OutOfMemory,
         .too_many_handles => error.TooManyHandles,
@@ -108,8 +108,8 @@ pub fn socketCreatePair() !struct { abi.Handle, abi.Handle } {
 
 pub fn socketSend(sock: abi.Handle, data: []const u8) !usize {
     const result = syscall(.{
-        @intFromEnum(abi.Syscall.socket_send),
-        @intFromEnum(sock),
+        @backingInt(abi.Syscall.socket_send),
+        @backingInt(sock),
         @intFromPtr(data.ptr),
         data.len,
     });
@@ -128,8 +128,8 @@ pub fn socketSend(sock: abi.Handle, data: []const u8) !usize {
 
 pub fn socketReceive(sock: abi.Handle, buffer: []u8) !usize {
     const result = syscall(.{
-        @intFromEnum(abi.Syscall.socket_receive),
-        @intFromEnum(sock),
+        @backingInt(abi.Syscall.socket_receive),
+        @backingInt(sock),
         @intFromPtr(buffer.ptr),
         buffer.len,
     });
@@ -148,8 +148,8 @@ pub fn socketReceive(sock: abi.Handle, buffer: []u8) !usize {
 
 pub fn klogWrite(klog: abi.Handle, data: []allowzero const u8) !void {
     const result = syscall(.{
-        @intFromEnum(abi.Syscall.klog_write),
-        @intFromEnum(klog),
+        @backingInt(abi.Syscall.klog_write),
+        @backingInt(klog),
         @intFromPtr(data.ptr),
         data.len,
     });
@@ -166,12 +166,12 @@ pub fn klogWrite(klog: abi.Handle, data: []allowzero const u8) !void {
 
 pub fn vmoCreate(size: usize) !abi.Handle {
     const result = syscall(.{
-        @intFromEnum(abi.Syscall.vmo_create),
+        @backingInt(abi.Syscall.vmo_create),
         size,
     });
 
     return switch (try readStatus(result[0])) {
-        .success => @enumFromInt(result[1]),
+        .success => .fromUsizeUnsafe(result[1]),
         .out_of_memory => error.OutOfMemory,
         .too_many_handles => error.TooManyHandles,
         else => unexpected(result[0]),
@@ -180,8 +180,8 @@ pub fn vmoCreate(size: usize) !abi.Handle {
 
 pub fn vmoWrite(vmo: abi.Handle, vmo_offset: usize, data: []const u8) !void {
     const result = syscall(.{
-        @intFromEnum(abi.Syscall.vmo_write),
-        @intFromEnum(vmo),
+        @backingInt(abi.Syscall.vmo_write),
+        @backingInt(vmo),
         vmo_offset,
         @intFromPtr(data.ptr),
         data.len,
@@ -201,8 +201,8 @@ pub fn vmoWrite(vmo: abi.Handle, vmo_offset: usize, data: []const u8) !void {
 
 pub fn vmoRead(vmo: abi.Handle, vmo_offset: usize, buffer: []u8) !void {
     const result = syscall(.{
-        @intFromEnum(abi.Syscall.vmo_read),
-        @intFromEnum(vmo),
+        @backingInt(abi.Syscall.vmo_read),
+        @backingInt(vmo),
         vmo_offset,
         @intFromPtr(buffer.ptr),
         buffer.len,
@@ -221,8 +221,8 @@ pub fn vmoRead(vmo: abi.Handle, vmo_offset: usize, buffer: []u8) !void {
 
 pub fn vmoGetSize(vmo: abi.Handle) !usize {
     const result = syscall(.{
-        @intFromEnum(abi.Syscall.vmo_get_size),
-        @intFromEnum(vmo),
+        @backingInt(abi.Syscall.vmo_get_size),
+        @backingInt(vmo),
     });
 
     return switch (try readStatus(result[0])) {
@@ -235,10 +235,10 @@ pub fn vmoGetSize(vmo: abi.Handle) !usize {
 
 pub fn vmarMap(vmar: abi.Handle, vmar_offset: usize, vmo: abi.Handle, vmo_offset: usize, len: usize, opts: abi.VmarMapOpts) ![*]u8 {
     const result = syscall(.{
-        @intFromEnum(abi.Syscall.vmar_map),
-        @intFromEnum(vmar),
+        @backingInt(abi.Syscall.vmar_map),
+        @backingInt(vmar),
         vmar_offset,
-        @intFromEnum(vmo),
+        @backingInt(vmo),
         vmo_offset,
         len,
         opts.toUsize(),
@@ -259,12 +259,12 @@ pub fn vmarMap(vmar: abi.Handle, vmar_offset: usize, vmo: abi.Handle, vmo_offset
 }
 
 pub fn processCreate() !struct { abi.Handle, abi.Handle } {
-    const result = syscall(.{@intFromEnum(abi.Syscall.process_create)});
+    const result = syscall(.{@backingInt(abi.Syscall.process_create)});
 
     return switch (try readStatus(result[0])) {
         .success => .{
-            @enumFromInt(result[1]),
-            @enumFromInt(result[2]),
+            .fromUsizeUnsafe(result[1]),
+            .fromUsizeUnsafe(result[2]),
         },
         .out_of_memory => error.OutOfMemory,
         .too_many_handles => error.TooManyHandles,
@@ -275,8 +275,8 @@ pub fn processCreate() !struct { abi.Handle, abi.Handle } {
 pub fn processTransferHandles(proc: abi.Handle, infos: []const abi.HandleTransfer, out: []abi.Handle) !void {
     std.debug.assert(infos.len == out.len);
     const result = syscall(.{
-        @intFromEnum(abi.Syscall.process_transfer_handles),
-        @intFromEnum(proc),
+        @backingInt(abi.Syscall.process_transfer_handles),
+        @backingInt(proc),
         @intFromPtr(infos.ptr),
         @intFromPtr(out.ptr),
         infos.len,
@@ -299,12 +299,12 @@ pub fn processTransferHandles(proc: abi.Handle, infos: []const abi.HandleTransfe
 
 pub fn threadCreate(proc: abi.Handle) !abi.Handle {
     const result = syscall(.{
-        @intFromEnum(abi.Syscall.thread_create),
-        @intFromEnum(proc),
+        @backingInt(abi.Syscall.thread_create),
+        @backingInt(proc),
     });
 
     return switch (try readStatus(result[0])) {
-        .success => @enumFromInt(result[1]),
+        .success => .fromUsizeUnsafe(result[1]),
         .bad_handle => error.BadHandle,
         .bad_handle_kind => error.BadHandleKind,
         .out_of_memory => error.OutOfMemory,
@@ -315,8 +315,8 @@ pub fn threadCreate(proc: abi.Handle) !abi.Handle {
 
 pub fn threadStart(thread: abi.Handle, info: *allowzero align(1) const abi.ThreadStartInfo) !void {
     const result = syscall(.{
-        @intFromEnum(abi.Syscall.thread_start),
-        @intFromEnum(thread),
+        @backingInt(abi.Syscall.thread_start),
+        @backingInt(thread),
         @intFromPtr(info),
     });
 
@@ -334,7 +334,7 @@ pub fn threadStart(thread: abi.Handle, info: *allowzero align(1) const abi.Threa
 }
 
 pub fn threadExit() noreturn {
-    _ = syscall(.{@intFromEnum(abi.Syscall.thread_exit)});
+    _ = syscall(.{@backingInt(abi.Syscall.thread_exit)});
     unreachable;
 }
 
@@ -343,7 +343,7 @@ fn readStatus(int: usize) error{Unexpected}!abi.Status {
 }
 
 fn unexpected(status: usize) error{Unexpected} {
-    if (builtin.mode == .Debug) {
+    if (builtin.optimize.runtimeSafety()) {
         // TODO: print warning
     }
 

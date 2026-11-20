@@ -126,7 +126,7 @@ fn free(_: *anyopaque, memory: []u8, alignment: std.mem.Alignment, ret_addr: usi
     const slot_index: u16 = @intCast(slot_offset >> @intCast(class + min_size_bucket));
     const link: *u16 = @ptrCast(@alignCast(memory.ptr));
 
-    const page_index: pmm.Index = @enumFromInt((@intFromPtr(memory.ptr) - @intFromPtr(mem.direct_map.ptr)) / mem.page_size);
+    const page_index: pmm.Index = .fromAddr(@intFromPtr(memory.ptr) - mem.direct_map_base);
     const info = &page_index.getDesc().data.gpa;
 
     const bucket = &size_buckets[class];
@@ -168,7 +168,7 @@ fn free(_: *anyopaque, memory: []u8, alignment: std.mem.Alignment, ret_addr: usi
 
 fn sizeClassIndex(len: usize, alignment: std.mem.Alignment) usize {
     std.debug.assert(len != 0);
-    return @max(@bitSizeOf(usize) - @clz(len - 1), @intFromEnum(alignment), min_size_bucket) - min_size_bucket;
+    return @max(@bitSizeOf(usize) - @clz(len - 1), @backingInt(alignment), min_size_bucket) - min_size_bucket;
 }
 
 fn slotSize(class: usize) usize {

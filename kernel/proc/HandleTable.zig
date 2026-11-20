@@ -38,7 +38,7 @@ pub fn getLocked(table: *HandleTable, handle: abi.Handle) ?Desc {
 }
 
 pub fn putLocked(table: *HandleTable, desc: Desc) !abi.Handle {
-    const handle: abi.Handle = @enumFromInt(table.bump);
+    const handle: abi.Handle = @fromBackingInt(table.bump);
     table.bump +|= 1;
 
     const kv = try table.map.getOrPut(gpa, handle);

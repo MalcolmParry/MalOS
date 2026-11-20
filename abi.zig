@@ -58,7 +58,11 @@ pub const Handle = enum(u32) {
     pub const max = std.math.maxInt(u32);
     pub fn fromUsize(int: usize) !Handle {
         if (int > max) return error.BadHandle;
-        return @enumFromInt(int);
+        return .fromUsizeUnsafe(int);
+    }
+
+    pub fn fromUsizeUnsafe(int: usize) Handle {
+        return @fromBackingInt(@intCast(int));
     }
 };
 

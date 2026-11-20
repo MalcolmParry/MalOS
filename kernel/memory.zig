@@ -85,13 +85,7 @@ pub fn PhysToDirectResult(T: type) type {
     const ptr_info = @typeInfo(T).pointer;
     const PhysChild = ptr_info.child;
     const Child = PhysChild.Child;
-    return @Pointer(ptr_info.size, .{
-        .@"addrspace" = ptr_info.address_space,
-        .@"align" = ptr_info.alignment,
-        .@"allowzero" = ptr_info.is_allowzero,
-        .@"const" = ptr_info.is_const,
-        .@"volatile" = ptr_info.is_volatile,
-    }, Child, null);
+    return @Pointer(ptr_info.size, ptr_info.attrs, Child, null);
 }
 
 pub fn physToDirect(ptr: anytype) PhysToDirectResult(@TypeOf(ptr)) {

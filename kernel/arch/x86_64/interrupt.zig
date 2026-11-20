@@ -174,7 +174,7 @@ fn handler(state: *align(1) arch.cpu.State) callconv(.{ .x86_64_sysv = .{ .incom
             if (options.strace) {
                 std.log.info("thread 0x{x} syscall ret = {{\x1b[92m.{s}\x1b[m (#{}), {}, {}, {}}}", .{
                     @intFromPtr(Thread.current()),
-                    @tagName(@as(abi.Status, @enumFromInt(result[0]))),
+                    @tagName(@as(abi.Status, @fromBackingInt(@intCast(result[0])))),
                     result[0],
                     result[1],
                     result[2],

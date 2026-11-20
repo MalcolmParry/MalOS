@@ -169,7 +169,7 @@ pub const State = extern struct {
     comptime {
         const Status = @TypeOf(scheduler.lock.status.raw);
         std.debug.assert(@sizeOf(Status) == 1);
-        std.debug.assert(@intFromEnum(Status.unlocked) == 0);
+        std.debug.assert(@backingInt(Status.unlocked) == 0);
     }
 
     // TODO: fix nmi after swapgs
@@ -270,7 +270,7 @@ pub const State = extern struct {
     }
 };
 
-pub const thread_callconv: std.builtin.CallingConvention = .{ .x86_64_sysv = .{} };
+pub const thread_callconv: std.lang.CallingConvention = .{ .x86_64_sysv = .{} };
 const ThreadInitInfo = struct {
     entry: usize,
     stack_top: usize,
@@ -602,11 +602,12 @@ fn flagsFormat(T: type) fn (T, *std.Io.Writer) std.Io.Writer.Error!void {
     return struct {
         fn format(flags: T, w: *std.Io.Writer) !void {
             var first: bool = true;
-            inline for (std.meta.fields(T)) |f| {
-                if (f.type == bool and f.name[0] != '_' and @field(flags, f.name)) {
+            const info = @typeInfo(T).@"struct";
+            inline for (info.field_names, info.field_types) |name, Field| {
+                if (Field == bool and name[0] != '_' and @field(flags, name)) {
                     if (!first) try w.writeAll(" ");
                     first = false;
-                    try w.writeAll(f.name);
+                    try w.writeAll(name);
                 }
             }
         }

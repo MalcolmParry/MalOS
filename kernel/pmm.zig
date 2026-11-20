@@ -131,30 +131,38 @@ var zero_page_virt: mem.Page = .{ .bytes = @splat(0) };
 var one_page_virt: mem.Page = .{ .bytes = @splat(0xff) };
 
 pub fn zeroPage() Index {
-    return @enumFromInt((@intFromPtr(&zero_page_virt) - mem.kernel_virt_base) / mem.page_size);
+    return .fromAddr(@intFromPtr(&zero_page_virt) - mem.kernel_virt_base);
 }
 
 pub fn onePage() Index {
-    return @enumFromInt((@intFromPtr(&one_page_virt) - mem.kernel_virt_base) / mem.page_size);
+    return .fromAddr(@intFromPtr(&one_page_virt) - mem.kernel_virt_base);
 }
 
 pub const Index = enum(u32) {
     _,
 
     pub fn fromPtr(ptr: *mem.PhysPage) Index {
-        return @enumFromInt(@intFromPtr(ptr) / mem.page_size);
+        return fromAddr(@intFromPtr(ptr));
+    }
+
+    pub fn fromAddr(addr: usize) Index {
+        return @fromBackingInt(@intCast(addr / mem.page_size));
     }
 
     pub fn toPtr(index: Index) *mem.PhysPage {
-        return @ptrFromInt(@as(usize, @intFromEnum(index)) * mem.page_size);
+        return @ptrFromInt(@as(usize, @backingInt(index)) * mem.page_size);
     }
 
     pub fn toDirectMap(index: Index) *mem.Page {
-        return &mem.direct_map[@intFromEnum(index)];
+        return &mem.direct_map[@backingInt(index)];
+    }
+
+    pub fn fromDirect(direct: *mem.Page) Index {
+        return .fromAddr(@intFromPtr(direct) - mem.direct_map_base);
     }
 
     pub fn getDesc(page: Index) *PageDesc {
-        return &page_descs[@intFromEnum(page)];
+        return &page_descs[@backingInt(page)];
     }
 };
 
@@ -164,15 +172,15 @@ pub const OptIndex = enum(u32) {
 
     pub inline fn wrap(maybe_index: ?Index) OptIndex {
         if (maybe_index) |index| {
-            std.debug.assert(@intFromEnum(index) != 0);
-            return @enumFromInt(@intFromEnum(index));
+            std.debug.assert(@backingInt(index) != 0);
+            return @fromBackingInt(@backingInt(index));
         } else {
             return .none;
         }
     }
 
     pub inline fn unwrap(opt_index: OptIndex) ?Index {
-        return if (opt_index == .none) null else @enumFromInt(@intFromEnum(opt_index));
+        return if (opt_index == .none) null else @fromBackingInt(@backingInt(opt_index));
     }
 };
 

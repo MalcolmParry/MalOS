@@ -172,7 +172,7 @@ pub fn mapVmoLocked(l4: *Table, vmo: *Vmo, vmo_first_page: usize, first_page: us
             .disable_cache = flags.cache_mode == .disabled,
             .huge = false,
             .global = false,
-            .address = @intFromEnum(phys_index orelse pmm.zeroPage()),
+            .address = @backingInt(phys_index orelse pmm.zeroPage()),
             .disable_execute = !flags.executable,
         };
     }
@@ -196,11 +196,11 @@ pub fn mapPage(table: *Table, level: Table.Level, virt: *allowzero mem.Page, phy
     const indices = getIndicesFromVirtAddr(@intFromPtr(virt));
 
     var cur = table;
-    var cur_level: u8 = @intFromEnum(level);
+    var cur_level: u8 = @backingInt(level);
     while (cur_level > 0) : (cur_level -= 1) {
         const entry = &cur.entries[indices[cur_level]];
 
-        if (@as(Table.Level, @enumFromInt(cur_level)) == .l4 and indices[3] >= 256) {
+        if (@as(Table.Level, @fromBackingInt(@intCast(cur_level))) == .l4 and indices[3] >= 256) {
             cur = entry.getLowerSafe() orelse return error.CantAllocateKernelL3Table;
             continue;
         }

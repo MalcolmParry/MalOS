@@ -137,7 +137,7 @@ fn init(initrd: []const u8, initrd_vmo: *Vmo) !noreturn {
 
     var state = arch.cpu.getUserThreadFrame(.{
         .entry = result.entry,
-        .args = .{ @intFromEnum(klog_h), @intFromEnum(initrd_h), @intFromEnum(vmar_h), 0, 0, 0 },
+        .args = .{ @backingInt(klog_h), @backingInt(initrd_h), @backingInt(vmar_h), 0, 0, 0 },
         .sp = stack_addr * mem.page_size + stack_size - 8,
     });
 

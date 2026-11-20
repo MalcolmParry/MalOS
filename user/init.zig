@@ -134,7 +134,7 @@ pub fn main(initrd: abi.Handle) !void {
         try lib.syscall.threadStart(thread, &.{
             .ip = header.entry,
             .sp = @intFromPtr(stack_base) + stack_size - 8,
-            .args = .{ @intFromEnum(klog_handle), 0, 0, 0, 0, 0 },
+            .args = .{ @backingInt(klog_handle), 0, 0, 0, 0, 0 },
         });
     }
 
