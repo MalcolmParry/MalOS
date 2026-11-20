@@ -33,8 +33,9 @@ pub fn init() void {
 
 pub fn panic(str: []const u8, ret_addr: ?usize) noreturn {
     @branchHint(.cold);
-
     arch.interrupt.disable();
+    arch.shutdownOtherCpus();
+
     log.spinlock.status.store(.unlocked, .monotonic);
     std.log.err("Kernel Panic: {s}", .{str});
 
@@ -62,8 +63,9 @@ pub fn dumpError(err: anytype) void {
 
 pub fn dumpErrorAndPanic(err: anytype) noreturn {
     @branchHint(.cold);
-
     arch.interrupt.disable();
+    arch.shutdownOtherCpus();
+
     log.spinlock.status.store(.unlocked, .monotonic);
     std.log.err("Kernel Panic: {}", .{err});
 

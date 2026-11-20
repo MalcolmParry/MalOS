@@ -200,8 +200,13 @@ fn handler(state: *align(1) arch.cpu.State) callconv(.{ .x86_64_sysv = .{ .incom
 }
 
 fn handleException(state: *align(1) arch.cpu.State) noreturn {
-    if (state.int_code == 0x0e and user_copy.maybeHandleFault(state)) {
-        state.restore();
+    switch (state.int_code) {
+        0x0e => if (user_copy.maybeHandleFault(state)) state.restore(),
+        0x02 => if (apic.shutting_down.load(.monotonic) > 0) {
+            _ = apic.shutting_down.fetchAdd(1, .release);
+            arch.spinWait();
+        },
+        else => {},
     }
 
     var ctx: std.debug.cpu_context.Native = undefined;

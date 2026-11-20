@@ -151,6 +151,27 @@ pub fn handleError(state: *align(1) arch.cpu.State) noreturn {
     state.restore();
 }
 
+pub var shutting_down: std.atomic.Value(u32) = .init(0);
+pub fn shutdownOtherCpus() void {
+    if (use_pic) return;
+
+    if (shutting_down.cmpxchgStrong(0, 1, .acq_rel, .monotonic) != null) {
+        arch.spinWait();
+    }
+
+    writeReg(.icr_low, .{ .delivery_mode = .nmi, .dest_short = .all_except_self });
+    while (readReg(.icr_low).delivery_status) std.atomic.spinLoopHint();
+
+    const timer = arch.time.startPolledTimerNs(100 * std.time.ns_per_ms);
+    while (shutting_down.load(.monotonic) < PerCpu.cpu_count) {
+        if (timer.poll()) {
+            log.warn("timed out while shutting down all other cpus", .{});
+            break;
+        }
+        std.atomic.spinLoopHint();
+    }
+}
+
 fn GetRegTypeFromName(comptime name: @EnumLiteral()) type {
     return @FieldType(@FieldType(Lapic, @tagName(name)), "val");
 }

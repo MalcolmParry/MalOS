@@ -141,11 +141,14 @@ pub fn init() !void {
             log.warn("cpu {} tsc not synced, continuing anyways", .{i});
         }
     }
+
+    ap_start.store(true, .release);
 }
 
 const tsc_ping_pong_count = 64;
 var tsc_reading: std.atomic.Value(u64) align(std.atomic.cache_line) = undefined;
 var current_ap_id: std.atomic.Value(u32) align(std.atomic.cache_line) = .init(0);
+var ap_start: std.atomic.Value(bool) align(std.atomic.cache_line) = .init(false);
 
 const ApParams = extern struct {
     cr3: u64,
@@ -173,6 +176,8 @@ fn apEntry(per_cpu: *PerCpu) callconv(.{ .x86_64_sysv = .{} }) noreturn {
         tsc_reading.store(arch.cpu.rdtscOrdered(), .monotonic);
         current_ap_id.store(0, .release);
     }
+
+    while (!ap_start.load(.monotonic)) std.atomic.spinLoopHint();
 
     log.info("cpu {}", .{per_cpu.id});
     arch.spinWait();
