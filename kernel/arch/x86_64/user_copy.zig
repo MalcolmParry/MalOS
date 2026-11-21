@@ -7,11 +7,11 @@ pub fn copyFromUser(noalias dst: []u8, noalias src: []allowzero const u8) bool {
     if (dst.len == 0) return true;
 
     arch.interrupt.assertDisabled();
-    assert(@intFromPtr(dst.ptr) >= arch.paging.min_kernel_addr);
+    assert(@intFromPtr(dst.ptr) >= arch.layout.min_kernel_addr);
     assert(dst.len == src.len);
 
     const src_end = std.math.add(usize, @intFromPtr(src.ptr), src.len) catch return false;
-    if (src_end > arch.paging.max_user_addr) return false;
+    if (src_end > arch.layout.max_user_addr) return false;
 
     const dst_ptr = dst.ptr;
     const src_ptr = src.ptr;
@@ -36,11 +36,11 @@ pub fn copyToUser(noalias dst: []allowzero u8, noalias src: []const u8) bool {
     if (dst.len == 0) return true;
 
     arch.interrupt.assertDisabled();
-    assert(@intFromPtr(src.ptr) >= arch.paging.min_kernel_addr);
+    assert(@intFromPtr(src.ptr) >= arch.layout.min_kernel_addr);
     assert(dst.len == src.len);
 
     const dst_end = std.math.add(usize, @intFromPtr(dst.ptr), dst.len) catch return false;
-    if (dst_end > arch.paging.max_user_addr) return false;
+    if (dst_end > arch.layout.max_user_addr) return false;
 
     const dst_ptr = dst.ptr;
     const src_ptr = src.ptr;
@@ -77,7 +77,7 @@ pub fn maybeHandleFault(state: *align(1) arch.cpu.State) bool {
         \\mov %%cr2, %[out]
         : [out] "=r" (-> usize),
     );
-    if (cr2 >= arch.paging.min_kernel_addr) return false;
+    if (cr2 >= arch.layout.min_kernel_addr) return false;
 
     state.rax = 0;
     state.rip = state.rdx;

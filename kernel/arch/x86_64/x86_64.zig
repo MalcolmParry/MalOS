@@ -1,11 +1,12 @@
 const std = @import("std");
+const mem = @import("../../memory.zig");
+const virt_layout = @import("../../virt_layout.zig");
 const debug = @import("../../debug.zig");
 const gdt = @import("gdt.zig");
 const apic = @import("apic.zig");
 const PerCpu = @import("../../PerCpu.zig");
 
 pub const page_size = 4096;
-pub const kernel_virt_base: u64 = 0xffff_ffff_c000_0000;
 
 pub const interrupt = @import("interrupt.zig");
 pub const multiboot = @import("multiboot2.zig");
@@ -30,6 +31,29 @@ pub const ioWait = cpu.ioWait;
 const user_copy = @import("user_copy.zig");
 pub const copyFromUser = user_copy.copyFromUser;
 pub const copyToUser = user_copy.copyToUser;
+
+pub const layout = struct {
+    pub const big_region = 4096 * 512 * 512 * 512;
+    pub const big_align: std.mem.Alignment = .fromByteUnits(big_region);
+
+    pub const max_user_addr = 0x0000_8000_0000_0000;
+    pub const min_kernel_addr = 0xffff_8000_0000_0000;
+    pub const kernel_space_size = 0x1_0000_0000_0000_0000 - min_kernel_addr;
+
+    pub const kernel_virt_base: u64 = 0xffff_ffff_c000_0000;
+    pub const kernel_region_size = 4096 * 512 * 512;
+    pub const direct_map_size = 512 * 1024 * 1024 * 1024;
+
+    pub const requests: []const virt_layout.RequestedRegion = &.{
+        .{
+            .name = .mmio,
+            .size = big_region,
+            .sub_regions = &.{
+                .{ .name = .lapic, .size = @sizeOf(apic.Lapic), .alignment = .fromByteUnits(page_size) },
+            },
+        },
+    };
+};
 
 pub const getPerCpu = cpu.getPerCpu;
 pub const CpuLocal = struct {

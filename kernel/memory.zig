@@ -1,11 +1,12 @@
 const arch = @import("arch/arch.zig").current;
 const std = @import("std");
+const virt_layout = @import("virt_layout.zig");
 const mem = @This();
 
 pub const page_size = arch.page_size;
 pub const log2_page_size = std.math.log2(page_size);
-pub const kernel_virt_base: usize = arch.kernel_virt_base;
-pub const direct_map: []mem.Page = arch.paging.direct_map;
+pub const kernel_virt_base: usize = arch.layout.kernel_virt_base;
+pub const direct_map: []mem.Page = getRegion(.direct_map).page_slice;
 pub const direct_map_base = @intFromPtr(direct_map.ptr);
 
 pub const PhysPage = Phys(Page);
@@ -20,6 +21,7 @@ comptime {
     std.debug.assert(@alignOf(PhysPage) == page_size);
 }
 
+pub const getRegion = virt_layout.get;
 pub fn pageAlignForward(addr: usize) usize {
     return std.mem.alignForward(usize, addr, page_size);
 }
@@ -116,9 +118,15 @@ pub fn RangeFormatter(Range: type) type {
     return struct {
         range: Range,
         pub inline fn format(this: @This(), writer: *std.Io.Writer) !void {
+            const slice = std.mem.sliceAsBytes(this.range);
+            if (slice.len == 0) {
+                try writer.print("0x{x} (empty)", .{@intFromPtr(slice.ptr)});
+                return;
+            }
+
             try writer.print("0x{x} - 0x{x}", .{
-                @intFromPtr(this.range.ptr),
-                @intFromPtr(this.range.ptr + this.range.len),
+                @intFromPtr(slice.ptr),
+                @intFromPtr(slice.ptr + (slice.len - 1)),
             });
         }
     };

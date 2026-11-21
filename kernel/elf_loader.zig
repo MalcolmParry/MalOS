@@ -15,7 +15,7 @@ pub fn load(vmar: *Vmar, elf: []const u8) !Result {
     if (!header.is_64) return error.NotSupported;
     if (header.machine != .X86_64) return error.NotSupported;
     if (header.type != .EXEC) return error.NotSupported;
-    if (header.entry >= arch.paging.max_user_addr) return error.BadElf;
+    if (header.entry >= arch.layout.max_user_addr) return error.BadElf;
 
     const vmar_l = vmar.lock.lock();
     defer vmar_l.unlock();
@@ -30,7 +30,7 @@ pub fn load(vmar: *Vmar, elf: []const u8) !Result {
         if (ph.flags.W and ph.flags.X) return error.NotSupported;
 
         const end = std.math.add(u64, ph.vaddr, ph.memsz) catch return error.BadElf;
-        if (end > arch.paging.max_user_addr) return error.BadElf;
+        if (end > arch.layout.max_user_addr) return error.BadElf;
 
         const first_page = ph.vaddr / mem.page_size;
         const offset_from_page = ph.vaddr % mem.page_size;

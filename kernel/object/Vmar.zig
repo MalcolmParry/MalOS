@@ -70,7 +70,7 @@ pub fn findGapLocked(vmar: *Vmar, page_count: usize, hint: ?usize) ?usize {
     _ = hint;
 
     const min_page = 1024 * 1024 / mem.page_size;
-    const max_page = arch.paging.max_user_addr / mem.page_size;
+    const max_page = arch.layout.max_user_addr / mem.page_size;
 
     var gap_start: usize = min_page;
     var maybe_region = vmar.first_region;

@@ -466,7 +466,7 @@ fn vmarMap(args: [7]usize) abi.VmarMapError![3]usize {
         .normal => vmar.findGapLocked(page_count, null) orelse return error.NoGap,
         .fixed, .fixed_overwrite => {
             const vmar_end = std.math.add(usize, requested_vmar_offset, len) catch return error.BadArg;
-            if (vmar_end > arch.paging.max_user_addr) return error.BadArg;
+            if (vmar_end > arch.layout.max_user_addr) return error.BadArg;
             const requested_vmar_page_offset = @divExact(requested_vmar_offset, mem.page_size);
 
             // TODO: check for overwrite
@@ -619,7 +619,7 @@ fn threadStart(args: [7]usize) abi.ThreadStartError![3]usize {
     var info: abi.ThreadStartInfo = undefined;
     if (!arch.copyFromUser(std.mem.asBytes(&info), @as([*]allowzero const u8, @ptrFromInt(args[2]))[0..@sizeOf(abi.ThreadStartInfo)])) return error.Fault;
 
-    if (info.ip >= arch.paging.max_user_addr) return error.BadArg;
+    if (info.ip >= arch.layout.max_user_addr) return error.BadArg;
 
     const state = arch.cpu.getUserThreadFrame(.{
         .entry = info.ip,

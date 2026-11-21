@@ -14,6 +14,7 @@ const ustar = @import("shared").ustar;
 const Vmo = @import("object/Vmo.zig");
 const Process = @import("proc/Process.zig");
 const Thread = @import("proc/Thread.zig");
+const virt_layout = @import("virt_layout.zig");
 
 pub const debug = @import("debug.zig");
 pub const panic = std.debug.FullPanic(debug.panic);
@@ -39,6 +40,10 @@ pub fn kernelMain() !noreturn {
     arch.initBootInfo();
     try log.init();
 
+    inline for (virt_layout.regions) |region| {
+        std.log.info("region {s: <16} at {f} {Bi}", .{ @tagName(region.name), mem.fmtRange(region.slice), region.size });
+    }
+
     for (boot_info.available_phys_ranges.items) |range| {
         std.log.info("Available: {f}\x1b[48G{Bi}", .{ mem.fmtRange(range), range.len * mem.page_size });
     }
@@ -52,7 +57,7 @@ pub fn kernelMain() !noreturn {
     arch.paging.init();
     PageAllocator.global = .{
         .table = arch.paging.getGlobalKernelTable(),
-        .vmm = try Vmm.init(arch.paging.heap_range),
+        .vmm = try Vmm.init(mem.getRegion(.heap).page_slice),
         .default_flags = .{
             .writable = true,
             .executable = false,

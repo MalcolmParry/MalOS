@@ -5,6 +5,7 @@ const Vmm = @import("../../Vmm.zig");
 const pmm = @import("../../pmm.zig");
 const arch = @import("x86_64.zig");
 const boot_info = @import("../../boot_info.zig");
+const virt_layout = @import("../../virt_layout.zig");
 const Vmo = @import("../../object/Vmo.zig");
 
 pub const Entry = packed struct(u64) {
@@ -45,7 +46,7 @@ pub const Entry = packed struct(u64) {
     pub fn getLower(entry: Entry) *Table {
         std.debug.assert(entry.present);
         std.debug.assert(!entry.huge);
-        return @ptrFromInt(entry.address * 4096 + direct_map_base);
+        return @ptrFromInt(entry.address * 4096 + mem.direct_map_base);
     }
 
     pub fn getLowerSafe(entry: Entry) ?*Table {
@@ -77,7 +78,7 @@ pub const Table = extern struct {
     }
 
     pub fn physPage(table: *Table) *mem.PhysPage {
-        return @ptrFromInt(@intFromPtr(table) - direct_map_base);
+        return @ptrFromInt(@intFromPtr(table) - mem.direct_map_base);
     }
 
     fn clear(table: *Table) void {
@@ -94,20 +95,14 @@ pub const Table = extern struct {
 
 fn allocTable() !*Table {
     const phys = try pmm.allocatePage();
-    const index = @intFromPtr(phys) / mem.page_size;
-    const direct = &direct_map[index];
-    return @ptrCast(direct);
+    return @ptrCast(mem.physToDirect(phys));
 }
 
 fn getOrCreateTable(entry: *Entry) !*Table {
     if (entry.present) return entry.getLower();
 
     const phys = try pmm.allocatePage();
-    errdefer pmm.freePage(phys);
-
-    const phys_index = @intFromPtr(phys) / mem.page_size;
-    const direct = &direct_map[phys_index];
-    const table: *Table = @ptrCast(direct);
+    const table: *Table = @ptrCast(mem.physToDirect(phys));
     table.clear();
 
     entry.* = .{
@@ -118,7 +113,7 @@ fn getOrCreateTable(entry: *Entry) !*Table {
         .disable_cache = false,
         .huge = false,
         .global = false,
-        .address = @intCast(phys_index),
+        .address = @intCast(@intFromPtr(phys) / mem.page_size),
         .disable_execute = false,
     };
 
@@ -295,12 +290,6 @@ fn getVirtAddrFromIndices(l4: Table.Index, l3: Table.Index, l2: Table.Index, l1:
     return @ptrFromInt(full);
 }
 
-pub const heap_range = @as([*]mem.Page, @ptrCast(getVirtAddrFromIndices(511, 0, 0, 0)))[0 .. 512 * 512 * 511];
-pub const direct_map = @as([*]mem.Page, @ptrCast(getVirtAddrFromIndices(256, 0, 0, 0)))[0 .. 512 * 512 * 512];
-pub const max_user_addr = 0x0000_8000_0000_0000;
-pub const min_kernel_addr = 0xffff_8000_0000_0000;
-const direct_map_base = @intFromPtr(direct_map.ptr);
-
 pub var l4_table: Table = undefined;
 var l3_kernel_table: Table = undefined;
 var l2_init_kernel_table: Table = undefined;
@@ -308,6 +297,33 @@ var l2_kernel_table: Table = undefined;
 
 var direct_map_l3: Table = undefined;
 var first_direct_map_l2: Table = undefined;
+var other_l3_kernel_tables: [needed_l4_indices.len]Table = undefined;
+
+const direct_map_l4_index = getIndicesFromVirtAddr(mem.getRegion(.direct_map).base)[3];
+const needed_l4_indices = blk: {
+    var bitset: std.bit_set.Static(512) = .empty;
+    for (virt_layout.regions) |region| {
+        const end = @as(comptime_int, region.base) + @as(comptime_int, region.size);
+        var current: comptime_int = std.mem.alignBackward(usize, region.base, 4096 * 512 * 512 * 512);
+        while (current < end) : (current += 4096 * 512 * 512 * 512) {
+            bitset.set(getIndicesFromVirtAddr(current)[3]);
+        }
+    }
+
+    std.debug.assert(bitset.isSet(511));
+    std.debug.assert(bitset.isSet(direct_map_l4_index));
+    bitset.unset(511);
+    bitset.unset(direct_map_l4_index);
+
+    var needed: []const u16 = &.{};
+    while (bitset.findFirstSet()) |i| {
+        std.debug.assert(i >= 256);
+        bitset.unset(i);
+        needed = needed ++ [1]u16{i};
+    }
+
+    break :blk needed;
+};
 
 comptime {
     @export(&l4_table.entries, .{ .name = "page_table_l4_virt" });
@@ -319,8 +335,8 @@ pub fn init() void {
     @memset(l4_table.entries[0..511], .blank);
     @memset(l3_kernel_table.entries[0..511], .blank);
 
-    @memset(direct_map_l3.entries[0..], .blank);
-    l4_table.entries[256] = .{
+    direct_map_l3.clear();
+    l4_table.entries[direct_map_l4_index] = .{
         .present = true,
         .writable = true,
         .user = false,
@@ -332,9 +348,24 @@ pub fn init() void {
         .disable_execute = true,
     };
 
+    for (needed_l4_indices, &other_l3_kernel_tables) |i, *table| {
+        table.clear();
+        l4_table.entries[i] = .{
+            .present = true,
+            .writable = true,
+            .user = false,
+            .write_through = false,
+            .disable_cache = false,
+            .huge = false,
+            .global = false,
+            .address = @intCast((@intFromPtr(table) - mem.kernel_virt_base) / mem.page_size),
+            .disable_execute = false,
+        };
+    }
+
     invalidatePages();
 
-    if (@intFromPtr(boot_info.max_phys_addr) > 4096 * 512 * 512 * 512)
+    if (@intFromPtr(boot_info.max_phys_addr) > arch.layout.direct_map_size)
         @panic("cant direct map more than 512gb");
 
     const max_page_index = @intFromPtr(boot_info.max_phys_addr) / mem.page_size;
@@ -465,7 +496,7 @@ pub fn destroyTable(l4: *Table) void {
 }
 
 pub fn getGlobalKernelTable() *Table {
-    return @ptrFromInt(@intFromPtr(&l4_table) - mem.kernel_virt_base + direct_map_base);
+    return @ptrFromInt(@intFromPtr(&l4_table) - mem.kernel_virt_base + mem.direct_map_base);
 }
 
 // TODO: when i get multiple cores i need to change this

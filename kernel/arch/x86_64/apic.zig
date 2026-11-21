@@ -99,21 +99,20 @@ pub const timer_int_vec = 0x30;
 pub const error_int_vec = 0xfe;
 
 pub var use_pic: bool = true;
-pub var lapic: *volatile Lapic = undefined;
+pub const lapic: *volatile Lapic = @ptrFromInt(mem.getRegion(.lapic).base);
 
 pub fn init() !void {
     const msr_apic_base_enable = 0x800;
     const apic_msr = arch.cpu.readMsr(arch.cpu.msrs.apic_base);
     const phys_apic_base = apic_msr & ~@as(u64, 0xfff);
 
-    const apic_page = try PageAlloc.global.map(@as([*]mem.PhysPage, @ptrFromInt(phys_apic_base))[0..1], .{
+    try arch.paging.mapPage(arch.paging.getGlobalKernelTable(), .l4, &mem.getRegion(.lapic).page_slice[0], @ptrFromInt(phys_apic_base), .{
         .cache_mode = .disabled,
-        .global = true,
         .executable = false,
+        .global = true,
         .user = false,
         .writable = true,
     });
-    lapic = @ptrCast(apic_page.ptr);
 
     arch.cpu.writeMsr(arch.cpu.msrs.apic_base, apic_msr | msr_apic_base_enable);
     initAp();
