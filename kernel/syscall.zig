@@ -635,11 +635,7 @@ fn threadStart(args: [7]usize) abi.ThreadStartError![3]usize {
     defer thread_obj.release();
     const thread = thread_obj.get(Thread) orelse return error.BadHandleKind;
 
-    thread.start(&state) catch |err| return switch (err) {
-        error.NoAvailableVirtualAddressSpace, error.CantAllocateKernelL3Table => error.OutOfMemory,
-        else => |x| x,
-    };
-
+    try thread.start(&state);
     return @splat(0);
 }
 

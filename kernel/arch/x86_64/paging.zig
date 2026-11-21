@@ -196,7 +196,7 @@ pub fn mapPage(table: *Table, level: Table.Level, virt: *allowzero mem.Page, phy
         const entry = &cur.entries[indices[cur_level]];
 
         if (@as(Table.Level, @fromBackingInt(@intCast(cur_level))) == .l4 and indices[3] >= 256) {
-            cur = entry.getLowerSafe() orelse return error.CantAllocateKernelL3Table;
+            cur = entry.getLowerSafe() orelse @panic("cant allocate kernel l3 table after init");
             continue;
         }
 

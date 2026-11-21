@@ -8,7 +8,7 @@ const Object = @import("../object/Object.zig");
 const Process = @import("Process.zig");
 const gpa = @import("../heap/gpa.zig").allocator;
 const scheduler = @import("scheduler.zig");
-const PageAllocator = @import("../heap/PageAllocator.zig");
+const stack_alloc = @import("../heap/stack_alloc.zig");
 const PerCpu = @import("../PerCpu.zig");
 const Thread = @This();
 const assert = std.debug.assert;
@@ -87,7 +87,7 @@ pub fn destroy(thread: *Thread) void {
     assert(thread.obj.ref_count.load(.monotonic) == 0);
     assert(thread.state == .initial or thread.state == .dead);
 
-    if (thread.stack) |x| PageAllocator.global.free(x);
+    if (thread.stack) |x| stack_alloc.free(x);
     const maybe_proc = thread.proc;
     gpa.destroy(thread);
     if (maybe_proc) |proc| proc.obj.release();
@@ -95,14 +95,7 @@ pub fn destroy(thread: *Thread) void {
 
 pub fn maybeAllocStackLocked(thread: *Thread) !void {
     if (thread.stack != null) return;
-    const stack_size = 32 * 1024;
-    thread.stack = try PageAllocator.global.alloc(stack_size / mem.page_size, .{
-        .global = true,
-        .writable = true,
-        .user = false,
-        .executable = false,
-        .cache_mode = .full,
-    });
+    thread.stack = try stack_alloc.alloc();
 }
 
 pub fn start(thread: *Thread, state: *align(1) const arch.cpu.State) !void {
@@ -167,7 +160,7 @@ pub fn exitCurrent() noreturn {
         pc = PerCpu.get();
     }
 
-    if (pc.thread.last_stack) |last| PageAllocator.global.free(last);
+    if (pc.thread.last_stack) |last| stack_alloc.free(last);
     pc.thread.last_stack = if (thread.stack.?.ptr == boot_info.boot_stack.ptr) null else thread.stack;
     thread.stack = null;
 

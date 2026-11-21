@@ -4,6 +4,7 @@ const virt_layout = @import("virt_layout.zig");
 const mem = @This();
 
 pub const page_size = arch.page_size;
+pub const page_align: std.mem.Alignment = .fromByteUnits(page_size);
 pub const log2_page_size = std.math.log2(page_size);
 pub const kernel_virt_base: usize = arch.layout.kernel_virt_base;
 pub const direct_map: []mem.Page = getRegion(.direct_map).page_slice;
