@@ -4,17 +4,15 @@ const mem = @import("../../memory.zig");
 const apic = @import("apic.zig");
 const gdt = @import("gdt.zig");
 const time = @import("time.zig");
-const gpa = @import("../../heap/gpa.zig").allocator;
 const PerCpu = @import("../../PerCpu.zig");
 const Thread = @import("../../proc/Thread.zig");
 const scheduler = @import("../../proc/scheduler.zig");
 const ap_trampoline = @embedFile("ap_trampoline");
-const options = @import("options");
 const log = std.log.scoped(.smp);
 
 pub var ap_trampoline_phys_page: *mem.PhysPage = undefined;
 pub var ap_count: u32 = 0;
-pub var ap_apic_ids: [options.max_cpus]u8 = undefined;
+pub var ap_apic_ids: [PerCpu.max_cpus]u8 = undefined;
 
 pub fn init() !void {
     if (apic.use_pic) return;
@@ -34,7 +32,9 @@ pub fn init() !void {
         .writable = true,
     });
 
-    const ap_per_cpus = try gpa.alloc(PerCpu, ap_count);
+    const ap_per_cpus = @as([*]PerCpu, @ptrFromInt(mem.getRegion(.per_cpu).base))[0..ap_count];
+    try arch.paging.allocAndMap(@as([*]mem.Page, @ptrCast(ap_per_cpus.ptr))[0..@divCeil(ap_per_cpus.len * @sizeOf(PerCpu), mem.page_size)], .kernel_rw);
+
     for (ap_apic_ids[0..ap_count], ap_per_cpus) |apic_id, *per_cpu| {
         per_cpu.* = .{
             .id = undefined,

@@ -17,6 +17,22 @@ pub const PageFlags = packed struct {
     executable: bool,
     user: bool,
     global: bool,
+
+    pub const kernel_rw: PageFlags = .{
+        .cache_mode = .full,
+        .writable = true,
+        .executable = false,
+        .user = false,
+        .global = true,
+    };
+
+    pub const mmio: PageFlags = .{
+        .cache_mode = .disabled,
+        .writable = true,
+        .executable = false,
+        .user = false,
+        .global = true,
+    };
 };
 
 first_node: ?*Node,

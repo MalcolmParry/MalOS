@@ -1,6 +1,7 @@
 const std = @import("std");
 const mem = @import("memory.zig");
 const arch = @import("arch/arch.zig").current;
+const PerCpu = @import("PerCpu.zig");
 
 const big_align = arch.layout.big_align;
 const page_size = mem.page_size;
@@ -28,6 +29,7 @@ const base_requested: []const RequestedRegion = &.{
     .{ .name = .kernel, .size = arch.layout.kernel_region_size, .maybe_addr = mem.kernel_virt_base },
     .{ .name = .kernel_stacks, .size = 1024 * 1024 * 1024 * 16 },
     .{ .name = .heap, .size = 1024 * 1024 * 1024 * 64 },
+    .{ .name = .per_cpu, .size = @sizeOf(PerCpu) * (PerCpu.max_cpus - 1) },
 };
 
 pub const regions = generateLayout(base_requested ++ arch.layout.requests, arch.layout.min_kernel_addr, arch.layout.kernel_space_size);

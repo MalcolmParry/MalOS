@@ -10,8 +10,9 @@ pub var bsp: PerCpu = .{
     .thread = .{ .current = undefined, .idle = undefined },
 };
 
+pub const max_cpus = options.max_cpus;
 pub var cpu_count: u32 = 1;
-pub var cpus: [options.max_cpus]?*PerCpu = @as([1]?*PerCpu, .{&bsp}) ++ @as([options.max_cpus - 1]?*PerCpu, @splat(null));
+pub var cpus: [max_cpus]?*PerCpu = @as([1]?*PerCpu, .{&bsp}) ++ @as([max_cpus - 1]?*PerCpu, @splat(null));
 
 id: u32,
 arch_specific: arch.CpuLocal,

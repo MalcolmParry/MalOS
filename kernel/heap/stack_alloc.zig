@@ -26,28 +26,7 @@ pub fn alloc() ![]mem.Page {
     if (i >= stack_count) return error.OutOfMemory;
     const addr = mem.getRegion(.kernel_stacks).base + (i * stack_and_guard_size) + mem.page_size;
     const stack = @as([*]mem.Page, @ptrFromInt(addr))[0..stack_page_count];
-    const table = arch.paging.getGlobalKernelTable();
-
-    var mapped: usize = 0;
-    errdefer for (stack[0..mapped]) |*page| {
-        const phys = arch.paging.getPhysFromVirt(table, page);
-        arch.paging.clearEntry(table, page);
-        arch.paging.invalidatePage(page);
-        pmm.freePage(phys);
-    };
-
-    for (stack) |*page| {
-        const phys = try pmm.allocatePage();
-        errdefer pmm.freePage(phys);
-        try arch.paging.mapPage(table, .l4, page, phys, .{
-            .global = true,
-            .writable = true,
-            .user = false,
-            .executable = false,
-            .cache_mode = .full,
-        });
-        mapped += 1;
-    }
+    try arch.paging.allocAndMap(stack, .kernel_rw);
 
     bump += 1;
     return stack;

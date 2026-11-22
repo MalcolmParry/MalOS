@@ -347,13 +347,7 @@ pub fn initBootInfo() void {
             const pages = @as([*]mem.Page, @ptrFromInt(0xb8000 + mem.kernel_virt_base))[0..page_count];
             boot_info.kernel_regions.appendBounded(.{
                 .pages = pages,
-                .flags = .{
-                    .global = true,
-                    .cache_mode = .disabled,
-                    .executable = false,
-                    .user = false,
-                    .writable = true,
-                },
+                .flags = .mmio,
             }) catch @panic("too many kernel regions");
         },
     }

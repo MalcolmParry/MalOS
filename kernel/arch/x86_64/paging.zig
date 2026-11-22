@@ -219,6 +219,53 @@ pub fn mapPage(table: *Table, level: Table.Level, virt: *allowzero mem.Page, phy
     };
 }
 
+pub fn allocAndMap(virt: []mem.Page, flags: Vmm.PageFlags) !void {
+    std.debug.assert(!flags.user);
+    std.debug.assert(flags.global);
+
+    const l4 = getGlobalKernelTable();
+    var mapped: usize = 0;
+    var l1: *Table = undefined;
+    errdefer for (virt[0..mapped], 0..) |*page, i| {
+        const page_index = @intFromPtr(page) / mem.page_size;
+        const il1 = page_index & 0x1ff;
+        if (i == 0 or il1 == 0)
+            l1 = walk(l4, page_index);
+
+        pmm.freePage(@ptrFromInt(@as(usize, l1.entries[il1].address) * mem.page_size));
+    };
+
+    while (mapped < virt.len) : (mapped += 1) {
+        const page_index = @intFromPtr(virt.ptr) / mem.page_size + mapped;
+        const il1 = page_index & 0x1ff;
+        if (mapped == 0 or il1 == 0)
+            l1 = try walkOrCreate(l4, page_index);
+
+        std.debug.assert(!l1.entries[il1].present);
+        const phys = try pmm.allocatePage();
+        l1.entries[il1] = .{
+            .present = false,
+            .writable = flags.writable,
+            .user = false,
+            .write_through = flags.cache_mode == .write_through,
+            .disable_cache = flags.cache_mode == .disabled,
+            .huge = false,
+            .global = true,
+            .address = @intCast(@intFromPtr(phys) / mem.page_size),
+            .disable_execute = !flags.executable,
+        };
+    }
+
+    for (virt, 0..) |*page, i| {
+        const page_index = @intFromPtr(page) / mem.page_size;
+        const il1 = page_index & 0x1ff;
+        if (i == 0 or il1 == 0)
+            l1 = walk(l4, page_index);
+
+        l1.entries[il1].present = true;
+    }
+}
+
 pub fn getPhysFromVirt(l4: *Table, virt: *mem.Page) *mem.PhysPage {
     const indices = getIndicesFromVirtAddr(@intFromPtr(virt));
 

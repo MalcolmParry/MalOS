@@ -58,13 +58,7 @@ pub fn kernelMain() !noreturn {
     PageAllocator.global = .{
         .table = arch.paging.getGlobalKernelTable(),
         .vmm = try Vmm.init(mem.getRegion(.heap).page_slice),
-        .default_flags = .{
-            .writable = true,
-            .executable = false,
-            .global = true,
-            .user = false,
-            .cache_mode = .full,
-        },
+        .default_flags = .kernel_rw,
         .lock = .init,
     };
     const page_alloc = PageAllocator.global.allocator();
