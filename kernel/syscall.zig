@@ -1,5 +1,6 @@
 const std = @import("std");
 const mem = @import("memory.zig");
+const pmm = @import("pmm.zig");
 const arch = @import("arch/arch.zig").current;
 const log = @import("log.zig");
 const abi = @import("abi");
@@ -218,29 +219,43 @@ fn channelSend(args: [7]usize) abi.ChannelSendError![3]usize {
     defer obj.release();
     const channel = obj.get(Channel) orelse return error.BadHandleKind;
 
-    const byte_count = args[3];
+    const data_size = args[3];
     const handle_count = args[5];
-    if (byte_count > Channel.max_bytes) return error.TooBig;
-    if (handle_count > Channel.max_handles) return error.TooBig;
+    if (data_size > abi.max_channel_msg_bytes) return error.TooBig;
+    if (handle_count > abi.max_channel_msg_handles) return error.TooBig;
+    const data_page_count = @divCeil(data_size, mem.page_size);
 
-    const user_bytes = @as([*]allowzero const u8, @ptrFromInt(args[2]))[0..byte_count];
+    const user_data = @as([*]allowzero const u8, @ptrFromInt(args[2]))[0..data_size];
     const user_handles = @as([*]allowzero align(1) const abi.Handle, @ptrFromInt(args[4]))[0..handle_count];
 
     const msg = try gpa.create(Channel.Message);
     errdefer gpa.destroy(msg);
+    msg.* = .{
+        .next = null,
+        .data_size = @intCast(data_size),
+        .desc_count = @intCast(handle_count),
+        .data_pages = undefined,
+        .descs = undefined,
+    };
 
-    const bytes = try gpa.alloc(u8, byte_count);
-    errdefer gpa.free(bytes);
+    var data_pages_allocated: usize = 0;
+    errdefer for (msg.data_pages[0..data_pages_allocated]) |index| pmm.freePage(index.toPtr());
+    for (msg.data_pages[0..data_page_count]) |*index| {
+        index.* = .fromPtr(try pmm.allocatePage());
+        data_pages_allocated += 1;
+    }
 
-    var handle_buffer: [Channel.max_handles]abi.Handle = undefined;
+    for (msg.data_pages[0..data_page_count], 0..) |index, i| {
+        const remaining = user_data[i * mem.page_size ..];
+        const to_send = remaining[0..@min(remaining.len, mem.page_size)];
+        if (!arch.copyFromUser(index.toDirectMap().bytes[0..to_send.len], to_send)) return error.Fault;
+    }
+
+    var handle_buffer: [abi.max_channel_msg_handles]abi.Handle = undefined;
     const handles = handle_buffer[0..handle_count];
-
-    if (!arch.copyFromUser(bytes, user_bytes)) return error.Fault;
     if (!arch.copyFromUser(std.mem.sliceAsBytes(handles), std.mem.sliceAsBytes(user_handles))) return error.Fault;
 
-    const descs = try gpa.alloc(HandleTable.Desc, handle_count);
-    errdefer gpa.free(descs);
-
+    const descs = msg.descs[0..handle_count];
     const table = HandleTable.getCurrent();
     const l = table.lock.lock();
     defer l.unlock();
@@ -255,22 +270,9 @@ fn channelSend(args: [7]usize) abi.ChannelSendError![3]usize {
         }
     }
 
-    msg.* = .{
-        .next = null,
-        .destroy_ptr = &msgDestroy,
-        .bytes = bytes,
-        .handles = descs,
-    };
-
     try channel.send(msg);
     for (handles) |h| std.debug.assert(table.fetchRemoveLocked(h) != null);
     return @splat(0);
-}
-
-fn msgDestroy(msg: *Channel.Message) void {
-    gpa.free(msg.bytes);
-    gpa.free(msg.handles);
-    gpa.destroy(msg);
 }
 
 fn channelReceive(args: [7]usize) abi.ChannelReceiveError![3]usize {
@@ -278,12 +280,12 @@ fn channelReceive(args: [7]usize) abi.ChannelReceiveError![3]usize {
     defer obj.release();
     const channel = obj.get(Channel) orelse return error.BadHandleKind;
 
-    var handle_buffer: [Channel.max_handles]abi.Handle = undefined;
+    var handle_buffer: [abi.max_channel_msg_handles]abi.Handle = undefined;
     // TODO: return byte and handle count on error.TooBig
     // TODO: put the message back if there was an error
-    const msg = try channel.receive(args[3], args[5]) orelse return @splat(0);
+    const msg = try channel.receive(args[3], args[5]) orelse return error.IsEmpty;
     defer msg.destroyNoReleaseHandles();
-    const handles = handle_buffer[0..msg.handles.len];
+    const handles = handle_buffer[0..msg.desc_count];
 
     const table = HandleTable.getCurrent();
     {
@@ -293,10 +295,10 @@ fn channelReceive(args: [7]usize) abi.ChannelReceiveError![3]usize {
         var handles_filled: usize = 0;
         errdefer {
             for (handles[0..handles_filled]) |h| std.debug.assert(table.fetchRemoveLocked(h) != null);
-            for (msg.handles) |d| d.obj.release();
+            for (msg.descs[0..msg.desc_count]) |d| d.obj.release();
         }
 
-        for (msg.handles, handles) |desc, *h| {
+        for (msg.descs[0..msg.desc_count], handles) |desc, *h| {
             h.* = try table.putLocked(desc);
             handles_filled += 1;
         }
@@ -312,13 +314,17 @@ fn channelReceive(args: [7]usize) abi.ChannelReceiveError![3]usize {
         }
     }
 
-    const user_bytes = @as([*]allowzero u8, @ptrFromInt(args[2]))[0..msg.bytes.len];
-    const user_handles = @as([*]allowzero align(1) abi.Handle, @ptrFromInt(args[4]))[0..msg.handles.len];
+    const user_bytes = @as([*]allowzero u8, @ptrFromInt(args[2]))[0..msg.data_size];
+    const user_handles = @as([*]allowzero align(1) abi.Handle, @ptrFromInt(args[4]))[0..msg.desc_count];
 
-    if (!arch.copyToUser(user_bytes, msg.bytes)) return error.Fault;
     if (!arch.copyToUser(std.mem.sliceAsBytes(user_handles), std.mem.sliceAsBytes(handles))) return error.Fault;
+    for (msg.data_pages[0..@divCeil(msg.data_size, mem.page_size)], 0..) |index, i| {
+        const remaining = user_bytes[i * mem.page_size ..];
+        const buffer = remaining[0..@min(remaining.len, mem.page_size)];
+        if (!arch.copyToUser(buffer, index.toDirectMap().bytes[0..buffer.len])) return error.Fault;
+    }
 
-    return .{ msg.bytes.len, msg.handles.len, 0 };
+    return .{ msg.data_size, msg.desc_count, 0 };
 }
 
 fn klogWrite(args: [7]usize) abi.KLogWriteError![3]usize {

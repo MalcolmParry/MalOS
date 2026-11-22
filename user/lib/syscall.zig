@@ -88,6 +88,7 @@ pub fn channelReceive(channel: abi.Handle, bytes: []u8, handles: []abi.Handle) !
         .out_of_memory => error.OutOfMemory,
         .fault => error.Fault,
         .no_right => error.NoRight,
+        .is_empty => error.IsEmpty,
         else => unexpected(result[0]),
     };
 }

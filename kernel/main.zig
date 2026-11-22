@@ -8,7 +8,6 @@ const std = @import("std");
 const builtin = @import("builtin");
 const scheduler = @import("proc/scheduler.zig");
 const log = @import("log.zig");
-const gpa = @import("heap/gpa.zig");
 const elf_loader = @import("elf_loader.zig");
 const ustar = @import("shared").ustar;
 const Vmo = @import("object/Vmo.zig");

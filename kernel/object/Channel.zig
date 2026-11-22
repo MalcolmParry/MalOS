@@ -1,4 +1,7 @@
 const std = @import("std");
+const abi = @import("abi");
+const pmm = @import("../pmm.zig");
+const mem = @import("../memory.zig");
 const gpa = @import("../heap/gpa.zig").allocator;
 const Spinlock = @import("../sync/Spinlock.zig");
 const Object = @import("Object.zig");
@@ -12,8 +15,9 @@ closed: bool,
 first_msg: ?*Message,
 last_msg: ?*Message,
 
-pub const max_bytes = 1024 * 16;
-pub const max_handles = 16;
+const max_bytes = abi.max_channel_msg_bytes;
+const max_handles = abi.max_channel_msg_handles;
+const msg_page_count = @divCeil(max_bytes, mem.page_size);
 
 pub const Pair = struct {
     end0: Channel,
@@ -60,17 +64,19 @@ pub const Pair = struct {
 
 pub const Message = struct {
     next: ?*Message = null,
-    destroy_ptr: *const fn (msg: *Message) void,
-    bytes: []const u8,
-    handles: []const HandleTable.Desc,
+    data_size: u32,
+    desc_count: u32,
+    data_pages: [msg_page_count]pmm.Index,
+    descs: [max_handles]HandleTable.Desc,
 
     pub fn destroy(msg: *Message) void {
-        for (msg.handles) |d| d.obj.release();
-        msg.destroy_ptr(msg);
+        for (msg.descs[0..msg.desc_count]) |d| d.obj.release();
+        msg.destroyNoReleaseHandles();
     }
 
     pub fn destroyNoReleaseHandles(msg: *Message) void {
-        msg.destroy_ptr(msg);
+        for (msg.data_pages[0..@divCeil(msg.data_size, mem.page_size)]) |index| pmm.freePage(index.toPtr());
+        gpa.destroy(msg);
     }
 };
 
@@ -136,8 +142,8 @@ pub fn receive(channel: *Channel, byte_limit: usize, desc_limit: usize) error{To
     defer l.unlock();
 
     const msg = channel.first_msg orelse return null;
-    if (msg.bytes.len > byte_limit) return error.TooBig;
-    if (msg.handles.len > desc_limit) return error.TooBig;
+    if (msg.data_size > byte_limit) return error.TooBig;
+    if (msg.desc_count > desc_limit) return error.TooBig;
 
     channel.first_msg = msg.next;
     if (msg.next == null) channel.last_msg = null;

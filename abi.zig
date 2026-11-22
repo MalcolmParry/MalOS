@@ -1,5 +1,7 @@
 const std = @import("std");
 
+pub const max_channel_msg_bytes = 16 * 1024;
+pub const max_channel_msg_handles = 16;
 pub const max_process_handle_transfers = 64;
 
 pub const Syscall = enum(usize) {
@@ -74,8 +76,8 @@ pub const Rights = packed struct(u32) {
     exec: bool = false,
     transfer_to: bool = false,
 
-    same: bool = false,
     unused: u25 = 0,
+    same: bool = false,
 
     const Backing = u32;
     pub fn fromUsize(int: usize) !Rights {
@@ -179,7 +181,7 @@ pub const SocketReceiveError = error{ BadHandle, BadHandleKind, Fault, PeerClose
 
 pub const ChannelCreatePairError = error{ TooManyHandles, OutOfMemory };
 pub const ChannelSendError = error{ BadHandle, BadHandleKind, Fault, PeerClosed, TooBig, OutOfMemory, BadArg, NoRight };
-pub const ChannelReceiveError = error{ BadHandle, BadHandleKind, Fault, PeerClosed, TooBig, OutOfMemory, TooManyHandles, NoRight };
+pub const ChannelReceiveError = error{ BadHandle, BadHandleKind, Fault, PeerClosed, TooBig, OutOfMemory, TooManyHandles, NoRight, IsEmpty };
 
 pub const KLogWriteError = error{ BadHandle, BadHandleKind, Fault, NoRight };
 
