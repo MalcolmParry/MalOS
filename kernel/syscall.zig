@@ -171,13 +171,8 @@ fn socketSend(args: [7]usize) abi.SocketSendError![3]usize {
     defer obj.release();
     const sock = obj.get(Socket) orelse return error.BadHandleKind;
 
-    var buffer: [1024 * 4]u8 = undefined;
-    const len = @min(buffer.len, args[3]);
-    const user_data = @as([*]allowzero const u8, @ptrFromInt(args[2]))[0..len];
-    const data = buffer[0..len];
-    if (!arch.copyFromUser(data, user_data)) return error.Fault;
-
-    const sent = try sock.send(data);
+    const user_data = @as([*]allowzero const u8, @ptrFromInt(args[2]))[0..args[3]];
+    const sent = try sock.sendUser(user_data);
     return .{ sent, 0, 0 };
 }
 
@@ -186,13 +181,8 @@ fn socketReceive(args: [7]usize) abi.SocketReceiveError![3]usize {
     defer obj.release();
     const sock = obj.get(Socket) orelse return error.BadHandleKind;
 
-    var full_buffer: [1024 * 4]u8 = undefined;
-    const buffer = full_buffer[0..@min(args[3], full_buffer.len)];
-
-    const read = try sock.receive(buffer);
-    const user_buffer = @as([*]allowzero u8, @ptrFromInt(args[2]))[0..read];
-    // TODO: dont consume bytes on fault
-    if (!arch.copyToUser(user_buffer, buffer[0..read])) return error.Fault;
+    const user_buffer = @as([*]allowzero u8, @ptrFromInt(args[2]))[0..args[3]];
+    const read = try sock.receiveUser(user_buffer);
     return .{ read, 0, 0 };
 }
 
