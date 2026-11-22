@@ -9,7 +9,7 @@ const gpa = @import("../heap/gpa.zig").allocator;
 const Process = @This();
 
 obj: Object,
-handle_table: HandleTable,
+handle_table: *HandleTable,
 arch_specific: arch.cpu.PerProcess,
 vmar: *Vmar,
 
@@ -32,12 +32,15 @@ pub fn create() !*Process {
     const proc = try gpa.create(Process);
     errdefer gpa.destroy(proc);
 
+    const htable = try HandleTable.init();
+    errdefer htable.deinit();
+
     proc.* = .{
         .obj = .{
             .kind = .process,
             .ref_count = .init(1),
         },
-        .handle_table = .init,
+        .handle_table = htable,
         .arch_specific = undefined,
         .vmar = vmar,
 
@@ -93,6 +96,9 @@ pub fn unlinkLiveThread(proc: *Process, thread: *Thread) void {
 
     proc.state = .dead;
     l.unlock();
+
+    const l2 = proc.handle_table.lock.lock();
+    l2.unlock();
     proc.handle_table.deinit();
     proc.arch_specific.deinit();
     proc.vmar.obj.release();

@@ -531,7 +531,7 @@ fn processTransferHandles(args: [7]usize) abi.ProcessTransferHandlesError![3]usi
     const descs = desc_buffer[0..transfer_count];
 
     {
-        const handle_table = &proc.handle_table;
+        const handle_table = proc.handle_table;
         const l = handle_table.lock.lock();
         defer l.unlock();
 
@@ -562,12 +562,19 @@ fn processTransferHandles(args: [7]usize) abi.ProcessTransferHandlesError![3]usi
     {
         errdefer for (descs) |desc| desc.obj.release();
 
-        const handle_table = &other.handle_table;
+        const handle_table = other.handle_table;
         const l = other.lock.lock();
-        defer l.unlock();
-        if (other.state == .dead) return error.BadState;
-        _ = handle_table.lock.lock();
-        defer handle_table.lock.unlockNoPreserveInt();
+        if (other.state == .dead) {
+            l.unlock();
+            return error.BadState;
+        }
+
+        handle_table.lock.lockNoPreserveInt();
+        other.lock.unlockNoPreserveInt();
+        defer {
+            handle_table.lock.unlockNoPreserveInt();
+            arch.interrupt.set(l.int_enable);
+        }
 
         var filled: usize = 0;
         errdefer for (out_handles[0..filled]) |x| {

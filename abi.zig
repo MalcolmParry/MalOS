@@ -55,6 +55,7 @@ pub const Status = enum(usize) {
 };
 
 pub const Handle = enum(u32) {
+    invalid = 0,
     _,
 
     pub const max = std.math.maxInt(u32);
