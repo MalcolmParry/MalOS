@@ -1,8 +1,8 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const mem = @import("memory.zig");
-const Spinlock = @import("sync/Spinlock.zig");
-const boot_info = @import("boot_info.zig");
+const Spinlock = @import("../sync/Spinlock.zig");
+const boot_info = @import("../boot_info.zig");
 const assert = std.debug.assert;
 const debug = builtin.mode.runtimeSafety();
 

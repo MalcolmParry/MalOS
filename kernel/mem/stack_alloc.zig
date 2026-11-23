@@ -1,7 +1,7 @@
 const std = @import("std");
 const arch = @import("../arch/arch.zig").current;
-const pmm = @import("../pmm.zig");
-const mem = @import("../memory.zig");
+const pmm = @import("pmm.zig");
+const mem = @import("memory.zig");
 const Spinlock = @import("../sync/Spinlock.zig");
 
 const stack_count = mem.getRegion(.kernel_stacks).size / stack_and_guard_size;

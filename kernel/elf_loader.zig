@@ -1,5 +1,5 @@
 const std = @import("std");
-const mem = @import("memory.zig");
+const mem = @import("mem/memory.zig");
 const arch = @import("arch/arch.zig").current;
 const Vmar = @import("object/Vmar.zig");
 const Vmo = @import("object/Vmo.zig");

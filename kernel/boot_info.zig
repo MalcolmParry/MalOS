@@ -1,5 +1,5 @@
 const std = @import("std");
-const mem = @import("memory.zig");
+const mem = @import("mem/memory.zig");
 
 pub var boot_stack: []mem.Page = undefined;
 pub var max_phys_addr: *mem.PhysPage = undefined;

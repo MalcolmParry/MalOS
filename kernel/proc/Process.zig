@@ -5,7 +5,7 @@ const Object = @import("../object/Object.zig");
 const HandleTable = @import("HandleTable.zig");
 const Vmar = @import("../object/Vmar.zig");
 const Thread = @import("Thread.zig");
-const gpa = @import("../heap/gpa.zig").allocator;
+const gpa = @import("../mem/gpa.zig").allocator;
 const Process = @This();
 
 obj: Object,

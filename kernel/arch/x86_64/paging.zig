@@ -1,10 +1,10 @@
 const std = @import("std");
 const gdt = @import("gdt.zig");
-const mem = @import("../../memory.zig");
-const pmm = @import("../../pmm.zig");
+const mem = @import("../../mem/memory.zig");
+const pmm = @import("../../mem/pmm.zig");
 const arch = @import("x86_64.zig");
 const boot_info = @import("../../boot_info.zig");
-const virt_layout = @import("../../virt_layout.zig");
+const virt_layout = @import("../../mem/virt_layout.zig");
 const Vmo = @import("../../object/Vmo.zig");
 
 pub const Entry = packed struct(u64) {

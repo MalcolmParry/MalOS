@@ -1,10 +1,10 @@
 const std = @import("std");
 const gdt = @import("gdt.zig");
-const pmm = @import("../../pmm.zig");
+const pmm = @import("../../mem/pmm.zig");
 const arch = @import("x86_64.zig");
 const Thread = @import("../../proc/Thread.zig");
 const scheduler = @import("../../proc/scheduler.zig");
-const mem = @import("../../memory.zig");
+const mem = @import("../../mem/memory.zig");
 const PerCpu = @import("../../PerCpu.zig");
 
 pub const Fxsave = struct {

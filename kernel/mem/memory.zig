@@ -1,5 +1,5 @@
-const arch = @import("arch/arch.zig").current;
 const std = @import("std");
+const arch = @import("../arch/arch.zig").current;
 const virt_layout = @import("virt_layout.zig");
 const mem = @This();
 

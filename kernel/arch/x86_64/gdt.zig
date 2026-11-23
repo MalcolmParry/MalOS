@@ -1,7 +1,7 @@
 const std = @import("std");
-const mem = @import("../../memory.zig");
+const mem = @import("../../mem/memory.zig");
 const arch = @import("x86_64.zig");
-const pmm = @import("../../pmm.zig");
+const pmm = @import("../../mem/pmm.zig");
 const PerCpu = @import("../../PerCpu.zig");
 
 const Ptr = packed struct {

@@ -1,6 +1,6 @@
 const std = @import("std");
 const options = @import("options");
-const mem = @import("../../memory.zig");
+const mem = @import("../../mem/memory.zig");
 const arch = @import("x86_64.zig");
 const smp = @import("smp.zig");
 const PerCpu = @import("../../PerCpu.zig");

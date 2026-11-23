@@ -1,7 +1,7 @@
 const arch = @import("arch/arch.zig").current;
 const boot_info = @import("boot_info.zig");
-const mem = @import("memory.zig");
-const pmm = @import("pmm.zig");
+const mem = @import("mem/memory.zig");
+const pmm = @import("mem/pmm.zig");
 const std = @import("std");
 const builtin = @import("builtin");
 const scheduler = @import("proc/scheduler.zig");
@@ -11,7 +11,7 @@ const ustar = @import("shared").ustar;
 const Vmo = @import("object/Vmo.zig");
 const Process = @import("proc/Process.zig");
 const Thread = @import("proc/Thread.zig");
-const virt_layout = @import("virt_layout.zig");
+const virt_layout = @import("mem/virt_layout.zig");
 
 pub const debug = @import("debug.zig");
 pub const panic = std.debug.FullPanic(debug.panic);

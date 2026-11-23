@@ -1,6 +1,6 @@
 const std = @import("std");
-const mem = @import("../memory.zig");
-const pmm = @import("../pmm.zig");
+const mem = @import("memory.zig");
+const pmm = @import("pmm.zig");
 const Spinlock = @import("../sync/Spinlock.zig");
 const assert = std.debug.assert;
 

@@ -1,7 +1,7 @@
 const std = @import("std");
 const mem = @import("memory.zig");
-const arch = @import("arch/arch.zig").current;
-const PerCpu = @import("PerCpu.zig");
+const arch = @import("../arch/arch.zig").current;
+const PerCpu = @import("../PerCpu.zig");
 
 const big_align = arch.layout.big_align;
 const page_size = mem.page_size;

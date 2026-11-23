@@ -1,6 +1,6 @@
 const std = @import("std");
 const arch = @import("../arch/arch.zig").current;
-const mem = @import("../memory.zig");
+const mem = @import("memory.zig");
 const gpa = @import("gpa.zig");
 const Spinlock = @import("../sync/Spinlock.zig");
 

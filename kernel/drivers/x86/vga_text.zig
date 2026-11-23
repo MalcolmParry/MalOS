@@ -1,5 +1,5 @@
 const std = @import("std");
-const mem = @import("../../memory.zig");
+const mem = @import("../../mem/memory.zig");
 const TextGrid = @import("../../tty/TextGrid.zig");
 const arch = @import("../../arch/arch.zig").current;
 

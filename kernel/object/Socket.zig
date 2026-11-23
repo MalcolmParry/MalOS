@@ -1,10 +1,10 @@
 const std = @import("std");
 const arch = @import("../arch/arch.zig").current;
-const mem = @import("../memory.zig");
-const pmm = @import("../pmm.zig");
+const mem = @import("../mem/memory.zig");
+const pmm = @import("../mem/pmm.zig");
 const Object = @import("Object.zig");
 const Spinlock = @import("../sync/Spinlock.zig");
-const gpa = @import("../heap/gpa.zig").allocator;
+const gpa = @import("../mem/gpa.zig").allocator;
 const Socket = @This();
 
 const buffer_size = mem.page_size;

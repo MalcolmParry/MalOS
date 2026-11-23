@@ -1,12 +1,12 @@
 const std = @import("std");
 const abi = @import("abi");
-const mem = @import("../memory.zig");
-const pmm = @import("../pmm.zig");
+const mem = @import("../mem/memory.zig");
+const pmm = @import("../mem/pmm.zig");
 const PerCpu = @import("../PerCpu.zig");
 const Thread = @import("Thread.zig");
 const Object = @import("../object/Object.zig");
 const Spinlock = @import("../sync/Spinlock.zig");
-const gpa = @import("../heap/gpa.zig").allocator;
+const gpa = @import("../mem/gpa.zig").allocator;
 const assert = std.debug.assert;
 const HandleTable = @This();
 
