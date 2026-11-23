@@ -85,8 +85,8 @@ pub const PerProcess = struct {
     }
 
     pub fn deinit(per_proc: *PerProcess) void {
-        if (per_proc.io_map0 != pmm.zeroPage() and per_proc.io_map0 != pmm.onePage()) pmm.freePage(per_proc.io_map0.toPtr());
-        if (per_proc.io_map1 != pmm.zeroPage() and per_proc.io_map1 != pmm.onePage()) pmm.freePage(per_proc.io_map1.toPtr());
+        if (per_proc.io_map0 != pmm.zeroPage() and per_proc.io_map0 != pmm.onePage()) pmm.freePage(per_proc.io_map0);
+        if (per_proc.io_map1 != pmm.zeroPage() and per_proc.io_map1 != pmm.onePage()) pmm.freePage(per_proc.io_map1);
     }
 
     pub fn giveAllPermissions(per_proc: *PerProcess) void {

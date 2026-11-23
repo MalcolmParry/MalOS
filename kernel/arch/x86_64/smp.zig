@@ -23,7 +23,7 @@ pub fn init() !void {
     const ap_params: *ApParams = @ptrFromInt(@intFromPtr(ap_trampoline_bytes) + 0xd00);
 
     const ap_page_table = try arch.paging.createTable();
-    if (@intFromPtr(ap_page_table.physPage()) > std.math.maxInt(u32)) @panic("ap page table cant fit in u32");
+    if (ap_page_table.physPage().toAddr() > std.math.maxInt(u32)) @panic("ap page table cant fit in u32");
     try arch.paging.mapPage(ap_page_table, .l4, @ptrCast(ap_trampoline_phys_page), ap_trampoline_phys_page, .{
         .cache_mode = .full,
         .executable = true,
@@ -64,7 +64,7 @@ pub fn init() !void {
     }
 
     ap_params.* = .{
-        .cr3 = @intFromPtr(ap_page_table.physPage()),
+        .cr3 = ap_page_table.physPage().toAddr(),
         .entry = @intFromPtr(&apEntry),
         .efer = arch.cpu.readMsr(arch.cpu.msrs.efer),
         .cr0 = @bitCast(arch.cpu.Cr0.get()),

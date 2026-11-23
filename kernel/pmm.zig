@@ -50,7 +50,7 @@ pub fn init() void {
     largest_bump_alloc = @intCast(free_pages);
 }
 
-pub fn allocatePage() !*mem.PhysPage {
+pub fn allocPage() !Index {
     if (next_bump_alloc.load(.monotonic) < largest_bump_alloc) {
         const bump_alloc = next_bump_alloc.fetchAdd(1, .monotonic);
         if (bump_alloc < largest_bump_alloc) {
@@ -58,7 +58,7 @@ pub fn allocatePage() !*mem.PhysPage {
             for (init_free_ranges.items) |range| {
                 if (offset + range.len > bump_alloc) {
                     _ = used_pages.fetchAdd(1, .monotonic);
-                    return &range[bump_alloc - offset];
+                    return .fromPtr(&range[bump_alloc - offset]);
                 }
 
                 offset += range.len;
@@ -81,32 +81,30 @@ pub fn allocatePage() !*mem.PhysPage {
         }
 
         _ = used_pages.fetchAdd(1, .monotonic);
-        return first_free.toPtr();
+        return first_free;
     }
 
     return error.OutOfMemory;
 }
 
 pub fn allocPageZeroed() !Index {
-    const page = try allocatePage();
-    const index: Index = .fromPtr(page);
-    @memset(&index.toDirectMap().bytes, 0);
-    return index;
+    const page = try allocPage();
+    @memset(&page.toDirectMap().bytes, 0);
+    return page;
 }
 
-pub fn freePage(page: *mem.PhysPage) void {
+pub fn freePage(page: Index) void {
     const lock = spinlock.lock();
     defer lock.unlock();
 
-    const index: Index = .fromPtr(page);
-    const desc: *FreeDesc = @ptrCast(index.toDirectMap());
+    const desc: *FreeDesc = @ptrCast(page.toDirectMap());
     if (debug and desc.magic == FreeDesc.magic_num) {
         // TODO: get used bitmap in debug mode
-        std.log.warn("double free at 0x{x}", .{index.toAddr()});
+        std.log.warn("double free at 0x{x}", .{page.toAddr()});
     }
 
     desc.* = .{ .next = maybe_first_free };
-    maybe_first_free = .wrap(index);
+    maybe_first_free = .wrap(page);
     _ = used_pages.fetchSub(1, .monotonic);
 }
 

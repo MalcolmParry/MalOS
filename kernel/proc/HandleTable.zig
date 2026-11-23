@@ -63,7 +63,7 @@ pub fn deinit(table: *HandleTable) void {
             if (slot.obj) |obj| obj.release();
         }
 
-        pmm.freePage(index.toPtr());
+        pmm.freePage(index);
     }
 
     gpa.destroy(table);
@@ -112,7 +112,7 @@ pub fn putLocked(table: *HandleTable, desc: Desc) !abi.Handle {
 
     const node_index = table.node_bump;
     if (node_index >= node_count) return error.TooManyHandles;
-    const node_page: pmm.Index = .fromPtr(try pmm.allocatePage());
+    const node_page: pmm.Index = try pmm.allocPage();
     const desc_slots: *[descs_per_node]DescSlot = @ptrCast(node_page.toDirectMap());
 
     for (desc_slots[1..], 2..) |*slot, next| {

@@ -51,9 +51,8 @@ fn alloc(_: *anyopaque, len: usize, alignment: std.mem.Alignment, _: usize) ?[*]
     const class = sizeClass(len, alignment);
     if (class >= size_class_count) {
         if (len > mem.page_size or alignment.toByteUnits() > mem.page_size) @panic("big allocation");
-        const phys = pmm.allocatePage() catch return null;
-        const index: pmm.Index = .fromPtr(phys);
-        return @ptrCast(index.toDirectMap());
+        const page = pmm.allocPage() catch return null;
+        return @ptrCast(page.toDirectMap());
     }
 
     const bucket = &size_buckets[class];
@@ -90,11 +89,9 @@ fn alloc(_: *anyopaque, len: usize, alignment: std.mem.Alignment, _: usize) ?[*]
         return slot;
     }
 
-    const page = pmm.allocatePage() catch return null;
-    const page_index: pmm.Index = .fromPtr(page);
-
-    bucket.first_free_page = .wrap(page_index);
-    const header = Header.get(page_index);
+    const page = pmm.allocPage() catch return null;
+    bucket.first_free_page = .wrap(page);
+    const header = Header.get(page);
     header.* = .{
         .free_count = @intCast(slot_count - 1),
         .first_free = 1,
@@ -102,14 +99,14 @@ fn alloc(_: *anyopaque, len: usize, alignment: std.mem.Alignment, _: usize) ?[*]
         .prev = .none,
     };
 
-    const page_bytes: [*]align(mem.page_size) u8 = &page_index.toDirectMap().bytes;
+    const page_bytes: [*]align(mem.page_size) u8 = &page.toDirectMap().bytes;
     for (1..slot_count) |i| {
         const slot = page_bytes + (i * slot_size);
         const link: *u16 = @ptrCast(@alignCast(slot));
         link.* = if (i == slot_count - 1) undefined else @intCast(i + 1);
     }
 
-    return &page_index.toDirectMap().bytes;
+    return &page.toDirectMap().bytes;
 }
 
 fn resize(_: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: usize, _: usize) bool {
@@ -136,8 +133,8 @@ fn free(_: *anyopaque, memory: []u8, alignment: std.mem.Alignment, _: usize) voi
     if (class >= size_class_count) {
         @branchHint(.unlikely);
         if (memory.len > mem.page_size or alignment.toByteUnits() > mem.page_size) @panic("big allocation");
-        const index: pmm.Index = .fromDirect(@ptrCast(@alignCast(memory.ptr)));
-        pmm.freePage(index.toPtr());
+        const page: pmm.Index = .fromDirect(@ptrCast(@alignCast(memory.ptr)));
+        pmm.freePage(page);
         return;
     }
 
@@ -148,8 +145,8 @@ fn free(_: *anyopaque, memory: []u8, alignment: std.mem.Alignment, _: usize) voi
     const slot_index: u16 = @intCast(slot_offset / slot_size);
     const link: *u16 = @ptrCast(@alignCast(memory.ptr));
 
-    const page_index: pmm.Index = .fromAddr(@intFromPtr(memory.ptr) - mem.direct_map_base);
-    const header = Header.get(page_index);
+    const page: pmm.Index = .fromAddr(@intFromPtr(memory.ptr) - mem.direct_map_base);
+    const header = Header.get(page);
 
     const bucket = &size_buckets[class];
     const lock = bucket.lock.lock();
@@ -165,7 +162,7 @@ fn free(_: *anyopaque, memory: []u8, alignment: std.mem.Alignment, _: usize) voi
         }
 
         lock.unlock();
-        pmm.freePage(page_index.toPtr());
+        pmm.freePage(page);
         return;
     }
 
@@ -176,10 +173,10 @@ fn free(_: *anyopaque, memory: []u8, alignment: std.mem.Alignment, _: usize) voi
         if (bucket.first_free_page.unwrap()) |other| {
             const other_h = Header.get(other);
             assert(other_h.prev == .none);
-            other_h.prev = .wrap(page_index);
+            other_h.prev = .wrap(page);
         }
 
-        bucket.first_free_page = .wrap(page_index);
+        bucket.first_free_page = .wrap(page);
     }
 
     link.* = header.first_free;

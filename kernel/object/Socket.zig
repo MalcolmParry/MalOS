@@ -22,9 +22,9 @@ pub const Pair = struct {
     ref_count: std.atomic.Value(u32),
 
     pub fn create() !*Pair {
-        const buffer0 = try pmm.allocatePage();
+        const buffer0 = try pmm.allocPage();
         errdefer pmm.freePage(buffer0);
-        const buffer1 = try pmm.allocatePage();
+        const buffer1 = try pmm.allocPage();
         errdefer pmm.freePage(buffer1);
 
         const pair = try gpa.create(Pair);
@@ -38,7 +38,7 @@ pub const Pair = struct {
                 .end = 0,
                 .read_offset = 0,
                 .write_offset = 0,
-                .buffer = .fromPtr(buffer0),
+                .buffer = buffer0,
             },
             .end1 = .{
                 .obj = .{
@@ -49,7 +49,7 @@ pub const Pair = struct {
                 .end = 1,
                 .read_offset = 0,
                 .write_offset = 0,
-                .buffer = .fromPtr(buffer1),
+                .buffer = buffer1,
             },
             .ref_count = .init(2),
         };
@@ -74,7 +74,7 @@ pub fn getPeer(sock: *Socket) *Socket {
 
 pub fn destroyEnd(sock: *Socket) void {
     const l = sock.lock.lock();
-    pmm.freePage(sock.buffer.toPtr());
+    pmm.freePage(sock.buffer);
     sock.buffer = undefined;
     l.unlock();
     const pair = sock.getPair();

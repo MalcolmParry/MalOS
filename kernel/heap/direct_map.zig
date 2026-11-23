@@ -17,9 +17,8 @@ const page_allocator = struct {
         if (len > mem.page_size) return null;
         if (alignment.toByteUnits() > mem.page_size) return null;
 
-        const phys = pmm.allocatePage() catch return null;
-        const index = @intFromPtr(phys) / mem.page_size;
-        return @ptrCast(&mem.direct_map[index]);
+        const page = pmm.allocPage() catch return null;
+        return @ptrCast(page.toDirectMap());
     }
 
     fn resize(_: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: usize, _: usize) bool {
@@ -40,6 +39,6 @@ const page_allocator = struct {
         std.debug.assert(std.mem.isAligned(@intFromPtr(memory.ptr), mem.page_size));
 
         const phys: *mem.PhysPage = @ptrFromInt(@intFromPtr(memory.ptr) - @intFromPtr(mem.direct_map.ptr));
-        pmm.freePage(phys);
+        pmm.freePage(.fromPtr(phys));
     }
 };

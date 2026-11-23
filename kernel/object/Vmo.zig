@@ -67,7 +67,7 @@ fn fillEntries(entries: []pmm.OptIndex, pages: []mem.PhysPage, level: usize) !vo
         if (remaining.len == 0) break;
         const n = @min(pages_per_entry, remaining.len);
 
-        const node_index: pmm.Index = .fromPtr(try pmm.allocatePage());
+        const node_index = try pmm.allocPage();
         entry.* = .wrap(node_index);
         const node: *TreeNode = @ptrCast(node_index.toDirectMap());
 
@@ -97,7 +97,7 @@ pub fn destroy(vmo: *Vmo) void {
 
 fn destroyEntry(entry: pmm.Index, level: usize) void {
     if (level == 0) {
-        pmm.freePage(entry.toPtr());
+        pmm.freePage(entry);
         return;
     }
 
@@ -106,7 +106,7 @@ fn destroyEntry(entry: pmm.Index, level: usize) void {
         if (sub.unwrap()) |x| destroyEntry(x, level - 1);
     }
 
-    pmm.freePage(entry.toPtr());
+    pmm.freePage(entry);
 }
 
 pub fn pageCount(vmo: *const Vmo) usize {
@@ -142,12 +142,11 @@ fn expandToDepthLocked(vmo: *Vmo, new_levels: usize) !void {
     }
 
     for (0..to_add) |_| {
-        const page = try pmm.allocatePage();
-        const index: pmm.Index = .fromPtr(page);
-        const node: *TreeNode = @ptrCast(index.toDirectMap());
+        const page = try pmm.allocPage();
+        const node: *TreeNode = @ptrCast(page.toDirectMap());
         @memcpy(node.entries[0..top_entries], &vmo.entries);
         @memset(node.entries[top_entries..], .none);
-        vmo.entries[0] = .wrap(index);
+        vmo.entries[0] = .wrap(page);
         @memset(vmo.entries[1..], .none);
         vmo.tree_level += 1;
     }
@@ -165,12 +164,11 @@ fn walkOrCreateLocked(vmo: *Vmo, page_offset: usize) ![]pmm.OptIndex {
         const index = (page_offset >> @intCast(level * level_bits)) & level_mask;
 
         const node_index = entries[index].unwrap() orelse blk: {
-            const page = try pmm.allocatePage();
-            const page_index: pmm.Index = .fromPtr(page);
-            const node: *TreeNode = @ptrCast(page_index.toDirectMap());
+            const page = try pmm.allocPage();
+            const node: *TreeNode = @ptrCast(page.toDirectMap());
             @memset(&node.entries, .none);
-            entries[index] = .wrap(page_index);
-            break :blk page_index;
+            entries[index] = .wrap(page);
+            break :blk page;
         };
 
         const node: *TreeNode = @ptrCast(node_index.toDirectMap());

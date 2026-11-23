@@ -75,7 +75,7 @@ pub const Message = struct {
     }
 
     pub fn destroyNoReleaseHandles(msg: *Message) void {
-        for (msg.data_pages[0..@divCeil(msg.data_size, mem.page_size)]) |index| pmm.freePage(index.toPtr());
+        for (msg.data_pages[0..@divCeil(msg.data_size, mem.page_size)]) |page| pmm.freePage(page);
         gpa.destroy(msg);
     }
 };

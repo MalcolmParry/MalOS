@@ -24,14 +24,14 @@ pub fn alloc(page_alloc: *PageAllocator, page_count: usize, flags: Vmm.PageFlags
     errdefer for (0..pages_mapped) |i| {
         const phys = arch.paging.getPhysFromVirt(page_alloc.table, &range[i]);
         arch.paging.clearEntry(page_alloc.table, &range[i]);
-        pmm.freePage(phys);
+        pmm.freePage(.fromPtr(phys));
     };
 
     for (range) |*page| {
-        const phys = try pmm.allocatePage();
+        const phys = try pmm.allocPage();
         errdefer pmm.freePage(phys);
 
-        try arch.paging.mapPage(page_alloc.table, .l4, page, phys, flags);
+        try arch.paging.mapPage(page_alloc.table, .l4, page, phys.toPtr(), flags);
         pages_mapped += 1;
     }
 
@@ -89,7 +89,7 @@ pub fn free(page_alloc: *PageAllocator, pages: []mem.Page) void {
     for (pages) |*page| {
         const phys = arch.paging.getPhysFromVirt(page_alloc.table, page);
         arch.paging.clearEntry(page_alloc.table, page);
-        pmm.freePage(phys);
+        pmm.freePage(.fromPtr(phys));
     }
 
     page_alloc.vmm.unreserve(pages) catch {};

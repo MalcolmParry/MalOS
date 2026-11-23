@@ -72,13 +72,13 @@ pub const Table = extern struct {
     }
 
     pub fn use(table: *Table) void {
-        const new: u64 = @intFromPtr(table.physPage());
+        const new: u64 = table.physPage().toAddr();
         const old = getCr3();
         if (new != old) setCr3(new);
     }
 
-    pub fn physPage(table: *Table) *mem.PhysPage {
-        return @ptrFromInt(@intFromPtr(table) - mem.direct_map_base);
+    pub fn physPage(table: *Table) pmm.Index {
+        return .fromDirect(@ptrCast(table));
     }
 
     fn clear(table: *Table) void {
@@ -94,15 +94,14 @@ pub const Table = extern struct {
 };
 
 fn allocTable() !*Table {
-    const phys = try pmm.allocatePage();
-    return @ptrCast(mem.physToDirect(phys));
+    const phys = try pmm.allocPage();
+    return @ptrCast(phys.toDirectMap());
 }
 
 fn getOrCreateTable(entry: *Entry) !*Table {
     if (entry.present) return entry.getLower();
 
-    const phys = try pmm.allocatePage();
-    const table: *Table = @ptrCast(mem.physToDirect(phys));
+    const table = try allocTable();
     table.clear();
 
     entry.* = .{
@@ -113,7 +112,7 @@ fn getOrCreateTable(entry: *Entry) !*Table {
         .disable_cache = false,
         .huge = false,
         .global = false,
-        .address = @intCast(@intFromPtr(phys) / mem.page_size),
+        .address = @backingInt(table.physPage()),
         .disable_execute = false,
     };
 
@@ -232,7 +231,7 @@ pub fn allocAndMap(virt: []mem.Page, flags: Vmm.PageFlags) !void {
         if (i == 0 or il1 == 0)
             l1 = walk(l4, page_index);
 
-        pmm.freePage(@ptrFromInt(@as(usize, l1.entries[il1].address) * mem.page_size));
+        pmm.freePage(@fromBackingInt(@intCast(l1.entries[il1].address)));
     };
 
     while (mapped < virt.len) : (mapped += 1) {
@@ -242,7 +241,7 @@ pub fn allocAndMap(virt: []mem.Page, flags: Vmm.PageFlags) !void {
             l1 = try walkOrCreate(l4, page_index);
 
         std.debug.assert(!l1.entries[il1].present);
-        const phys = try pmm.allocatePage();
+        const phys = try pmm.allocPage();
         l1.entries[il1] = .{
             .present = false,
             .writable = flags.writable,
@@ -251,7 +250,7 @@ pub fn allocAndMap(virt: []mem.Page, flags: Vmm.PageFlags) !void {
             .disable_cache = flags.cache_mode == .disabled,
             .huge = false,
             .global = true,
-            .address = @intCast(@intFromPtr(phys) / mem.page_size),
+            .address = @backingInt(phys),
             .disable_execute = !flags.executable,
         };
     }
@@ -429,7 +428,7 @@ pub fn init() void {
         const l2_phys: *mem.PhysPage = if (direct_page_index == 0)
             @ptrFromInt(@intFromPtr(&first_direct_map_l2) - mem.kernel_virt_base)
         else
-            l2.physPage();
+            l2.physPage().toPtr();
 
         for (&l2.entries) |*entry| {
             entry.* = .{
@@ -509,9 +508,8 @@ pub fn getCurrentTable() *Table {
 }
 
 pub fn createTable() !*Table {
-    const phys = try pmm.allocatePage();
-    const virt = pmm.Index.fromPtr(phys).toDirectMap();
-    const table: *Table = @ptrCast(virt);
+    const phys = try pmm.allocPage();
+    const table: *Table = @ptrCast(phys.toDirectMap());
 
     @memset(table.entries[0..256], .blank);
     @memcpy(table.entries[256..], l4_table.entries[256..]);

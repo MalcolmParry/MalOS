@@ -239,9 +239,9 @@ fn channelSend(args: [7]usize) abi.ChannelSendError![3]usize {
     };
 
     var data_pages_allocated: usize = 0;
-    errdefer for (msg.data_pages[0..data_pages_allocated]) |index| pmm.freePage(index.toPtr());
+    errdefer for (msg.data_pages[0..data_pages_allocated]) |index| pmm.freePage(index);
     for (msg.data_pages[0..data_page_count]) |*index| {
-        index.* = .fromPtr(try pmm.allocatePage());
+        index.* = try pmm.allocPage();
         data_pages_allocated += 1;
     }
 
