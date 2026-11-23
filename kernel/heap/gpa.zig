@@ -1,11 +1,10 @@
 const std = @import("std");
 const mem = @import("../memory.zig");
 const pmm = @import("../pmm.zig");
-const PageAllocator = @import("PageAllocator.zig");
 const Spinlock = @import("../sync/Spinlock.zig");
 
 const min_size_bucket = std.math.log2(@sizeOf(u16));
-const max_size_bucket = std.math.log2(mem.page_size / 2);
+const max_size_bucket = sizeClassIndex(mem.page_size / 4, .@"1");
 const size_bucket_count = max_size_bucket - min_size_bucket + 1;
 
 comptime {
@@ -29,11 +28,13 @@ pub const allocator: std.mem.Allocator = .{
     },
 };
 
-fn alloc(_: *anyopaque, len: usize, alignment: std.mem.Alignment, ret_addr: usize) ?[*]u8 {
+fn alloc(_: *anyopaque, len: usize, alignment: std.mem.Alignment, _: usize) ?[*]u8 {
     const class = sizeClassIndex(len, alignment);
     if (class >= size_bucket_count) {
-        @branchHint(.unlikely);
-        return PageAllocator.global.allocator().rawAlloc(len, alignment, ret_addr);
+        if (len > mem.page_size or alignment.toByteUnits() > mem.page_size) @panic("big allocation");
+        const phys = pmm.allocatePage() catch return null;
+        const index: pmm.Index = .fromPtr(phys);
+        return @ptrCast(index.toDirectMap());
     }
 
     const bucket = &size_buckets[class];
@@ -87,38 +88,32 @@ fn alloc(_: *anyopaque, len: usize, alignment: std.mem.Alignment, ret_addr: usiz
     return &page_index.toDirectMap().bytes;
 }
 
-fn resize(_: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: usize, ret_addr: usize) bool {
+fn resize(_: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: usize, _: usize) bool {
     const class = sizeClassIndex(memory.len, alignment);
     const new_class = sizeClassIndex(new_len, alignment);
 
     if (class >= size_bucket_count) {
         @branchHint(.unlikely);
+        if (new_len > mem.page_size or alignment.toByteUnits() > mem.page_size) return false;
         if (new_class < size_bucket_count) return false;
-        return PageAllocator.global.allocator().rawResize(memory, alignment, new_len, ret_addr);
+        return true;
     }
 
     return class == new_class;
 }
 
-fn remap(_: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: usize, ret_addr: usize) ?[*]u8 {
-    const class = sizeClassIndex(memory.len, alignment);
-    const new_class = sizeClassIndex(new_len, alignment);
-
-    if (class >= size_bucket_count) {
-        @branchHint(.unlikely);
-        if (new_class < size_bucket_count) return null;
-        return PageAllocator.global.allocator().rawRemap(memory, alignment, new_len, ret_addr);
-    }
-
-    return if (class == new_class) memory.ptr else null;
+fn remap(_: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: usize, _: usize) ?[*]u8 {
+    return if (resize(undefined, memory, alignment, new_len, undefined)) memory.ptr else null;
 }
 
-fn free(_: *anyopaque, memory: []u8, alignment: std.mem.Alignment, ret_addr: usize) void {
+fn free(_: *anyopaque, memory: []u8, alignment: std.mem.Alignment, _: usize) void {
     const class = sizeClassIndex(memory.len, alignment);
 
     if (class >= size_bucket_count) {
         @branchHint(.unlikely);
-        PageAllocator.global.allocator().rawFree(memory, alignment, ret_addr);
+        if (memory.len > mem.page_size or alignment.toByteUnits() > mem.page_size) @panic("big allocation");
+        const index: pmm.Index = .fromDirect(@ptrCast(@alignCast(memory.ptr)));
+        pmm.freePage(index.toPtr());
         return;
     }
 

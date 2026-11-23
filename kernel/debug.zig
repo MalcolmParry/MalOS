@@ -4,7 +4,7 @@ const arch = @import("arch/arch.zig").current;
 const log = @import("log.zig");
 const mem = @import("memory.zig");
 const builtin = @import("builtin");
-const gpa = @import("heap/gpa.zig");
+const debug_alloc = @import("heap/debug_alloc.zig");
 const boot_info = @import("boot_info.zig");
 const ustar = @import("shared").ustar;
 
@@ -83,7 +83,7 @@ pub fn dumpErrorAndPanic(err: anytype) noreturn {
 }
 
 pub fn getDebugInfoAllocator() std.mem.Allocator {
-    return gpa.allocator;
+    return debug_alloc.allocator;
 }
 
 pub fn printLineFromFile(_: std.Io, writer: *std.Io.Writer, src_loc: std.debug.SourceLocation) !void {

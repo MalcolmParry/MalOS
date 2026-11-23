@@ -1,7 +1,6 @@
 const std = @import("std");
 const arch = @import("x86_64.zig");
 const mem = @import("../../memory.zig");
-const PageAlloc = @import("../../heap/PageAllocator.zig");
 const pic = @import("pic.zig");
 const pit = @import("../../drivers/x86/pit.zig");
 const acpi = @import("acpi.zig");

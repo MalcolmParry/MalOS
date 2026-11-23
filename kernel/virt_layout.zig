@@ -30,6 +30,7 @@ const base_requested: []const RequestedRegion = &.{
     .{ .name = .kernel_stacks, .size = 1024 * 1024 * 1024 * 16 },
     .{ .name = .heap, .size = 1024 * 1024 * 1024 * 64 },
     .{ .name = .per_cpu, .size = @sizeOf(PerCpu) * (PerCpu.max_cpus - 1) },
+    .{ .name = .debug_heap, .size = 1024 * 1024 * 1024 * 64 },
 };
 
 pub const regions = generateLayout(base_requested ++ arch.layout.requests, arch.layout.min_kernel_addr, arch.layout.kernel_space_size);
