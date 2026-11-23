@@ -181,5 +181,5 @@ fn apEntry(per_cpu: *PerCpu) callconv(.{ .x86_64_sysv = .{} }) noreturn {
     while (!ap_start.load(.monotonic)) std.atomic.spinLoopHint();
 
     log.info("cpu {}", .{per_cpu.id});
-    arch.spinWait();
+    Thread.exitCurrent();
 }

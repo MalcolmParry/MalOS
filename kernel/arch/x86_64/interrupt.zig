@@ -10,6 +10,7 @@ const log = @import("../../log.zig");
 const syscall = @import("../../syscall.zig");
 const abi = @import("abi");
 const user_copy = @import("user_copy.zig");
+const PerCpu = @import("../../PerCpu.zig");
 
 const debug = switch (builtin.mode) {
     .ReleaseFast, .ReleaseSmall => false,
@@ -189,6 +190,10 @@ fn handler(state: *align(1) arch.cpu.State) callconv(.{ .x86_64_sysv = .{ .incom
             scheduler.preempt(state);
         },
         apic.error_int_vec => apic.handleError(state),
+        apic.reschedule_int_vec => { // reschedule
+            apic.eoi(0);
+            scheduler.preempt(state);
+        },
         0xff => { // spurious interrupt
             state.restore();
         },

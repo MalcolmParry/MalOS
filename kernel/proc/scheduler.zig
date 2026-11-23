@@ -6,6 +6,7 @@ const assert = std.debug.assert;
 const Thread = @import("Thread.zig");
 const boot_info = @import("../boot_info.zig");
 
+pub var idle_mask: PerCpu.Mask = .empty;
 pub var lock: Spinlock = .init;
 var first_sleeping: ?*Thread = null;
 var first_ready: ?*Thread = null;
@@ -57,6 +58,7 @@ pub fn preempt(state: *align(1) arch.cpu.State) noreturn {
     const next = chooseThread();
     next.state = .running;
     pc.thread.current = next;
+    updateIdleState(next);
 
     if (last != next) {
         arch.cpu.prepareThreadSwitch(next, last);
@@ -98,6 +100,7 @@ pub fn scheduleLockHeld(next_state: Thread.State) bool {
     const next = chooseThread();
     next.state = .running;
     if (next == last) return false;
+    updateIdleState(next);
 
     pc.thread.current = next;
     arch.cpu.prepareThreadSwitch(next, last);
@@ -116,6 +119,22 @@ pub fn wake(thread: *Thread) void {
     assert(thread.state == .blocked);
     thread.state = .ready;
     linkReady(thread);
+    rescheduleFirstIdle();
+}
+
+pub fn updateIdleState(next: *Thread) void {
+    const pc = PerCpu.get();
+    _ = idle_mask.unset(pc.id, .monotonic);
+    rescheduleFirstIdle();
+    if (next == pc.thread.idle) _ = idle_mask.set(pc.id, .monotonic);
+}
+
+pub fn rescheduleFirstIdle() void {
+    if (first_ready == null) return;
+    if (idle_mask.findFirstAndUnset()) |cpu| blk: {
+        if (cpu == PerCpu.get().id) break :blk;
+        arch.sendRescheduleIpi(cpu);
+    }
 }
 
 /// assumes lock is held

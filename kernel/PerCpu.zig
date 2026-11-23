@@ -21,3 +21,48 @@ thread: Thread.CpuLocal,
 pub fn get() *PerCpu {
     return arch.getPerCpu();
 }
+
+pub const Mask = struct {
+    int: std.atomic.Value(Int),
+
+    const Int = @Int(.unsigned, max_cpus);
+    pub const empty: Mask = .{ .int = .init(0) };
+    pub const full: Mask = .{ .int = .init((1 << max_cpus) - 1) };
+
+    pub fn set(mask: *Mask, cpu: u32, comptime order: std.lang.AtomicOrder) bool {
+        const cpu_mask = @as(Int, 1) << @intCast(cpu);
+        const old = mask.int.fetchOr(cpu_mask, order);
+        return old & cpu_mask > 0;
+    }
+
+    pub fn unset(mask: *Mask, cpu: u32, comptime order: std.lang.AtomicOrder) bool {
+        const cpu_mask = @as(Int, 1) << @intCast(cpu);
+        const old = mask.int.fetchAnd(~cpu_mask, order);
+        return old & cpu_mask > 0;
+    }
+
+    pub fn setValue(mask: *Mask, cpu: u32, val: bool, comptime order: std.lang.AtomicOrder) bool {
+        return if (val) mask.set(cpu, order) else mask.unset(cpu, order);
+    }
+
+    pub fn isSet(mask: *Mask, cpu: u32, comptime order: std.lang.AtomicOrder) bool {
+        const val = mask.int.load(order);
+        return val & (@as(Int, 1) << @intCast(cpu)) > 0;
+    }
+
+    pub fn findFirstSet(mask: *Mask) ?u32 {
+        const val = mask.int.load(.monotonic);
+        const trailing = @ctz(val);
+        if (trailing == max_cpus) return null;
+        return trailing;
+    }
+
+    pub fn findFirstAndUnset(mask: *Mask) ?u32 {
+        while (true) {
+            const val = mask.int.load(.monotonic);
+            const trailing = @ctz(val);
+            if (trailing == max_cpus) return null;
+            if (mask.int.cmpxchgWeak(val, val & ~(@as(Int, 1) << @intCast(trailing)), .monotonic, .monotonic) == null) return trailing;
+        }
+    }
+};

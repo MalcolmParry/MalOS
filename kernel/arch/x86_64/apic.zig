@@ -96,6 +96,7 @@ pub const Lapic = extern struct {
 
 pub const timer_int_vec = 0x30;
 pub const error_int_vec = 0xfe;
+pub const reschedule_int_vec = 0xfd;
 
 pub var use_pic: bool = true;
 pub const lapic: *volatile Lapic = @ptrFromInt(mem.getRegion(.lapic).base);
@@ -143,6 +144,13 @@ pub fn handleError(state: *align(1) arch.cpu.State) noreturn {
 
     writeReg(.eoi, 0);
     state.restore();
+}
+
+pub fn sendRescheduleIpi(cpu: u32) void {
+    arch.interrupt.assertDisabled();
+    writeReg(.icr_high, .{ .apic_id = PerCpu.cpus[cpu].?.arch_specific.apic_id });
+    writeReg(.icr_low, .{ .delivery_mode = .normal, .int_vec = reschedule_int_vec });
+    while (readReg(.icr_low).delivery_status) std.atomic.spinLoopHint();
 }
 
 pub var shutting_down: std.atomic.Value(u32) = .init(0);

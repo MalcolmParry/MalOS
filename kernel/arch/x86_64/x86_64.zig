@@ -20,6 +20,7 @@ pub const initBootInfo = multiboot.initBootInfo;
 pub const halt = cpu.halt;
 pub const spinWait = cpu.spinWait;
 pub const shutdownOtherCpus = apic.shutdownOtherCpus;
+pub const sendRescheduleIpi = apic.sendRescheduleIpi;
 
 pub const in = cpu.in;
 pub const out = cpu.out;

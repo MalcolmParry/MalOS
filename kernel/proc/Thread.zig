@@ -123,6 +123,7 @@ pub fn startLocked(thread: *Thread, state: *align(1) const arch.cpu.State) !void
     thread.obj.acquire();
     thread.state = .ready;
     scheduler.linkReady(thread);
+    scheduler.rescheduleFirstIdle();
 }
 
 pub fn startWrapped(thread: *Thread, func: anytype, args: std.meta.ArgsTuple(@TypeOf(func))) !void {
@@ -173,6 +174,7 @@ pub fn exitCurrent() noreturn {
     pc.thread.current = next;
     next.state = .running;
     arch.cpu.prepareThreadSwitch(next, null);
+    scheduler.updateIdleState(next);
 
     scheduler.setPreemptionTimer(now, next == pc.thread.idle);
     const s = next.cpu_state.?;
