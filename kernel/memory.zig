@@ -22,6 +22,38 @@ comptime {
     std.debug.assert(@alignOf(PhysPage) == page_size);
 }
 
+pub const PageFlags = packed struct {
+    const CacheMode = enum(u2) {
+        full,
+        // for memory that is read by hardware
+        write_through,
+        // for io
+        disabled,
+    };
+
+    cache_mode: CacheMode,
+    writable: bool,
+    executable: bool,
+    user: bool,
+    global: bool,
+
+    pub const kernel_rw: PageFlags = .{
+        .cache_mode = .full,
+        .writable = true,
+        .executable = false,
+        .user = false,
+        .global = true,
+    };
+
+    pub const mmio: PageFlags = .{
+        .cache_mode = .disabled,
+        .writable = true,
+        .executable = false,
+        .user = false,
+        .global = true,
+    };
+};
+
 pub const getRegion = virt_layout.get;
 pub fn pageAlignForward(addr: usize) usize {
     return std.mem.alignForward(usize, addr, page_size);

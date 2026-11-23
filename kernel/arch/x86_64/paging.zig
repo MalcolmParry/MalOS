@@ -1,7 +1,6 @@
 const std = @import("std");
 const gdt = @import("gdt.zig");
 const mem = @import("../../memory.zig");
-const Vmm = @import("../../Vmm.zig");
 const pmm = @import("../../pmm.zig");
 const arch = @import("x86_64.zig");
 const boot_info = @import("../../boot_info.zig");
@@ -141,7 +140,7 @@ fn walkOrCreate(l4: *Table, page_index: usize) !*Table {
     return l1;
 }
 
-pub fn mapVmoLocked(l4: *Table, vmo: *Vmo, vmo_first_page: usize, first_page: usize, page_count: usize, flags: Vmm.PageFlags) !void {
+pub fn mapVmoLocked(l4: *Table, vmo: *Vmo, vmo_first_page: usize, first_page: usize, page_count: usize, flags: mem.PageFlags) !void {
     std.debug.assert(!flags.global);
     std.debug.assert(flags.user);
 
@@ -186,7 +185,7 @@ pub fn unmap(l4: *Table, first_page: usize, page_count: usize) void {
     }
 }
 
-pub fn mapPage(table: *Table, level: Table.Level, virt: *allowzero mem.Page, phys: *mem.PhysPage, page_flags: Vmm.PageFlags) !void {
+pub fn mapPage(table: *Table, level: Table.Level, virt: *allowzero mem.Page, phys: pmm.Index, page_flags: mem.PageFlags) !void {
     const indices = getIndicesFromVirtAddr(@intFromPtr(virt));
 
     var cur = table;
@@ -213,12 +212,12 @@ pub fn mapPage(table: *Table, level: Table.Level, virt: *allowzero mem.Page, phy
         .disable_cache = page_flags.cache_mode == .disabled,
         .huge = false,
         .global = page_flags.global,
-        .address = @intCast(@intFromPtr(phys) / mem.page_size),
+        .address = @backingInt(phys),
         .disable_execute = !page_flags.executable,
     };
 }
 
-pub fn allocAndMap(virt: []mem.Page, flags: Vmm.PageFlags) !void {
+pub fn allocAndMap(virt: []mem.Page, flags: mem.PageFlags) !void {
     std.debug.assert(!flags.user);
     std.debug.assert(flags.global);
 
@@ -469,7 +468,7 @@ pub fn init() void {
             const phys: *mem.PhysPage = @ptrFromInt(@intFromPtr(page) - mem.kernel_virt_base);
             std.debug.assert(@intFromPtr(phys) < 4096 * 512 * 512);
 
-            mapPage(&l2_kernel_table, .l2, page, phys, region.flags) catch @panic("failed to map kernel");
+            mapPage(&l2_kernel_table, .l2, page, .fromPtr(phys), region.flags) catch @panic("failed to map kernel");
         }
     }
 

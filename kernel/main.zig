@@ -2,8 +2,6 @@ const arch = @import("arch/arch.zig").current;
 const boot_info = @import("boot_info.zig");
 const mem = @import("memory.zig");
 const pmm = @import("pmm.zig");
-const Vmm = @import("Vmm.zig");
-const PageAllocator = @import("heap/PageAllocator.zig");
 const std = @import("std");
 const builtin = @import("builtin");
 const scheduler = @import("proc/scheduler.zig");
@@ -54,15 +52,6 @@ pub fn kernelMain() !noreturn {
     pmm.init();
 
     arch.paging.init();
-    PageAllocator.global = .{
-        .table = arch.paging.getGlobalKernelTable(),
-        .vmm = try Vmm.init(mem.getRegion(.heap).page_slice),
-        .default_flags = .kernel_rw,
-        .lock = .init,
-    };
-    const page_alloc = PageAllocator.global.allocator();
-    _ = page_alloc;
-
     debug.init();
     try arch.time.init();
     try scheduler.init();

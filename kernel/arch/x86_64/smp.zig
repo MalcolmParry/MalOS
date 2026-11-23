@@ -1,6 +1,7 @@
 const std = @import("std");
 const arch = @import("x86_64.zig");
 const mem = @import("../../memory.zig");
+const pmm = @import("../../pmm.zig");
 const apic = @import("apic.zig");
 const gdt = @import("gdt.zig");
 const time = @import("time.zig");
@@ -10,7 +11,7 @@ const scheduler = @import("../../proc/scheduler.zig");
 const ap_trampoline = @embedFile("ap_trampoline");
 const log = std.log.scoped(.smp);
 
-pub var ap_trampoline_phys_page: *mem.PhysPage = undefined;
+pub var ap_trampoline_phys_page: pmm.Index = undefined;
 pub var ap_count: u32 = 0;
 pub var ap_apic_ids: [PerCpu.max_cpus]u8 = undefined;
 
@@ -18,13 +19,13 @@ pub fn init() !void {
     if (apic.use_pic) return;
     if (ap_count == 0) return;
 
-    const ap_trampoline_bytes = @as([*]u8, @ptrFromInt(@intFromPtr(ap_trampoline_phys_page) + mem.direct_map_base))[0..4096];
+    const ap_trampoline_bytes = &ap_trampoline_phys_page.toDirectMap().bytes;
     @memcpy(ap_trampoline_bytes[0..ap_trampoline.len], ap_trampoline);
     const ap_params: *ApParams = @ptrFromInt(@intFromPtr(ap_trampoline_bytes) + 0xd00);
 
     const ap_page_table = try arch.paging.createTable();
     if (ap_page_table.physPage().toAddr() > std.math.maxInt(u32)) @panic("ap page table cant fit in u32");
-    try arch.paging.mapPage(ap_page_table, .l4, @ptrCast(ap_trampoline_phys_page), ap_trampoline_phys_page, .{
+    try arch.paging.mapPage(ap_page_table, .l4, @ptrCast(ap_trampoline_phys_page.toPtr()), ap_trampoline_phys_page, .{
         .cache_mode = .full,
         .executable = true,
         .global = false,
@@ -50,7 +51,7 @@ pub fn init() !void {
         gdt.init(per_cpu);
     }
 
-    const trampoline_page: u8 = @intCast(@intFromPtr(ap_trampoline_phys_page) / 4096);
+    const trampoline_page: u8 = @intCast(@backingInt(ap_trampoline_phys_page));
     for (ap_per_cpus) |*per_cpu| {
         const apic_id = per_cpu.arch_specific.apic_id;
 

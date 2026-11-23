@@ -357,7 +357,7 @@ pub fn initBootInfo() void {
         const page = &region.*[0];
         region.* = region.*[1..];
         if (region.len == 0) _ = boot_info.available_phys_ranges.swapRemove(i);
-        break :blk page;
+        break :blk pmm.Index.fromPtr(page);
     } else @panic("cant find memory for ap trampoline");
 
     cpu.Cr0.set(.{

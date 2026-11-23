@@ -1,6 +1,5 @@
 const std = @import("std");
 const mem = @import("memory.zig");
-const Vmm = @import("Vmm.zig");
 
 pub var boot_stack: []mem.Page = undefined;
 pub var max_phys_addr: *mem.PhysPage = undefined;
@@ -17,7 +16,7 @@ var module_buffer: [8]Module = undefined;
 
 pub const KernelRegion = struct {
     pages: []mem.Page,
-    flags: Vmm.PageFlags,
+    flags: mem.PageFlags,
 };
 
 pub const Module = struct {

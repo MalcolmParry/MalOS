@@ -28,7 +28,6 @@ const base_requested: []const RequestedRegion = &.{
     .{ .name = .direct_map, .size = arch.layout.direct_map_size },
     .{ .name = .kernel, .size = arch.layout.kernel_region_size, .maybe_addr = mem.kernel_virt_base },
     .{ .name = .kernel_stacks, .size = 1024 * 1024 * 1024 * 16 },
-    .{ .name = .heap, .size = 1024 * 1024 * 1024 * 64 },
     .{ .name = .per_cpu, .size = @sizeOf(PerCpu) * (PerCpu.max_cpus - 1) },
     .{ .name = .debug_heap, .size = 1024 * 1024 * 1024 * 64 },
 };

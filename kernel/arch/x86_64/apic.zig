@@ -107,7 +107,7 @@ pub fn init() !void {
 
     // no lock taken for map page
     std.debug.assert(PerCpu.cpu_count == 1);
-    try arch.paging.mapPage(arch.paging.getGlobalKernelTable(), .l4, &mem.getRegion(.lapic).page_slice[0], @ptrFromInt(phys_apic_base), .mmio);
+    try arch.paging.mapPage(arch.paging.getGlobalKernelTable(), .l4, &mem.getRegion(.lapic).page_slice[0], .fromAddr(phys_apic_base), .mmio);
 
     arch.cpu.writeMsr(arch.cpu.msrs.apic_base, apic_msr | msr_apic_base_enable);
     initAp();
