@@ -199,15 +199,6 @@ const PageDesc = struct {
     const Data = union {
         none: void,
         next_free: OptIndex,
-        gpa: GpaPage,
-
-        const GpaPage = struct {
-            first_free: u16,
-            free_count: u16,
-            prev: OptIndex,
-            next: OptIndex,
-            bump: u16,
-        };
     };
 };
 
