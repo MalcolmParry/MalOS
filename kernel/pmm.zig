@@ -3,10 +3,8 @@ const builtin = @import("builtin");
 const mem = @import("memory.zig");
 const Spinlock = @import("sync/Spinlock.zig");
 const boot_info = @import("boot_info.zig");
-const debug = switch (builtin.mode) {
-    .Debug, .ReleaseSafe => true,
-    else => false,
-};
+const assert = std.debug.assert;
+const debug = builtin.mode.runtimeSafety();
 
 pub var total_pages: usize = 0;
 pub var used_pages: std.atomic.Value(usize) = .init(0);
@@ -18,10 +16,9 @@ var init_free_ranges_buffer: [16][]mem.PhysPage = undefined;
 var init_free_ranges: std.ArrayList([]mem.PhysPage) = .initBuffer(&init_free_ranges_buffer);
 
 var spinlock: Spinlock = .init;
-var page_descs: []PageDesc = &.{};
 var maybe_first_free: OptIndex = .none;
 
-pub fn tempInit() void {
+pub fn init() void {
     init_free_ranges.appendSliceBounded(boot_info.available_phys_ranges.items) catch @panic("too many ranges");
     reserveAvailableRegion(boot_info.kernel_phys_range);
     for (boot_info.modules.items) |module| {
@@ -53,11 +50,6 @@ pub fn tempInit() void {
     largest_bump_alloc = @intCast(free_pages);
 }
 
-pub fn init(alloc: std.mem.Allocator) void {
-    const desc_count = @intFromPtr(boot_info.max_phys_addr) / mem.page_size;
-    page_descs = alloc.alloc(PageDesc, desc_count) catch @panic("cant allocate physical page descs");
-}
-
 pub fn allocatePage() !*mem.PhysPage {
     if (next_bump_alloc.load(.monotonic) < largest_bump_alloc) {
         const bump_alloc = next_bump_alloc.fetchAdd(1, .monotonic);
@@ -80,18 +72,13 @@ pub fn allocatePage() !*mem.PhysPage {
     defer lock.unlock();
 
     if (maybe_first_free.unwrap()) |first_free| {
-        const desc = first_free.getDesc();
-        maybe_first_free = desc.data.next_free;
+        const desc: *FreeDesc = @ptrCast(first_free.toDirectMap());
+        maybe_first_free = desc.next;
 
         if (debug) {
-            std.debug.assert(desc.magic == PageDesc.magic_num);
-            std.debug.assert(desc.state == .free);
+            assert(desc.magic == FreeDesc.magic_num);
+            desc.magic = 0;
         }
-
-        desc.* = .{
-            .state = if (debug) .used else {},
-            .data = .{ .none = {} },
-        };
 
         _ = used_pages.fetchAdd(1, .monotonic);
         return first_free.toPtr();
@@ -111,21 +98,24 @@ pub fn freePage(page: *mem.PhysPage) void {
     const lock = spinlock.lock();
     defer lock.unlock();
 
-    std.debug.assert(page_descs.len != 0);
-    const desc_index: Index = .fromPtr(page);
-    const desc = desc_index.getDesc();
-
-    if (debug and desc.magic == PageDesc.magic_num) {
-        std.debug.assert(desc.state == .used);
+    const index: Index = .fromPtr(page);
+    const desc: *FreeDesc = @ptrCast(index.toDirectMap());
+    if (debug and desc.magic == FreeDesc.magic_num) {
+        // TODO: get used bitmap in debug mode
+        std.log.warn("double free at 0x{x}", .{index.toAddr()});
     }
 
-    desc.* = .{
-        .data = .{ .next_free = maybe_first_free },
-        .state = if (debug) .free else {},
-    };
-    maybe_first_free = .wrap(desc_index);
+    desc.* = .{ .next = maybe_first_free };
+    maybe_first_free = .wrap(index);
     _ = used_pages.fetchSub(1, .monotonic);
 }
+
+const FreeDesc = struct {
+    next: OptIndex,
+    magic: if (debug) usize else void = if (debug) magic_num else {},
+
+    const magic_num = 0x1234_5678_9abc;
+};
 
 var zero_page_virt: mem.Page = .{ .bytes = @splat(0) };
 var one_page_virt: mem.Page = .{ .bytes = @splat(0xff) };
@@ -145,12 +135,16 @@ pub const Index = enum(u32) {
         return fromAddr(@intFromPtr(ptr));
     }
 
+    pub fn toPtr(index: Index) *mem.PhysPage {
+        return @ptrFromInt(index.toAddr());
+    }
+
     pub fn fromAddr(addr: usize) Index {
         return @fromBackingInt(@intCast(addr / mem.page_size));
     }
 
-    pub fn toPtr(index: Index) *mem.PhysPage {
-        return @ptrFromInt(@as(usize, @backingInt(index)) * mem.page_size);
+    pub fn toAddr(index: Index) usize {
+        return @as(usize, @backingInt(index)) * mem.page_size;
     }
 
     pub fn toDirectMap(index: Index) *mem.Page {
@@ -160,10 +154,6 @@ pub const Index = enum(u32) {
     pub fn fromDirect(direct: *mem.Page) Index {
         return .fromAddr(@intFromPtr(direct) - mem.direct_map_base);
     }
-
-    pub fn getDesc(page: Index) *PageDesc {
-        return &page_descs[@backingInt(page)];
-    }
 };
 
 pub const OptIndex = enum(u32) {
@@ -172,7 +162,7 @@ pub const OptIndex = enum(u32) {
 
     pub inline fn wrap(maybe_index: ?Index) OptIndex {
         if (maybe_index) |index| {
-            std.debug.assert(@backingInt(index) != 0);
+            assert(@backingInt(index) != 0);
             return @fromBackingInt(@backingInt(index));
         } else {
             return .none;
@@ -182,24 +172,6 @@ pub const OptIndex = enum(u32) {
     pub inline fn unwrap(opt_index: OptIndex) ?Index {
         return if (opt_index == .none) null else @fromBackingInt(@backingInt(opt_index));
     }
-};
-
-const PageDesc = struct {
-    data: Data,
-
-    magic: if (debug) u32 else void = if (debug) magic_num else {},
-    state: if (debug) State else void,
-
-    const magic_num: u32 = 0x6769_0420;
-    const State = enum(u8) {
-        free,
-        used,
-    };
-
-    const Data = union {
-        none: void,
-        next_free: OptIndex,
-    };
 };
 
 fn reserveAvailableRegion(reserved: []mem.Phys(u8)) void {

@@ -11,7 +11,8 @@ const max_size_class = sizeClass(max_alloc, .@"1");
 const size_class_count = max_size_class + 1;
 
 comptime {
-    std.debug.assert(classSlots(0) <= std.math.maxInt(u16));
+    assert(classSlots(0) <= std.math.maxInt(u16));
+    assert(classSlots(max_size_class) >= 2);
 }
 
 const Header = extern struct {
@@ -209,5 +210,5 @@ fn classSize(class: usize) usize {
 }
 
 fn classSlots(class: usize) usize {
-    return mem.page_size / classSize(class) - 1;
+    return (mem.page_size - @sizeOf(Header)) / classSize(class);
 }

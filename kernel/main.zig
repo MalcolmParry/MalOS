@@ -51,7 +51,7 @@ pub fn kernelMain() !noreturn {
     std.log.info("KernelVirtBase: 0x{x}", .{mem.kernel_virt_base});
     std.log.info("Max Physical Address: 0x{x}", .{@intFromPtr(boot_info.max_phys_addr)});
 
-    pmm.tempInit();
+    pmm.init();
 
     arch.paging.init();
     PageAllocator.global = .{
@@ -61,8 +61,8 @@ pub fn kernelMain() !noreturn {
         .lock = .init,
     };
     const page_alloc = PageAllocator.global.allocator();
+    _ = page_alloc;
 
-    pmm.init(page_alloc);
     debug.init();
     try arch.time.init();
     try scheduler.init();
