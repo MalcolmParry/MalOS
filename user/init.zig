@@ -168,8 +168,89 @@ pub fn main(initrd: abi.Handle) !void {
     }
 
     std.log.info("ext2 superblock:{s}", .{writer.buffered()});
+
+    while (true) {
+        var read_buffer: [abi.max_klog_entry]u8 align(@alignOf(abi.KLogEntryHeader)) = undefined;
+        const header: *abi.KLogEntryHeader = @ptrCast(&read_buffer);
+        const len = lib.syscall.klogRead(lib.klog, &read_buffer) catch |err| return switch (err) {
+            error.IsEmpty => continue,
+            else => |x| x,
+        };
+
+        const scope = std.mem.sliceTo(@as([]const u8, &header.scope), 0);
+        const t: std.Io.Terminal = .{ .writer = &serial_writer, .mode = .escape_codes };
+
+        t.setColor(.reset) catch {};
+        t.setColor(switch (header.flags.level) {
+            .err => .red,
+            .warn => .yellow,
+            .info => .green,
+            .debug => .magenta,
+        }) catch {};
+
+        t.setColor(.bold) catch {};
+        try t.writer.writeAll(@tagName(header.flags.level));
+        t.setColor(.reset) catch {};
+        t.setColor(.dim) catch {};
+        t.setColor(.bold) catch {};
+        if (scope.len != 0) try t.writer.print("({s})", .{scope});
+        try t.writer.writeAll(": ");
+        t.setColor(.reset) catch {};
+
+        try t.writer.writeAll(read_buffer[@sizeOf(abi.KLogEntryHeader)..][0..len]);
+        try t.writer.writeAll("\n");
+        if (header.flags.truncated) {
+            t.setColor(.reset) catch {};
+            t.setColor(.dim) catch {};
+            t.writer.print("(message truncated)\n", .{}) catch {};
+        }
+    }
+
     lib.syscall.threadExit();
 }
+
+fn isTransmitEmpty() bool {
+    return in(u8, 0x3f8 + 5) & 0x20 > 0;
+}
+
+pub fn writeByte(byte: u8) void {
+    while (!isTransmitEmpty()) {
+        std.atomic.spinLoopHint();
+    }
+
+    outb(0x3f8, byte);
+}
+
+pub fn writeStr(str: []const u8) void {
+    for (str) |c| switch (c) {
+        '\n' => write("\r\n"),
+        else => writeByte(c),
+    };
+}
+
+pub fn write(data: []const u8) void {
+    for (data) |byte| writeByte(byte);
+}
+
+fn drain(this: *std.Io.Writer, data: []const []const u8, splat: usize) !usize {
+    this.end = 0;
+    var written: usize = 0;
+
+    for (data[0 .. data.len - 1]) |x| {
+        writeStr(x);
+        written += x.len;
+    }
+
+    const pattern = data[data.len - 1];
+    for (0..splat) |_| {
+        writeStr(pattern);
+        written += pattern.len;
+    }
+
+    return written;
+}
+
+var serial_writer: std.Io.Writer = .{ .vtable = &.{ .drain = &drain }, .buffer = &.{} };
 
 fn outb(port: u16, data: u8) void {
     asm volatile (

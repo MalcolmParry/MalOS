@@ -83,6 +83,28 @@ pub fn write(str: []const u8, header: abi.KLogEntryHeader) void {
     printEntryAllBackends(entry);
 }
 
+pub fn read(klog: *KLog, buffer: []u8, header: *abi.KLogEntryHeader) !usize {
+    const l = lock.lock();
+    defer l.unlock();
+
+    const id = if (klog.cur_id < first_entry) first_entry else klog.cur_id;
+    if (id >= first_entry + entry_count) return error.IsEmpty;
+
+    const entry = entries[id % entries.len];
+    const to_read = @min(buffer.len, entry.len);
+
+    const full_upper = entry_data[entry.start % entry_data.len ..];
+    const upper = full_upper[0..@min(full_upper.len, to_read)];
+    @memcpy(buffer[0..upper.len], upper);
+
+    const lower = entry_data[0 .. to_read - upper.len];
+    @memcpy(buffer[upper.len..][0..lower.len], lower);
+
+    klog.cur_id = id + 1;
+    header.* = entry.header;
+    return entry.len;
+}
+
 var vga_text_term: Terminal = .{ .tg = &vga_text.tg };
 var vga_text_writer = vga_text_term.writer(&.{});
 

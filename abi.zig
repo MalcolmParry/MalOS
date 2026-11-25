@@ -20,6 +20,7 @@ pub const Syscall = enum(usize) {
     socket_receive,
 
     klog_write,
+    klog_read,
 
     vmo_create,
     vmo_write,
@@ -207,6 +208,7 @@ pub const ChannelSendError = error{ BadHandle, BadHandleKind, Fault, PeerClosed,
 pub const ChannelReceiveError = error{ BadHandle, BadHandleKind, Fault, PeerClosed, TooBig, OutOfMemory, TooManyHandles, NoRight, IsEmpty };
 
 pub const KLogWriteError = error{ BadHandle, BadHandleKind, Fault, NoRight, BadArg };
+pub const KLogReadError = error{ BadHandle, BadHandleKind, Fault, NoRight, IsEmpty };
 
 pub const VmoCreateError = error{ OutOfMemory, TooManyHandles };
 pub const VmoWriteError = error{ OutOfMemory, BadHandle, BadHandleKind, OutOfRange, NoRight, Fault };

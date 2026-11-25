@@ -70,6 +70,7 @@ pub fn handler(args: [7]usize) [4]usize {
         .socket_receive => &socketReceive,
 
         .klog_write => &klogWrite,
+        .klog_read => &klogRead,
 
         .vmo_create => &vmoCreate,
         .vmo_write => &vmoWrite,
@@ -351,6 +352,24 @@ fn klogWrite(args: [7]usize) abi.KLogWriteError![3]usize {
 
     KLog.write(data, header);
     return @splat(0);
+}
+
+fn klogRead(args: [7]usize) abi.KLogReadError![3]usize {
+    const obj = try getObj(args[1], .{ .read = true });
+    defer obj.release();
+    const klog = obj.get(KLog) orelse return error.BadHandleKind;
+
+    const user_buffer = @as([*]allowzero u8, @ptrFromInt(args[2]))[0..args[3]];
+
+    var full_buffer: [abi.max_klog_entry]u8 align(@alignOf(abi.KLogEntryHeader)) = undefined;
+    const header: *abi.KLogEntryHeader = @ptrCast(&full_buffer);
+    const msg_buffer = full_buffer[@sizeOf(abi.KLogEntryHeader)..];
+
+    const msg_len = try klog.read(msg_buffer, header);
+    const full_len_capped = @min(msg_len + @sizeOf(abi.KLogEntryHeader), user_buffer.len);
+    if (!arch.copyToUser(user_buffer[0..full_len_capped], full_buffer[0..full_len_capped])) return error.Fault;
+
+    return .{ msg_len, 0, 0 };
 }
 
 fn vmoCreate(args: [7]usize) abi.VmoCreateError![3]usize {

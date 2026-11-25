@@ -166,6 +166,25 @@ pub fn klogWrite(klog: abi.Handle, data: []allowzero const u8, level: abi.KLogEn
     };
 }
 
+pub fn klogRead(klog: abi.Handle, buffer: []allowzero u8) !usize {
+    const result = syscall(.{
+        @backingInt(abi.Syscall.klog_read),
+        @backingInt(klog),
+        @intFromPtr(buffer.ptr),
+        buffer.len,
+    });
+
+    return switch (try readStatus(result[0])) {
+        .success => result[1],
+        .fault => error.Fault,
+        .bad_handle => error.BadHandle,
+        .bad_handle_kind => error.BadHandleKind,
+        .no_right => error.NoRight,
+        .is_empty => error.IsEmpty,
+        else => unexpected(result[0]),
+    };
+}
+
 pub fn vmoCreate(size: usize) !abi.Handle {
     const result = syscall(.{
         @backingInt(abi.Syscall.vmo_create),
