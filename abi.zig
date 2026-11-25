@@ -35,6 +35,8 @@ pub const Syscall = enum(usize) {
     thread_create,
     thread_start,
     thread_exit,
+
+    sleep_ns,
 };
 
 pub const Status = enum(usize) {

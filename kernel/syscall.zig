@@ -85,6 +85,8 @@ pub fn handler(args: [7]usize) [4]usize {
         .thread_create => &threadCreate,
         .thread_start => &threadStart,
         .thread_exit => &threadExit,
+
+        .sleep_ns => &sleepNs,
     };
 
     const result = inner_handler(args) catch |err| {
@@ -671,4 +673,9 @@ fn threadStart(args: [7]usize) abi.ThreadStartError![3]usize {
 
 fn threadExit(_: [7]usize) ![3]usize {
     Thread.exitCurrent();
+}
+
+fn sleepNs(args: [7]usize) ![3]usize {
+    scheduler.sleepNs(args[1]);
+    return @splat(0);
 }

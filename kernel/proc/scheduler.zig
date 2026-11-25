@@ -86,7 +86,7 @@ pub fn scheduleLockHeld(next_state: Thread.State) bool {
     const now = arch.time.getBootNsOrdered();
     wakeSleeping(now);
 
-    const last = Thread.current;
+    const last = Thread.current();
     assert(last.state == .running);
 
     last.state = next_state;

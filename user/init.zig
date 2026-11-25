@@ -173,7 +173,10 @@ pub fn main(initrd: abi.Handle) !void {
         var read_buffer: [abi.max_klog_entry]u8 align(@alignOf(abi.KLogEntryHeader)) = undefined;
         const header: *abi.KLogEntryHeader = @ptrCast(&read_buffer);
         const len = lib.syscall.klogRead(lib.klog, &read_buffer) catch |err| return switch (err) {
-            error.IsEmpty => continue,
+            error.IsEmpty => {
+                lib.syscall.sleepNs(std.time.ns_per_ms);
+                continue;
+            },
             else => |x| x,
         };
 

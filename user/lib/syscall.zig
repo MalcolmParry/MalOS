@@ -343,7 +343,6 @@ pub fn threadStart(thread: abi.Handle, info: *allowzero align(1) const abi.Threa
 
     return switch (try readStatus(result[0])) {
         .success => {},
-
         .bad_handle => error.BadHandle,
         .bad_handle_kind => error.BadHandleKind,
         .fault => error.Fault,
@@ -359,6 +358,15 @@ pub fn threadExit() noreturn {
     unreachable;
 }
 
+pub fn sleepNs(ns: u64) void {
+    const result = syscall(.{
+        @backingInt(abi.Syscall.sleep_ns),
+        ns,
+    });
+
+    expectSuccess(result[0]);
+}
+
 fn readStatus(int: usize) error{Unexpected}!abi.Status {
     return std.enums.fromInt(abi.Status, int) orelse unexpected(int);
 }
@@ -370,6 +378,12 @@ fn unexpected(status: usize) error{Unexpected} {
 
     _ = status;
     return error.Unexpected;
+}
+
+fn expectSuccess(int: usize) void {
+    if (int == @backingInt(abi.Status.success)) return;
+    unexpected(int) catch {};
+    @panic("infallible syscall failed");
 }
 
 pub fn syscall(args: anytype) [4]usize {
