@@ -12,7 +12,7 @@ comptime {
     _ = lib;
 }
 
-pub fn main(initrd: abi.Handle) !void {
+pub fn main(initrd: abi.Handle, serial_backend: abi.Handle) !void {
     const initrd_size = try lib.syscall.vmoGetSize(initrd);
 
     {
@@ -169,9 +169,11 @@ pub fn main(initrd: abi.Handle) !void {
 
     std.log.info("ext2 superblock:{s}", .{writer.buffered()});
 
+    const last_entry = try lib.syscall.klogDisableBackend(serial_backend);
+
     while (true) {
-        var read_buffer: [abi.max_klog_entry]u8 align(@alignOf(abi.KLogEntryHeader)) = undefined;
-        const header: *abi.KLogEntryHeader = @ptrCast(&read_buffer);
+        var read_buffer: [abi.max_klog_entry]u8 align(@alignOf(abi.KLogEntry)) = undefined;
+        const header: *abi.KLogEntry = @ptrCast(&read_buffer);
         const len = lib.syscall.klogRead(lib.klog, &read_buffer) catch |err| return switch (err) {
             error.IsEmpty => {
                 lib.syscall.sleepNs(std.time.ns_per_ms);
@@ -180,6 +182,7 @@ pub fn main(initrd: abi.Handle) !void {
             else => |x| x,
         };
 
+        if (header.id < last_entry) continue;
         const scope = std.mem.sliceTo(@as([]const u8, &header.scope), 0);
         const t: std.Io.Terminal = .{ .writer = &serial_writer, .mode = .escape_codes };
 
@@ -200,7 +203,7 @@ pub fn main(initrd: abi.Handle) !void {
         try t.writer.writeAll(": ");
         t.setColor(.reset) catch {};
 
-        try t.writer.writeAll(read_buffer[@sizeOf(abi.KLogEntryHeader)..][0..len]);
+        try t.writer.writeAll(read_buffer[@sizeOf(abi.KLogEntry)..][0..len]);
         try t.writer.writeAll("\n");
         if (header.flags.truncated) {
             t.setColor(.reset) catch {};

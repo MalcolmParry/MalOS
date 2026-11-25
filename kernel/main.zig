@@ -11,6 +11,7 @@ const Vmo = @import("object/Vmo.zig");
 const KLog = @import("object/KLog.zig");
 const Process = @import("proc/Process.zig");
 const Thread = @import("proc/Thread.zig");
+const Resource = @import("object/Resource.zig");
 const virt_layout = @import("mem/virt_layout.zig");
 
 pub const debug = @import("debug.zig");
@@ -112,6 +113,12 @@ fn init(initrd: []const u8, initrd_vmo: *Vmo) !noreturn {
         },
     });
 
+    const serial_backend = try Resource.create(.klog_backend_serial);
+    const serial_backend_h = try proc.handle_table.putLocked(.{
+        .obj = &serial_backend.obj,
+        .rights = .{ .duplicate = true, .transfer = true },
+    });
+
     const init_elf = try ustar.lookup(initrd, "init") orelse return error.InitNotFound;
     const result = try elf_loader.load(proc.vmar, init_elf);
 
@@ -126,7 +133,7 @@ fn init(initrd: []const u8, initrd_vmo: *Vmo) !noreturn {
 
     var state = arch.cpu.getUserThreadFrame(.{
         .entry = result.entry,
-        .args = .{ @backingInt(klog_h), @backingInt(initrd_h), @backingInt(vmar_h), 0, 0, 0 },
+        .args = .{ @backingInt(klog_h), @backingInt(initrd_h), @backingInt(vmar_h), @backingInt(serial_backend_h), 0, 0 },
         .sp = stack_addr * mem.page_size + stack_size - 8,
     });
 

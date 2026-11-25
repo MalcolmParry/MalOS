@@ -17,7 +17,7 @@ pub fn log(
     writer.print(format, args) catch {};
     _ = scope;
 
-    const abi_level: abi.KLogEntryHeader.Level = switch (level) {
+    const abi_level: abi.KLogEntry.Level = switch (level) {
         .err => .err,
         .warn => .warn,
         .info => .info,

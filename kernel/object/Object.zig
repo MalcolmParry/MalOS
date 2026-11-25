@@ -6,6 +6,7 @@ const Vmo = @import("Vmo.zig");
 const Vmar = @import("Vmar.zig");
 const Process = @import("../proc/Process.zig");
 const Thread = @import("../proc/Thread.zig");
+const Resource = @import("Resource.zig");
 const Object = @This();
 
 kind: Kind,
@@ -22,6 +23,8 @@ pub const Kind = enum {
     vmo,
     vmar,
 
+    resource,
+
     pub fn fromType(comptime T: type) Kind {
         return switch (T) {
             Channel => .channel,
@@ -31,6 +34,7 @@ pub const Kind = enum {
             Thread => .thread,
             Vmo => .vmo,
             Vmar => .vmar,
+            Resource => .resource,
             else => @compileError("bad type"),
         };
     }
@@ -54,6 +58,7 @@ pub fn release(obj: *Object) void {
         .thread => obj.getAssertKind(Thread).destroy(),
         .vmo => obj.getAssertKind(Vmo).destroy(),
         .vmar => obj.getAssertKind(Vmar).destroy(),
+        .resource => obj.getAssertKind(Resource).destroy(),
     }
 }
 

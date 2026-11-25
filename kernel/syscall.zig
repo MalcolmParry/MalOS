@@ -13,6 +13,7 @@ const Vmo = @import("object/Vmo.zig");
 const Vmar = @import("object/Vmar.zig");
 const Process = @import("proc/Process.zig");
 const KLog = @import("object/KLog.zig");
+const Resource = @import("object/Resource.zig");
 const scheduler = @import("proc/scheduler.zig");
 
 const Handler = fn (args: [7]usize) Error![3]usize;
@@ -71,6 +72,7 @@ pub fn handler(args: [7]usize) [4]usize {
 
         .klog_write => &klogWrite,
         .klog_read => &klogRead,
+        .klog_disable_backend => &klogDisableBackend,
 
         .vmo_create => &vmoCreate,
         .vmo_write => &vmoWrite,
@@ -335,7 +337,7 @@ fn klogWrite(args: [7]usize) abi.KLogWriteError![3]usize {
     defer obj.release();
     if (obj.kind != .klog) return error.BadHandleKind;
 
-    const level = std.enums.fromInt(abi.KLogEntryHeader.Level, args[4]) orelse return error.BadArg;
+    const level = std.enums.fromInt(abi.KLogEntry.Level, args[4]) orelse return error.BadArg;
 
     var buffer: [abi.max_klog_msg]u8 = undefined;
     const len = @min(buffer.len, args[3]);
@@ -343,16 +345,13 @@ fn klogWrite(args: [7]usize) abi.KLogWriteError![3]usize {
     const data = buffer[0..len];
     if (!arch.copyFromUser(data, user_data)) return error.Fault;
 
-    const scope = "user".*;
-    const header: abi.KLogEntryHeader = .{
-        .scope = scope ++ @as([abi.max_klog_scope - scope.len]u8, @splat(0)),
-        .flags = .{
-            .level = level,
-            .truncated = args[3] > abi.max_klog_msg,
-        },
-    };
+    KLog.write(.{
+        .str = data,
+        .scope = "user",
+        .level = level,
+        .truncated = args[3] > abi.max_klog_msg,
+    });
 
-    KLog.write(data, header);
     return @splat(0);
 }
 
@@ -363,15 +362,27 @@ fn klogRead(args: [7]usize) abi.KLogReadError![3]usize {
 
     const user_buffer = @as([*]allowzero u8, @ptrFromInt(args[2]))[0..args[3]];
 
-    var full_buffer: [abi.max_klog_entry]u8 align(@alignOf(abi.KLogEntryHeader)) = undefined;
-    const header: *abi.KLogEntryHeader = @ptrCast(&full_buffer);
-    const msg_buffer = full_buffer[@sizeOf(abi.KLogEntryHeader)..];
+    var full_buffer: [abi.max_klog_entry]u8 align(@alignOf(abi.KLogEntry)) = undefined;
+    const header: *abi.KLogEntry = @ptrCast(&full_buffer);
+    const msg_buffer = full_buffer[@sizeOf(abi.KLogEntry)..];
 
     const msg_len = try klog.read(msg_buffer, header);
-    const full_len_capped = @min(msg_len + @sizeOf(abi.KLogEntryHeader), user_buffer.len);
+    const full_len_capped = @min(msg_len + @sizeOf(abi.KLogEntry), user_buffer.len);
     if (!arch.copyToUser(user_buffer[0..full_len_capped], full_buffer[0..full_len_capped])) return error.Fault;
 
     return .{ msg_len, 0, 0 };
+}
+
+fn klogDisableBackend(args: [7]usize) abi.KLogDisableBackendError![3]usize {
+    const obj = getObj(args[1], .{}) catch |err| return switch (err) {
+        error.NoRight => unreachable,
+        else => |x| x,
+    };
+    defer obj.release();
+    const resource = obj.get(Resource) orelse return error.BadHandleKind;
+
+    const last_entry = try KLog.disableBackend(resource);
+    return .{ last_entry, 0, 0 };
 }
 
 fn vmoCreate(args: [7]usize) abi.VmoCreateError![3]usize {

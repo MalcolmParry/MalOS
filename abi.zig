@@ -3,7 +3,7 @@ const std = @import("std");
 pub const max_channel_msg_bytes = 16 * 1024;
 pub const max_channel_msg_handles = 16;
 pub const max_klog_msg = 4 * 1024;
-pub const max_klog_entry = max_klog_msg + @sizeOf(KLogEntryHeader);
+pub const max_klog_entry = max_klog_msg + @sizeOf(KLogEntry);
 pub const max_klog_scope = 8;
 pub const max_process_handle_transfers = 64;
 
@@ -21,6 +21,7 @@ pub const Syscall = enum(usize) {
 
     klog_write,
     klog_read,
+    klog_disable_backend,
 
     vmo_create,
     vmo_write,
@@ -179,7 +180,8 @@ pub const ThreadStartInfo = extern struct {
     args: [6]usize,
 };
 
-pub const KLogEntryHeader = extern struct {
+pub const KLogEntry = extern struct {
+    id: u64,
     /// null terminated or 8 long
     scope: [max_klog_scope]u8,
     flags: Flags,
@@ -198,6 +200,10 @@ pub const KLogEntryHeader = extern struct {
     };
 };
 
+pub const ResourceKind = enum(u8) {
+    klog_backend_serial,
+};
+
 pub const HandleCloseError = error{BadHandle};
 pub const HandleDuplicateError = error{ BadHandle, OutOfMemory, TooManyHandles, BadArg, NoRight };
 
@@ -211,6 +217,7 @@ pub const ChannelReceiveError = error{ BadHandle, BadHandleKind, Fault, PeerClos
 
 pub const KLogWriteError = error{ BadHandle, BadHandleKind, Fault, NoRight, BadArg };
 pub const KLogReadError = error{ BadHandle, BadHandleKind, Fault, NoRight, IsEmpty };
+pub const KLogDisableBackendError = error{ BadHandle, BadHandleKind };
 
 pub const VmoCreateError = error{ OutOfMemory, TooManyHandles };
 pub const VmoWriteError = error{ OutOfMemory, BadHandle, BadHandleKind, OutOfRange, NoRight, Fault };

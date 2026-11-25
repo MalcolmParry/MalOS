@@ -147,7 +147,7 @@ pub fn socketReceive(sock: abi.Handle, buffer: []u8) !usize {
     };
 }
 
-pub fn klogWrite(klog: abi.Handle, data: []allowzero const u8, level: abi.KLogEntryHeader.Level) !void {
+pub fn klogWrite(klog: abi.Handle, data: []allowzero const u8, level: abi.KLogEntry.Level) !void {
     const result = syscall(.{
         @backingInt(abi.Syscall.klog_write),
         @backingInt(klog),
@@ -181,6 +181,20 @@ pub fn klogRead(klog: abi.Handle, buffer: []allowzero u8) !usize {
         .bad_handle_kind => error.BadHandleKind,
         .no_right => error.NoRight,
         .is_empty => error.IsEmpty,
+        else => unexpected(result[0]),
+    };
+}
+
+pub fn klogDisableBackend(resource: abi.Handle) !usize {
+    const result = syscall(.{
+        @backingInt(abi.Syscall.klog_disable_backend),
+        @backingInt(resource),
+    });
+
+    return switch (try readStatus(result[0])) {
+        .success => result[1],
+        .bad_handle => error.BadHandle,
+        .bad_handle_kind => error.BadHandleKind,
         else => unexpected(result[0]),
     };
 }
