@@ -37,6 +37,13 @@ pub fn writeByte(byte: u8) void {
     arch.outb(port, byte);
 }
 
+pub fn writeStr(str: []const u8) void {
+    for (str) |c| switch (c) {
+        '\n' => write("\r\n"),
+        else => writeByte(c),
+    };
+}
+
 pub fn write(data: []const u8) void {
     for (data) |byte| writeByte(byte);
 }
@@ -54,18 +61,17 @@ pub fn read() u8 {
 }
 
 fn drain(this: *std.Io.Writer, data: []const []const u8, splat: usize) !usize {
-    write(this.buffer[0..this.end]);
     this.end = 0;
     var written: usize = 0;
 
     for (data[0 .. data.len - 1]) |x| {
-        write(x);
+        writeStr(x);
         written += x.len;
     }
 
     const pattern = data[data.len - 1];
     for (0..splat) |_| {
-        write(pattern);
+        writeStr(pattern);
         written += pattern.len;
     }
 

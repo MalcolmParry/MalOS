@@ -147,12 +147,13 @@ pub fn socketReceive(sock: abi.Handle, buffer: []u8) !usize {
     };
 }
 
-pub fn klogWrite(klog: abi.Handle, data: []allowzero const u8) !void {
+pub fn klogWrite(klog: abi.Handle, data: []allowzero const u8, level: abi.KLogEntryHeader.Level) !void {
     const result = syscall(.{
         @backingInt(abi.Syscall.klog_write),
         @backingInt(klog),
         @intFromPtr(data.ptr),
         data.len,
+        @backingInt(level),
     });
 
     return switch (try readStatus(result[0])) {

@@ -2,7 +2,6 @@ const std = @import("std");
 const mem = @import("mem/memory.zig");
 const pmm = @import("mem/pmm.zig");
 const arch = @import("arch/arch.zig").current;
-const log = @import("log.zig");
 const abi = @import("abi");
 const gpa = @import("mem/gpa.zig").allocator;
 const Object = @import("object/Object.zig");
@@ -13,6 +12,7 @@ const Thread = @import("proc/Thread.zig");
 const Vmo = @import("object/Vmo.zig");
 const Vmar = @import("object/Vmar.zig");
 const Process = @import("proc/Process.zig");
+const KLog = @import("object/KLog.zig");
 const scheduler = @import("proc/scheduler.zig");
 
 const Handler = fn (args: [7]usize) Error![3]usize;
@@ -332,16 +332,24 @@ fn klogWrite(args: [7]usize) abi.KLogWriteError![3]usize {
     defer obj.release();
     if (obj.kind != .klog) return error.BadHandleKind;
 
-    var buffer: [4096]u8 = undefined;
+    const level = std.enums.fromInt(abi.KLogEntryHeader.Level, args[4]) orelse return error.BadArg;
+
+    var buffer: [abi.max_klog_msg]u8 = undefined;
     const len = @min(buffer.len, args[3]);
     const user_data = @as([*]allowzero const u8, @ptrFromInt(args[2]))[0..len];
     const data = buffer[0..len];
     if (!arch.copyFromUser(data, user_data)) return error.Fault;
 
-    const l = log.spinlock.lock();
-    defer l.unlock();
-    log.writer.writeAll(data) catch {};
+    const scope = "user".*;
+    const header: abi.KLogEntryHeader = .{
+        .scope = scope ++ @as([abi.max_klog_scope - scope.len]u8, @splat(0)),
+        .flags = .{
+            .level = level,
+            .truncated = args[3] > abi.max_klog_msg,
+        },
+    };
 
+    KLog.write(data, header);
     return @splat(0);
 }
 

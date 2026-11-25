@@ -1,6 +1,7 @@
 const std = @import("std");
 const Channel = @import("Channel.zig");
 const Socket = @import("Socket.zig");
+const KLog = @import("KLog.zig");
 const Vmo = @import("Vmo.zig");
 const Vmar = @import("Vmar.zig");
 const Process = @import("../proc/Process.zig");
@@ -25,6 +26,7 @@ pub const Kind = enum {
         return switch (T) {
             Channel => .channel,
             Socket => .socket,
+            KLog => .klog,
             Process => .process,
             Thread => .thread,
             Vmo => .vmo,
@@ -47,7 +49,7 @@ pub fn release(obj: *Object) void {
     switch (obj.kind) {
         .channel => obj.getAssertKind(Channel).destroyEnd(),
         .socket => obj.getAssertKind(Socket).destroyEnd(),
-        .klog => {},
+        .klog => obj.getAssertKind(KLog).destroy(),
         .process => obj.getAssertKind(Process).destroy(),
         .thread => obj.getAssertKind(Thread).destroy(),
         .vmo => obj.getAssertKind(Vmo).destroy(),

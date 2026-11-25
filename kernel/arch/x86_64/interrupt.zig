@@ -6,7 +6,6 @@ const arch = @import("x86_64.zig");
 const apic = @import("apic.zig");
 const scheduler = @import("../../proc/scheduler.zig");
 const Thread = @import("../../proc/Thread.zig");
-const log = @import("../../log.zig");
 const syscall = @import("../../syscall.zig");
 const abi = @import("abi");
 const user_copy = @import("user_copy.zig");
@@ -214,6 +213,11 @@ fn handleException(state: *align(1) arch.cpu.State) noreturn {
         else => {},
     }
 
+    std.log.err("{f}", .{state});
+
+    var buffer: [abi.max_klog_msg]u8 = undefined;
+    var writer: std.Io.Writer = .fixed(&buffer);
+
     var ctx: std.debug.cpu_context.Native = undefined;
     ctx.gprs.set(.rip, state.rip);
     ctx.gprs.set(.rbp, state.rbp);
@@ -222,9 +226,8 @@ fn handleException(state: *align(1) arch.cpu.State) noreturn {
     std.debug.writeCurrentStackTrace(.{
         .context = &ctx,
         .allow_unsafe_unwind = true,
-    }, log.term) catch {};
-
-    log.term.writer.print("{f}", .{state}) catch {};
+    }, .{ .writer = &writer, .mode = .escape_codes }) catch {};
+    std.log.err("\n{s}", .{writer.buffered()});
 
     if (state.int_code == 0x0e) {
         const flags: PageFaultFlags = @bitCast(state.error_code);

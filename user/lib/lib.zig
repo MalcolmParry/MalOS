@@ -12,12 +12,19 @@ pub fn log(
     comptime format: []const u8,
     args: anytype,
 ) void {
-    var buffer: [1024]u8 = undefined;
+    var buffer: [abi.max_klog_msg]u8 = undefined;
     var writer: std.Io.Writer = .fixed(&buffer);
-    const term: std.Io.Terminal = .{ .writer = &writer, .mode = .escape_codes };
+    writer.print(format, args) catch {};
+    _ = scope;
 
-    std.log.defaultLogFileTerminal(level, scope, format, args, term) catch {};
-    syscall.klogWrite(klog, writer.buffered()) catch {};
+    const abi_level: abi.KLogEntryHeader.Level = switch (level) {
+        .err => .err,
+        .warn => .warn,
+        .info => .info,
+        .debug => .debug,
+    };
+
+    syscall.klogWrite(klog, writer.buffered(), abi_level) catch {};
 }
 
 pub fn panic(str: []const u8, ret_addr: ?usize) noreturn {

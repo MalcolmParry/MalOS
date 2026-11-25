@@ -5,10 +5,10 @@ const pmm = @import("mem/pmm.zig");
 const std = @import("std");
 const builtin = @import("builtin");
 const scheduler = @import("proc/scheduler.zig");
-const log = @import("log.zig");
 const elf_loader = @import("elf_loader.zig");
 const ustar = @import("shared").ustar;
 const Vmo = @import("object/Vmo.zig");
+const KLog = @import("object/KLog.zig");
 const Process = @import("proc/Process.zig");
 const Thread = @import("proc/Thread.zig");
 const virt_layout = @import("mem/virt_layout.zig");
@@ -18,7 +18,7 @@ pub const panic = std.debug.FullPanic(debug.panic);
 pub const std_options_debug_threaded_io = null;
 pub const std_options_debug_io = std.Io.failing;
 pub const std_options: std.Options = .{
-    .logFn = log.log,
+    .logFn = KLog.log,
     .page_size_min = mem.page_size,
     .page_size_max = mem.page_size,
     .log_level = .debug,
@@ -31,11 +31,11 @@ pub const os = struct {
 };
 
 pub fn kernelMain() !noreturn {
-    try log.preinit();
+    try KLog.preinit();
     arch.interrupt.init();
 
     arch.initBootInfo();
-    try log.init();
+    try KLog.init();
 
     inline for (virt_layout.regions) |region| {
         std.log.info("region {s: <16} at {f} {Bi}", .{ @tagName(region.name), mem.fmtRange(region.slice), region.size });
@@ -79,12 +79,14 @@ fn init(initrd: []const u8, initrd_vmo: *Vmo) !noreturn {
     const thread = Thread.current();
     const proc = thread.proc.?;
 
+    const klog = try KLog.create();
     const klog_h = try proc.handle_table.putLocked(.{
-        .obj = &log.log_obj,
+        .obj = &klog.obj,
         .rights = .{
             .duplicate = true,
             .transfer = true,
             .write = true,
+            .read = true,
         },
     });
 

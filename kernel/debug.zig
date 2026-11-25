@@ -1,7 +1,8 @@
 const std = @import("std");
+const abi = @import("abi");
 const options = @import("options");
 const arch = @import("arch/arch.zig").current;
-const log = @import("log.zig");
+const KLog = @import("object/KLog.zig");
 const mem = @import("mem/memory.zig");
 const builtin = @import("builtin");
 const debug_alloc = @import("mem/debug_alloc.zig");
@@ -36,13 +37,17 @@ pub fn panic(str: []const u8, ret_addr: ?usize) noreturn {
     arch.interrupt.disable();
     arch.shutdownOtherCpus();
 
-    log.spinlock.status.store(.unlocked, .monotonic);
+    KLog.reclaim();
     std.log.err("Kernel Panic: {s}", .{str});
+
+    var buffer: [abi.max_klog_msg]u8 = undefined;
+    var writer: std.Io.Writer = .fixed(&buffer);
 
     std.debug.writeCurrentStackTrace(.{
         .first_address = ret_addr orelse @returnAddress(),
         .allow_unsafe_unwind = true,
-    }, log.term) catch {};
+    }, .{ .writer = &writer, .mode = .escape_codes }) catch {};
+    std.log.err("\n{s}", .{writer.buffered()});
 
     arch.spinWait();
 }
@@ -50,15 +55,22 @@ pub fn panic(str: []const u8, ret_addr: ?usize) noreturn {
 pub fn dumpError(err: anytype) void {
     std.log.err("Error: {}", .{err});
 
-    if (@errorReturnTrace()) |trace|
-        std.debug.writeErrorReturnTrace(trace, log.term) catch {};
+    if (@errorReturnTrace()) |trace| {
+        var buffer: [abi.max_klog_msg]u8 = undefined;
+        var writer: std.Io.Writer = .fixed(&buffer);
+        std.debug.writeErrorReturnTrace(trace, .{ .writer = &writer, .mode = .escape_codes }) catch {};
+        std.log.err("\n{s}", .{writer.buffered()});
+    }
 
-    log.writer.print(" --// CAUGHT AT \\\\--\n", .{}) catch {};
+    std.log.err(" --// CAUGHT AT \\\\--", .{});
+    var buffer: [abi.max_klog_msg]u8 = undefined;
+    var writer: std.Io.Writer = .fixed(&buffer);
 
     std.debug.writeCurrentStackTrace(.{
         .allow_unsafe_unwind = true,
         .first_address = @returnAddress(),
-    }, log.term) catch {};
+    }, .{ .writer = &writer, .mode = .escape_codes }) catch {};
+    std.log.err("\n{s}", .{writer.buffered()});
 }
 
 pub fn dumpErrorAndPanic(err: anytype) noreturn {
@@ -66,18 +78,25 @@ pub fn dumpErrorAndPanic(err: anytype) noreturn {
     arch.interrupt.disable();
     arch.shutdownOtherCpus();
 
-    log.spinlock.status.store(.unlocked, .monotonic);
+    KLog.reclaim();
     std.log.err("Kernel Panic: {}", .{err});
 
-    if (@errorReturnTrace()) |trace|
-        std.debug.writeErrorReturnTrace(trace, log.term) catch {};
+    if (@errorReturnTrace()) |trace| {
+        var buffer: [abi.max_klog_msg]u8 = undefined;
+        var writer: std.Io.Writer = .fixed(&buffer);
+        std.debug.writeErrorReturnTrace(trace, .{ .writer = &writer, .mode = .escape_codes }) catch {};
+        std.log.err("\n{s}", .{writer.buffered()});
+    }
 
-    log.writer.print(" --// CAUGHT AT \\\\--\n", .{}) catch {};
+    std.log.err(" --// CAUGHT AT \\\\--", .{});
+    var buffer: [abi.max_klog_msg]u8 = undefined;
+    var writer: std.Io.Writer = .fixed(&buffer);
 
     std.debug.writeCurrentStackTrace(.{
         .allow_unsafe_unwind = true,
         .first_address = @returnAddress(),
-    }, log.term) catch {};
+    }, .{ .writer = &writer, .mode = .escape_codes }) catch {};
+    std.log.err("\n{s}", .{writer.buffered()});
 
     arch.spinWait();
 }

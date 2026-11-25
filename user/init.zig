@@ -22,11 +22,11 @@ pub fn main(initrd: abi.Handle) !void {
             lib.syscall.handleClose(h1) catch @panic("failed to close handle");
         }
 
-        try lib.syscall.channelSend(h0, "msg from channel\n", &.{});
+        try lib.syscall.channelSend(h0, "msg from channel", &.{});
 
         var buffer: [128]u8 = undefined;
         const bytes, _ = try lib.syscall.channelReceive(h1, &buffer, &.{});
-        lib.syscall.klogWrite(lib.klog, buffer[0..bytes]) catch {};
+        lib.syscall.klogWrite(lib.klog, buffer[0..bytes], .info) catch {};
     }
 
     for ("direct writing to serial in userspace\r\n") |c| {
@@ -41,7 +41,7 @@ pub fn main(initrd: abi.Handle) !void {
             lib.syscall.handleClose(h1) catch @panic("failed to close handle");
         }
 
-        var msg_to_send: []const u8 = "message from socket\n";
+        var msg_to_send: []const u8 = "message from socket";
         while (msg_to_send.len != 0) {
             const sent = try lib.syscall.socketSend(h0, msg_to_send);
             msg_to_send = msg_to_send[sent..];
@@ -49,7 +49,7 @@ pub fn main(initrd: abi.Handle) !void {
 
         var buffer: [256]u8 = undefined;
         const read = try lib.syscall.socketReceive(h1, &buffer);
-        lib.syscall.klogWrite(lib.klog, buffer[0..read]) catch {};
+        lib.syscall.klogWrite(lib.klog, buffer[0..read], .info) catch {};
     }
 
     {
@@ -150,10 +150,12 @@ pub fn main(initrd: abi.Handle) !void {
     const groups_per_line = 8;
     const lines = (sector_size * 2) / bytes_per_group / groups_per_line;
 
+    var buffer: [abi.max_klog_msg]u8 = undefined;
+    var writer: std.Io.Writer = .fixed(&buffer);
+
     var offset: usize = 0;
     for (0..lines) |_| {
-        var buffer: [512]u8 = undefined;
-        var writer: std.Io.Writer = .fixed(&buffer);
+        try writer.print("\n", .{});
 
         for (0..groups_per_line) |_| {
             for (0..bytes_per_group) |_| {
@@ -163,11 +165,9 @@ pub fn main(initrd: abi.Handle) !void {
 
             try writer.print(" ", .{});
         }
-
-        try writer.print("\n", .{});
-        try lib.syscall.klogWrite(lib.klog, writer.buffered());
     }
 
+    std.log.info("ext2 superblock:{s}", .{writer.buffered()});
     lib.syscall.threadExit();
 }
 
