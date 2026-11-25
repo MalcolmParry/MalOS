@@ -67,7 +67,6 @@ pub fn kernelMain() !noreturn {
 
     const vmo = try Vmo.fromOwnedSlice(initrd.data);
     const init_proc = try Process.create();
-    init_proc.arch_specific.giveAllPermissions();
     const init_thread = try Thread.create(init_proc);
     try init_thread.startWrapped(init, .{ mem.physToDirect(initrd.data), vmo });
 
@@ -119,6 +118,13 @@ fn init(initrd: []const u8, initrd_vmo: *Vmo) !noreturn {
         .rights = .{ .duplicate = true, .transfer = true },
     });
 
+    const ioports = try Resource.create(.x86_ioports);
+    ioports.len = 65536;
+    const ioports_h = try proc.handle_table.putLocked(.{
+        .obj = &ioports.obj,
+        .rights = .{ .duplicate = true, .transfer = true },
+    });
+
     const init_elf = try ustar.lookup(initrd, "init") orelse return error.InitNotFound;
     const result = try elf_loader.load(proc.vmar, init_elf);
 
@@ -133,7 +139,7 @@ fn init(initrd: []const u8, initrd_vmo: *Vmo) !noreturn {
 
     var state = arch.cpu.getUserThreadFrame(.{
         .entry = result.entry,
-        .args = .{ @backingInt(klog_h), @backingInt(initrd_h), @backingInt(vmar_h), @backingInt(serial_backend_h), 0, 0 },
+        .args = .{ @backingInt(klog_h), @backingInt(initrd_h), @backingInt(vmar_h), @backingInt(serial_backend_h), @backingInt(ioports_h), 0 },
         .sp = stack_addr * mem.page_size + stack_size - 8,
     });
 

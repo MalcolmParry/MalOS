@@ -74,24 +74,18 @@ pub const PerTask = struct {
 };
 
 pub const PerProcess = struct {
-    io_map0: pmm.Index,
-    io_map1: pmm.Index,
+    io_map: [2]pmm.Index,
 
     pub fn init(per_proc: *PerProcess) void {
         per_proc.* = .{
-            .io_map0 = pmm.onePage(),
-            .io_map1 = pmm.onePage(),
+            .io_map = .{ pmm.onePage(), pmm.onePage() },
         };
     }
 
     pub fn deinit(per_proc: *PerProcess) void {
-        if (per_proc.io_map0 != pmm.zeroPage() and per_proc.io_map0 != pmm.onePage()) pmm.freePage(per_proc.io_map0);
-        if (per_proc.io_map1 != pmm.zeroPage() and per_proc.io_map1 != pmm.onePage()) pmm.freePage(per_proc.io_map1);
-    }
-
-    pub fn giveAllPermissions(per_proc: *PerProcess) void {
-        per_proc.io_map0 = pmm.zeroPage();
-        per_proc.io_map1 = pmm.zeroPage();
+        for (&per_proc.io_map) |page| {
+            if (page != pmm.zeroPage() and page != pmm.onePage()) pmm.freePage(page);
+        }
     }
 };
 
@@ -109,7 +103,7 @@ pub fn prepareThreadSwitch(new: *Thread, maybe_old: ?*Thread) void {
     };
 
     proc.vmar.page_table.use();
-    gdt.setIoMap(.{ proc.arch_specific.io_map0, proc.arch_specific.io_map1 });
+    gdt.setIoMap(proc.arch_specific.io_map);
 }
 
 pub const State = extern struct {

@@ -12,8 +12,10 @@ comptime {
     _ = lib;
 }
 
-pub fn main(initrd: abi.Handle, serial_backend: abi.Handle) !void {
+pub fn main(initrd: abi.Handle, serial_backend: abi.Handle, ioports: abi.Handle) !void {
     const initrd_size = try lib.syscall.vmoGetSize(initrd);
+    try lib.syscall.x86IoPortsAcquire(ioports, 0x3f8, 8);
+    try lib.syscall.x86IoPortsAcquire(ioports, 0x1f0, 8);
 
     {
         const h0, const h1 = try lib.syscall.channelCreatePair();
@@ -27,11 +29,6 @@ pub fn main(initrd: abi.Handle, serial_backend: abi.Handle) !void {
         var buffer: [128]u8 = undefined;
         const bytes, _ = try lib.syscall.channelReceive(h1, &buffer, &.{});
         lib.syscall.klogWrite(lib.klog, buffer[0..bytes], .info) catch {};
-    }
-
-    for ("direct writing to serial in userspace\r\n") |c| {
-        while (in(u8, 0x3f8 + 5) & 0x20 == 0) std.atomic.spinLoopHint();
-        outb(0x3f8, c);
     }
 
     {

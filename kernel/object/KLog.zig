@@ -151,6 +151,7 @@ pub fn disableBackend(resource: *Resource) !usize {
             using_serial = false;
             return first_entry + entry_count;
         },
+        else => return error.BadHandleKind,
     }
 }
 

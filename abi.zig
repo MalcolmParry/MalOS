@@ -38,6 +38,8 @@ pub const Syscall = enum(usize) {
     thread_exit,
 
     sleep_ns,
+
+    x86_ioports_acquire,
 };
 
 pub const Status = enum(usize) {
@@ -202,6 +204,7 @@ pub const KLogEntry = extern struct {
 
 pub const ResourceKind = enum(u8) {
     klog_backend_serial,
+    x86_ioports,
 };
 
 pub const HandleCloseError = error{BadHandle};
@@ -231,3 +234,5 @@ pub const ProcessTransferHandlesError = error{ OutOfMemory, TooManyHandles, BadH
 
 pub const ThreadCreateError = error{ BadHandle, BadHandleKind, OutOfMemory, TooManyHandles };
 pub const ThreadStartError = error{ BadHandle, BadHandleKind, Fault, BadState, BadArg, OutOfMemory };
+
+pub const X86IoPortsAcquireError = error{ BadHandle, BadHandleKind, NoRight, OutOfMemory };

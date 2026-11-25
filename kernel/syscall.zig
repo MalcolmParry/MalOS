@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const mem = @import("mem/memory.zig");
 const pmm = @import("mem/pmm.zig");
 const arch = @import("arch/arch.zig").current;
@@ -89,6 +90,8 @@ pub fn handler(args: [7]usize) [4]usize {
         .thread_exit => &threadExit,
 
         .sleep_ns => &sleepNs,
+
+        .x86_ioports_acquire => if (builtin.target.cpu.arch.isX86()) &x86IoPortsAcquire else &badSyscall,
     };
 
     const result = inner_handler(args) catch |err| {
@@ -109,6 +112,10 @@ fn getObj(handle_usize: usize, required_rights: abi.Rights) !*Object {
 
     desc.obj.acquire();
     return desc.obj;
+}
+
+fn badSyscall(_: [7]usize) ![3]usize {
+    return error.BadSyscall;
 }
 
 fn handleClose(args: [7]usize) abi.HandleCloseError![3]usize {
@@ -688,5 +695,50 @@ fn threadExit(_: [7]usize) ![3]usize {
 
 fn sleepNs(args: [7]usize) ![3]usize {
     scheduler.sleepNs(args[1]);
+    return @splat(0);
+}
+
+fn x86IoPortsAcquire(args: [7]usize) abi.X86IoPortsAcquireError![3]usize {
+    const obj = try getObj(args[1], .{});
+    defer obj.release();
+    const resource = obj.get(Resource) orelse return error.BadHandleKind;
+    if (resource.kind != .x86_ioports) return error.BadHandleKind;
+
+    const base = args[2];
+    const len = args[3];
+    if (len == 0) return @splat(0);
+    if (base >= 65536 or len > 65536 - base) return error.NoRight;
+    const end = base + len;
+    if (base < resource.base or end > resource.base + resource.len) return error.NoRight;
+
+    const proc = Thread.current().proc.?;
+    const l = proc.lock.lock();
+    defer l.unlock();
+
+    const ports_per_page = mem.page_size * 8;
+    var replaced: bool = false;
+    for (&proc.arch_specific.io_map, 0..) |*page, i| {
+        const port_offset = i * ports_per_page;
+        if (base >= port_offset + ports_per_page) continue;
+        if (end <= port_offset) break;
+
+        if (page.* == pmm.zeroPage()) continue;
+        if (page.* == pmm.onePage()) {
+            page.* = try pmm.allocPage();
+            @memset(&page.toDirectMap().bytes, 0xff);
+            replaced = true;
+        }
+
+        const direct = &page.toDirectMap().bytes;
+        const base_in_page = if (base > port_offset) base - port_offset else 0;
+        const end_in_page = @min(end - port_offset, ports_per_page);
+
+        for (base_in_page..end_in_page) |k| {
+            const mask = @as(u8, 1) << @intCast(k % 8);
+            direct[k / 8] &= ~mask;
+        }
+    }
+
+    if (replaced) arch.gdt.setIoMap(proc.arch_specific.io_map);
     return @splat(0);
 }

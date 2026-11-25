@@ -381,6 +381,24 @@ pub fn sleepNs(ns: u64) void {
     expectSuccess(result[0]);
 }
 
+pub fn x86IoPortsAcquire(resource: abi.Handle, base: usize, len: usize) !void {
+    const result = syscall(.{
+        @backingInt(abi.Syscall.x86_ioports_acquire),
+        @backingInt(resource),
+        base,
+        len,
+    });
+
+    return switch (try readStatus(result[0])) {
+        .success => {},
+        .bad_handle => error.BadHandle,
+        .bad_handle_kind => error.BadHandleKind,
+        .no_right => error.NoRight,
+        .out_of_memory => error.OutOfMemory,
+        else => unexpected(result[0]),
+    };
+}
+
 fn readStatus(int: usize) error{Unexpected}!abi.Status {
     return std.enums.fromInt(abi.Status, int) orelse unexpected(int);
 }

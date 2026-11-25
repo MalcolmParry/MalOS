@@ -2,9 +2,9 @@ const std = @import("std");
 const mem = @import("../../mem/memory.zig");
 const virt_layout = @import("../../mem/virt_layout.zig");
 const debug = @import("../../debug.zig");
-const gdt = @import("gdt.zig");
 const apic = @import("apic.zig");
 const PerCpu = @import("../../PerCpu.zig");
+pub const gdt = @import("gdt.zig");
 
 pub const page_size = 4096;
 
