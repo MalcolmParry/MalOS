@@ -612,17 +612,11 @@ fn processTransferHandles(args: [7]usize) abi.ProcessTransferHandlesError![3]usi
 
         const handle_table = other.handle_table;
         const l = other.lock.lock();
-        if (other.state == .dead) {
-            l.unlock();
-            return error.BadState;
-        }
+        defer l.unlock();
+        if (other.state != .initial) return error.BadState;
 
         handle_table.lock.lockNoPreserveInt();
-        other.lock.unlockNoPreserveInt();
-        defer {
-            handle_table.lock.unlockNoPreserveInt();
-            arch.interrupt.set(l.int_enable);
-        }
+        defer handle_table.lock.unlockNoPreserveInt();
 
         var filled: usize = 0;
         errdefer for (out_handles[0..filled]) |x| {
