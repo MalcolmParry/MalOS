@@ -90,20 +90,25 @@ pub const PerProcess = struct {
 };
 
 pub fn prepareThreadSwitch(new: *Thread, maybe_old: ?*Thread) void {
-    const stack = new.stack.?;
-    gdt.setKernelStackPtr(@intFromPtr(stack.ptr + stack.len));
+    if (new != maybe_old) {
+        const stack = new.stack.?;
+        gdt.setKernelStackPtr(@intFromPtr(stack.ptr + stack.len));
 
-    if (maybe_old) |old|
-        old.arch_specific.simd_state.save();
-    new.arch_specific.simd_state.load();
+        if (maybe_old) |old|
+            old.arch_specific.simd_state.save();
+        new.arch_specific.simd_state.load();
 
-    const proc = new.proc orelse {
-        arch.paging.getGlobalKernelTable().use();
-        return;
-    };
+        const proc = new.proc orelse {
+            arch.paging.getGlobalKernelTable().use();
+            return;
+        };
 
-    proc.vmar.page_table.use();
-    gdt.setIoMap(proc.arch_specific.io_map);
+        proc.vmar.page_table.use();
+    }
+
+    if (new.proc) |proc| {
+        gdt.setIoMap(proc.arch_specific.io_map);
+    }
 }
 
 pub const State = extern struct {
@@ -405,6 +410,10 @@ pub fn inWordSlice(port: u16, buffer: []align(1) u16) void {
 
 pub fn ioWait() void {
     out(0x80, @as(u8, 0));
+}
+
+pub fn memoryBarrier() void {
+    asm volatile ("mfence" ::: .{ .memory = true });
 }
 
 pub fn readMsr(msr: u32) u64 {

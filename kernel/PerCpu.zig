@@ -22,12 +22,18 @@ pub fn get() *PerCpu {
     return arch.getPerCpu();
 }
 
+pub const UnorderedMask = std.bit_set.Integer(max_cpus);
 pub const Mask = struct {
     int: std.atomic.Value(Int),
 
     const Int = @Int(.unsigned, max_cpus);
     pub const empty: Mask = .{ .int = .init(0) };
     pub const full: Mask = .{ .int = .init((1 << max_cpus) - 1) };
+
+    pub fn load(mask: *Mask, comptime order: std.lang.AtomicOrder) UnorderedMask {
+        const int = mask.int.load(order);
+        return .{ .mask = int };
+    }
 
     pub fn set(mask: *Mask, cpu: u32, comptime order: std.lang.AtomicOrder) bool {
         const cpu_mask = @as(Int, 1) << @intCast(cpu);

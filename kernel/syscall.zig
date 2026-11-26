@@ -5,6 +5,7 @@ const pmm = @import("mem/pmm.zig");
 const arch = @import("arch/arch.zig").current;
 const abi = @import("abi");
 const gpa = @import("mem/gpa.zig").allocator;
+const PerCpu = @import("PerCpu.zig");
 const Object = @import("object/Object.zig");
 const Channel = @import("object/Channel.zig");
 const Socket = @import("object/Socket.zig");
@@ -739,6 +740,18 @@ fn x86IoPortsAcquire(args: [7]usize) abi.X86IoPortsAcquireError![3]usize {
         }
     }
 
-    if (replaced) arch.gdt.setIoMap(proc.arch_specific.io_map);
+    if (replaced) {
+        arch.gdt.setIoMap(proc.arch_specific.io_map);
+
+        arch.cpu.memoryBarrier();
+        var mask = proc.running_cpu_mask.load(.acquire);
+        mask.unset(PerCpu.get().id);
+
+        while (mask.findFirstSet()) |cpu| {
+            mask.unset(cpu);
+            arch.sendRescheduleIpi(@intCast(cpu));
+        }
+    }
+
     return @splat(0);
 }

@@ -127,8 +127,8 @@ pub fn setKernelStackPtr(sp: usize) void {
 pub fn setIoMap(indices: [2]pmm.Index) void {
     const cpu_local = &PerCpu.get().arch_specific.gdt;
 
-    for (&indices, &cpu_local.io_map_entries) |index, entry| {
-        entry.* = .{
+    for (&indices, &cpu_local.io_map_entries, 0..) |index, entry, i| {
+        const new: arch.paging.Entry = .{
             .writable = false,
             .user = false,
             .global = true,
@@ -139,7 +139,9 @@ pub fn setIoMap(indices: [2]pmm.Index) void {
             .present = true,
             .write_through = false,
         };
-    }
 
-    for (&cpu_local.io_map) |*page| arch.paging.invalidatePage(page);
+        if (entry.* == new) continue;
+        entry.* = new;
+        arch.paging.invalidatePage(&cpu_local.io_map[i]);
+    }
 }

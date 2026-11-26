@@ -5,6 +5,7 @@ const Object = @import("../object/Object.zig");
 const HandleTable = @import("HandleTable.zig");
 const Vmar = @import("../object/Vmar.zig");
 const Thread = @import("Thread.zig");
+const PerCpu = @import("../PerCpu.zig");
 const gpa = @import("../mem/gpa.zig").allocator;
 const Process = @This();
 
@@ -18,6 +19,7 @@ lock: Spinlock,
 state: State,
 /// owned by lock
 first_thread: ?*Thread,
+running_cpu_mask: PerCpu.Mask,
 
 pub const State = enum {
     initial,
@@ -47,6 +49,7 @@ pub fn create() !*Process {
         .lock = .init,
         .state = .initial,
         .first_thread = null,
+        .running_cpu_mask = .empty,
     };
 
     proc.arch_specific.init();

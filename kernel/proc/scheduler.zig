@@ -57,14 +57,8 @@ pub fn preempt(state: *align(1) arch.cpu.State) noreturn {
 
     const next = chooseThread();
     next.state = .running;
-    pc.thread.current = next;
-    updateIdleState(next);
+    prepareThreadSwitch(now, last, next);
 
-    if (last != next) {
-        arch.cpu.prepareThreadSwitch(next, last);
-    }
-
-    setPreemptionTimer(now, next == pc.thread.idle);
     const s = next.cpu_state.?;
     next.cpu_state = null;
     s.restore();
@@ -82,7 +76,6 @@ pub fn schedule(next_state: Thread.State) void {
 
 /// returns true if the context switch happened
 pub fn scheduleLockHeld(next_state: Thread.State) bool {
-    const pc = PerCpu.get();
     const now = arch.time.getBootNsOrdered();
     wakeSleeping(now);
 
@@ -100,12 +93,8 @@ pub fn scheduleLockHeld(next_state: Thread.State) bool {
     const next = chooseThread();
     next.state = .running;
     if (next == last) return false;
-    updateIdleState(next);
+    prepareThreadSwitch(now, last, next);
 
-    pc.thread.current = next;
-    arch.cpu.prepareThreadSwitch(next, last);
-
-    setPreemptionTimer(now, next == pc.thread.idle);
     const s = next.cpu_state.?;
     next.cpu_state = null;
     s.saveAndRestore(&last.cpu_state);
@@ -135,6 +124,23 @@ pub fn rescheduleFirstIdle() void {
         if (cpu == PerCpu.get().id) break :blk;
         arch.sendRescheduleIpi(cpu);
     }
+}
+
+pub fn prepareThreadSwitch(now: u64, prev: ?*Thread, next: *Thread) void {
+    const pc = PerCpu.get();
+    pc.thread.current = next;
+    updateIdleState(next);
+
+    if (prev) |x| if (x.proc) |proc| {
+        _ = proc.running_cpu_mask.unset(pc.id, .monotonic);
+    };
+
+    if (next.proc) |proc| {
+        _ = proc.running_cpu_mask.set(pc.id, .seq_cst);
+    }
+
+    arch.cpu.prepareThreadSwitch(next, prev);
+    setPreemptionTimer(now, next == pc.thread.idle);
 }
 
 /// assumes lock is held

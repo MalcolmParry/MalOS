@@ -161,6 +161,10 @@ pub fn exitCurrent() noreturn {
         pc = PerCpu.get();
     }
 
+    if (thread.proc) |proc| {
+        _ = proc.running_cpu_mask.unset(pc.id, .monotonic);
+    }
+
     if (pc.thread.last_stack) |last| stack_alloc.free(last);
     pc.thread.last_stack = if (thread.stack.?.ptr == boot_info.boot_stack.ptr) null else thread.stack;
     thread.stack = null;
@@ -171,12 +175,9 @@ pub fn exitCurrent() noreturn {
     const now = arch.time.getBootNsOrdered();
     scheduler.wakeSleeping(now);
     const next = scheduler.chooseThread();
-    pc.thread.current = next;
     next.state = .running;
-    arch.cpu.prepareThreadSwitch(next, null);
-    scheduler.updateIdleState(next);
+    scheduler.prepareThreadSwitch(now, null, next);
 
-    scheduler.setPreemptionTimer(now, next == pc.thread.idle);
     const s = next.cpu_state.?;
     next.cpu_state = null;
     s.restore();
