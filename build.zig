@@ -49,7 +49,7 @@ fn addBuildStep(b: *Build, optimize: std.lang.Optimize, target: Build.ResolvedTa
     };
 
     const abi = b.createModule(.{
-        .root_source_file = b.path("abi.zig"),
+        .root_source_file = b.path("abi/abi.zig"),
     });
 
     const lib = b.createModule(.{

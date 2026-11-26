@@ -7,7 +7,7 @@ const apic = @import("apic.zig");
 const scheduler = @import("../../proc/scheduler.zig");
 const Thread = @import("../../proc/Thread.zig");
 const syscall = @import("../../syscall.zig");
-const abi = @import("abi");
+const abi = @import("abi").syscall;
 const user_copy = @import("user_copy.zig");
 const PerCpu = @import("../../PerCpu.zig");
 

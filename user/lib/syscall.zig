@@ -1,6 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const abi = @import("abi");
+const abi = @import("abi").syscall;
 
 pub fn handleClose(handle: abi.Handle) !void {
     const result = syscall(.{

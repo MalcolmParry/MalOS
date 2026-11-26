@@ -1,5 +1,5 @@
 const std = @import("std");
-const abi = @import("abi");
+const abi = @import("abi").syscall;
 
 pub const syscall = @import("syscall.zig");
 

@@ -1,6 +1,6 @@
 const std = @import("std");
 const lib = @import("lib");
-const abi = @import("abi");
+const abi = @import("abi").syscall;
 const shared = @import("shared");
 
 pub const panic = std.debug.FullPanic(lib.panic);

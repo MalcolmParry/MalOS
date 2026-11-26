@@ -1,5 +1,5 @@
 const std = @import("std");
-const abi = @import("abi");
+const abi = @import("abi").syscall;
 const options = @import("options");
 const arch = @import("arch/arch.zig").current;
 const KLog = @import("object/KLog.zig");

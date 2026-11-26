@@ -1,5 +1,5 @@
 const std = @import("std");
-const abi = @import("abi");
+const abi = @import("abi").syscall;
 const gpa = @import("../mem/gpa.zig").allocator;
 const Object = @import("Object.zig");
 const Resource = @This();
