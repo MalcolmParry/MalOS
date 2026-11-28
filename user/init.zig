@@ -4,6 +4,10 @@ const abi = @import("abi");
 const shared = @import("shared");
 const Handle = abi.syscall.Handle;
 
+const outb = shared.arch.outb;
+const in = shared.arch.in;
+const repInsw = shared.arch.repInsw;
+
 pub const panic = std.debug.FullPanic(lib.panic);
 pub const std_options: std.Options = .{
     .logFn = lib.log,
@@ -210,44 +214,6 @@ pub fn main(initrd: Handle) !void {
 
     std.log.info("ext2 superblock:{s}", .{writer.buffered()});
     lib.syscall.threadExit();
-}
-
-fn outb(port: u16, data: u8) void {
-    asm volatile (
-        \\ outb %[data], %[port]
-        :
-        : [port] "{dx}" (port),
-          [data] "{al}" (data),
-    );
-}
-
-pub fn in(comptime T: type, port: u16) T {
-    return switch (@bitSizeOf(T)) {
-        8 => asm volatile ("inb %[port], %[result]"
-            : [result] "={al}" (-> T),
-            : [port] "N{dx}" (port),
-        ),
-        16 => asm volatile ("inw %[port], %[result]"
-            : [result] "={ax}" (-> T),
-            : [port] "N{dx}" (port),
-        ),
-        32 => asm volatile ("inl %[port], %[result]"
-            : [result] "={eax}" (-> T),
-            : [port] "N{dx}" (port),
-        ),
-        else => @compileError("bit size of type must be 8, 16, or 32. found " ++ @typeName(T)),
-    };
-}
-
-pub fn repInsw(port: u16, buffer: []align(1) u16) void {
-    asm volatile (
-        \\ cld
-        \\ rep insw
-        :
-        : [port] "{dx}" (port),
-          [buffer] "{rdi}" (buffer.ptr),
-          [count] "{rcx}" (buffer.len),
-        : .{ .rdi = true, .rcx = true, .memory = true, .dirflag = true });
 }
 
 const sector_size = 512;

@@ -1,6 +1,10 @@
 const std = @import("std");
 const lib = @import("lib");
+const shared = @import("shared");
 const abi = lib.abi;
+
+const outb = shared.arch.outb;
+const in = shared.arch.in;
 
 pub const panic = std.debug.FullPanic(lib.panic);
 pub const std_options: std.Options = .{
@@ -102,30 +106,3 @@ fn drain(this: *std.Io.Writer, data: []const []const u8, splat: usize) !usize {
 }
 
 var serial_writer: std.Io.Writer = .{ .vtable = &.{ .drain = &drain }, .buffer = &.{} };
-
-fn outb(port: u16, data: u8) void {
-    asm volatile (
-        \\ outb %[data], %[port]
-        :
-        : [port] "{dx}" (port),
-          [data] "{al}" (data),
-    );
-}
-
-pub fn in(comptime T: type, port: u16) T {
-    return switch (@bitSizeOf(T)) {
-        8 => asm volatile ("inb %[port], %[result]"
-            : [result] "={al}" (-> T),
-            : [port] "N{dx}" (port),
-        ),
-        16 => asm volatile ("inw %[port], %[result]"
-            : [result] "={ax}" (-> T),
-            : [port] "N{dx}" (port),
-        ),
-        32 => asm volatile ("inl %[port], %[result]"
-            : [result] "={eax}" (-> T),
-            : [port] "N{dx}" (port),
-        ),
-        else => @compileError("bit size of type must be 8, 16, or 32. found " ++ @typeName(T)),
-    };
-}

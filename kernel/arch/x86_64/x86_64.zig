@@ -1,5 +1,6 @@
 const std = @import("std");
 const mem = @import("../../mem/memory.zig");
+const shared = @import("shared");
 const virt_layout = @import("../../mem/virt_layout.zig");
 const debug = @import("../../debug.zig");
 const apic = @import("apic.zig");
@@ -22,12 +23,13 @@ pub const spinWait = cpu.spinWait;
 pub const shutdownOtherCpus = apic.shutdownOtherCpus;
 pub const sendRescheduleIpi = apic.sendRescheduleIpi;
 
-pub const in = cpu.in;
-pub const out = cpu.out;
-pub const outb = cpu.outb;
-pub const outw = cpu.outw;
-pub const outl = cpu.outl;
-pub const ioWait = cpu.ioWait;
+pub const out = shared.arch.out;
+pub const outb = shared.arch.outb;
+pub const outw = shared.arch.outw;
+pub const outl = shared.arch.outl;
+pub const in = shared.arch.in;
+pub const repInsw = shared.arch.repInsw;
+pub const ioWait = shared.arch.ioWait;
 
 const user_copy = @import("user_copy.zig");
 pub const copyFromUser = user_copy.copyFromUser;

@@ -125,7 +125,10 @@ fn addBuildStep(b: *Build, optimize: std.lang.Optimize, target: Build.ResolvedTa
             .pic = false,
             .strip = !debug_info,
             .omit_frame_pointer = !debug_info,
-            .imports = &.{.{ .name = "lib", .module = lib }},
+            .imports = &.{
+                .{ .name = "lib", .module = lib },
+                .{ .name = "shared", .module = shared },
+            },
         }),
     });
 
