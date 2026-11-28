@@ -88,6 +88,8 @@ pub fn getLocked(table: *HandleTable, abi_h: abi.Handle) ?Desc {
 }
 
 pub fn putLocked(table: *HandleTable, desc: Desc) !abi.Handle {
+    errdefer desc.obj.release();
+
     if (table.first_free_index != invalid_index) {
         const node_index = table.first_free_index >> desc_index_bits;
         const desc_index = table.first_free_index & ((1 << desc_index_bits) - 1);

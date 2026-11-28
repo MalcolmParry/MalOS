@@ -381,7 +381,26 @@ pub fn sleepNs(ns: u64) void {
     expectSuccess(result[0]);
 }
 
-pub fn x86IoPortsAcquire(resource: abi.Handle, base: usize, len: usize) !void {
+pub fn resourceClone(handle: abi.Handle, new_base: u64, new_len: u64) !abi.Handle {
+    const result = syscall(.{
+        @backingInt(abi.Syscall.resource_clone),
+        @backingInt(handle),
+        new_base,
+        new_len,
+    });
+
+    return switch (try readStatus(result[0])) {
+        .success => .fromUsizeUnsafe(result[1]),
+        .bad_handle => error.BadHandle,
+        .bad_handle_kind => error.BadHandleKind,
+        .no_right => error.NoRight,
+        .out_of_memory => error.OutOfMemory,
+        .too_many_handles => error.TooManyHandles,
+        else => unexpected(result[0]),
+    };
+}
+
+pub fn x86IoPortsAcquire(resource: abi.Handle, base: u64, len: u64) !void {
     const result = syscall(.{
         @backingInt(abi.Syscall.x86_ioports_acquire),
         @backingInt(resource),

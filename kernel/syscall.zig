@@ -92,6 +92,8 @@ pub fn handler(args: [7]usize) [4]usize {
 
         .sleep_ns => &sleepNs,
 
+        .resource_clone => &resourceClone,
+
         .x86_ioports_acquire => if (builtin.target.cpu.arch.isX86()) &x86IoPortsAcquire else &badSyscall,
     };
 
@@ -691,6 +693,33 @@ fn threadExit(_: [7]usize) ![3]usize {
 fn sleepNs(args: [7]usize) ![3]usize {
     scheduler.sleepNs(args[1]);
     return @splat(0);
+}
+
+fn resourceClone(args: [7]usize) abi.ResourceCloneError![3]usize {
+    const handle_table = HandleTable.getCurrent();
+    const l = handle_table.lock.lock();
+    defer l.unlock();
+
+    const desc = handle_table.getLocked(try .fromUsize(args[1])) orelse return error.BadHandle;
+    if (!desc.rights.duplicate) return error.NoRight;
+    const old = desc.obj.get(Resource) orelse return error.BadHandleKind;
+
+    const new_base: u64 = args[2];
+    const new_len: u64 = args[3];
+    if (old.base > new_base) return error.NoRight;
+    if (old.len < new_len) return error.NoRight;
+    if (new_base - old.base > old.len - new_len) return error.NoRight;
+
+    const new = try Resource.create(old.kind);
+    new.base = new_base;
+    new.len = new_len;
+
+    const h = try handle_table.putLocked(.{
+        .obj = &new.obj,
+        .rights = desc.rights,
+    });
+
+    return .{ @backingInt(h), 0, 0 };
 }
 
 fn x86IoPortsAcquire(args: [7]usize) abi.X86IoPortsAcquireError![3]usize {

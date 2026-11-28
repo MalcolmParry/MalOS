@@ -74,6 +74,9 @@ pub fn main(initrd: Handle) !void {
         const args_vmo = try lib.syscall.vmoCreate(16 * 1024);
         defer lib.syscall.handleClose(args_vmo) catch unreachable;
 
+        const limited_ioports = try lib.syscall.resourceClone(ioports, 0x3f8, 8);
+        errdefer lib.syscall.handleClose(limited_ioports) catch {};
+
         var child_handles: [5]Handle = undefined;
         try lib.syscall.processTransferHandles(
             proc,
@@ -99,8 +102,8 @@ pub fn main(initrd: Handle) !void {
                     .rights = .basic,
                 },
                 .{
-                    .op = .duplicate,
-                    .handle = ioports,
+                    .op = .transfer,
+                    .handle = limited_ioports,
                     .rights = .basic,
                 },
             },
@@ -110,7 +113,7 @@ pub fn main(initrd: Handle) !void {
         const resource_offset = std.mem.Alignment.of(abi.proc_args.Resource).forward(@sizeOf(abi.proc_args.Header));
         const resources: [2]abi.proc_args.Resource = .{
             .{ .kind = .klog_backend_serial, .handle = child_handles[3], .base = 0, .len = 0 },
-            .{ .kind = .x86_ioports, .handle = child_handles[4], .base = 0, .len = 65536 },
+            .{ .kind = .x86_ioports, .handle = child_handles[4], .base = 0x3f8, .len = 8 },
         };
 
         const args_header: abi.proc_args.Header = .{

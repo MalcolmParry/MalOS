@@ -39,6 +39,8 @@ pub const Syscall = enum(usize) {
 
     sleep_ns,
 
+    resource_clone,
+
     x86_ioports_acquire,
 };
 
@@ -251,5 +253,7 @@ pub const ProcessTransferHandlesError = error{ OutOfMemory, TooManyHandles, BadH
 
 pub const ThreadCreateError = error{ BadHandle, BadHandleKind, OutOfMemory, TooManyHandles };
 pub const ThreadStartError = error{ BadHandle, BadHandleKind, Fault, BadState, BadArg, OutOfMemory };
+
+pub const ResourceCloneError = error{ BadHandle, BadHandleKind, NoRight, OutOfMemory, TooManyHandles };
 
 pub const X86IoPortsAcquireError = error{ BadHandle, BadHandleKind, NoRight, OutOfMemory };
