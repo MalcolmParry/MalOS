@@ -14,20 +14,120 @@ comptime {
 }
 
 pub fn main(initrd: Handle) !void {
-    const serial_backend = blk: for (lib.resources) |resource| {
-        if (resource.kind == .klog_backend_serial) break :blk resource.handle;
-    } else @panic("no serial backend resource");
-
-    const ioports = blk: for (lib.resources) |resource| {
-        if (resource.kind != .x86_ioports) continue;
-        if (resource.base != 0) continue;
-        if (resource.len < 65536) continue;
-        break :blk resource.handle;
-    } else @panic("no ioports resource");
+    const ioports = (lib.getResource(.x86_ioports, 0, 65536) orelse @panic("no ioports resource")).handle;
 
     const initrd_size = try lib.syscall.vmoGetSize(initrd);
-    try lib.syscall.x86IoPortsAcquire(ioports, 0x3f8, 8);
     try lib.syscall.x86IoPortsAcquire(ioports, 0x1f0, 8);
+
+    {
+        const proc, const vmar = try lib.syscall.processCreate();
+        defer {
+            lib.syscall.handleClose(vmar) catch unreachable;
+            lib.syscall.handleClose(proc) catch unreachable;
+        }
+
+        const initrd_map_ptr = try lib.syscall.vmarMap(lib.vmar, 0, initrd, 0, initrd_size, .{});
+        const initrd_map = initrd_map_ptr[0..initrd_size];
+
+        const elf = (try shared.ustar.lookup(initrd_map, "serial")) orelse @panic("cant find serial driver");
+        var reader: std.Io.Reader = .fixed(elf);
+
+        const header = try std.elf.Header.read(&reader);
+        if (!header.is_64) return error.NotSupported;
+        if (header.machine != .X86_64) return error.NotSupported;
+        if (header.type != .EXEC) return error.NotSupported;
+
+        const min_load_addr = 4096;
+        const page_size = 4096;
+        for (0..header.phnum) |i| {
+            reader.seek = header.phoff + i * header.phentsize;
+            const ph = try reader.takeStruct(std.elf.Elf64.Phdr, header.endian);
+            if (ph.type != .LOAD) continue;
+            if (ph.filesz > ph.memsz) return error.BadElf;
+            if (ph.memsz == 0) continue;
+            if (ph.vaddr < min_load_addr) return error.NotSupported;
+            if (ph.flags.W and ph.flags.X) return error.NotSupported;
+
+            const first_page = ph.vaddr / page_size;
+            const offset_from_page = ph.vaddr % page_size;
+
+            const vmo = try lib.syscall.vmoCreate(ph.memsz + offset_from_page);
+            defer lib.syscall.handleClose(vmo) catch unreachable;
+
+            try lib.syscall.vmoWrite(vmo, offset_from_page, elf[ph.offset..][0..ph.filesz]);
+
+            _ = try lib.syscall.vmarMap(vmar, first_page * page_size, vmo, 0, ph.memsz + offset_from_page, .{
+                .placement = .fixed,
+                .perm = if (ph.flags.W) .rw else if (ph.flags.X) .rx else .ro,
+            });
+        }
+
+        const stack_size = 32 * 1024;
+        const stack_vmo = try lib.syscall.vmoCreate(stack_size);
+        defer lib.syscall.handleClose(stack_vmo) catch unreachable;
+        const stack = try lib.syscall.vmarMap(vmar, 0, stack_vmo, 0, stack_size, .{ .perm = .rw });
+
+        const args_vmo = try lib.syscall.vmoCreate(16 * 1024);
+        defer lib.syscall.handleClose(args_vmo) catch unreachable;
+
+        var child_handles: [5]Handle = undefined;
+        try lib.syscall.processTransferHandles(
+            proc,
+            &.{
+                .{
+                    .op = .duplicate,
+                    .handle = args_vmo,
+                    .rights = .basic_ro,
+                },
+                .{
+                    .op = .duplicate,
+                    .handle = vmar,
+                    .rights = .basic_rwx,
+                },
+                .{
+                    .op = .duplicate,
+                    .handle = lib.klog,
+                    .rights = .basic_rw,
+                },
+                .{
+                    .op = .transfer,
+                    .handle = (lib.getResource(.klog_backend_serial, 0, 0) orelse @panic("no klog serial backend resource")).handle,
+                    .rights = .basic,
+                },
+                .{
+                    .op = .duplicate,
+                    .handle = ioports,
+                    .rights = .basic,
+                },
+            },
+            &child_handles,
+        );
+
+        const resource_offset = std.mem.Alignment.of(abi.proc_args.Resource).forward(@sizeOf(abi.proc_args.Header));
+        const resources: [2]abi.proc_args.Resource = .{
+            .{ .kind = .klog_backend_serial, .handle = child_handles[3], .base = 0, .len = 0 },
+            .{ .kind = .x86_ioports, .handle = child_handles[4], .base = 0, .len = 65536 },
+        };
+
+        const args_header: abi.proc_args.Header = .{
+            .vmar = child_handles[1],
+            .klog = child_handles[2],
+            .initrd = .invalid,
+            .resource_offset = @intCast(resource_offset),
+            .resource_count = resources.len,
+        };
+
+        try lib.syscall.vmoWrite(args_vmo, 0, std.mem.asBytes(&args_header));
+        try lib.syscall.vmoWrite(args_vmo, resource_offset, std.mem.asBytes(&resources));
+
+        const thread = try lib.syscall.threadCreate(proc);
+        defer lib.syscall.handleClose(thread) catch unreachable;
+        try lib.syscall.threadStart(thread, &.{
+            .ip = header.entry,
+            .sp = @intFromPtr(stack.ptr) + stack.len - 8,
+            .args = .{ @backingInt(child_handles[0]), 0, 0, 0, 0, 0 },
+        });
+    }
 
     {
         const h0, const h1 = try lib.syscall.channelCreatePair();
@@ -79,98 +179,6 @@ pub fn main(initrd: Handle) !void {
         std.log.info("data from vmo map: '{s}'", .{map[base + 3 ..][0..msg.len]});
     }
 
-    {
-        const proc, const vmar = try lib.syscall.processCreate();
-        defer {
-            lib.syscall.handleClose(vmar) catch unreachable;
-            lib.syscall.handleClose(proc) catch unreachable;
-        }
-
-        const initrd_map_ptr = try lib.syscall.vmarMap(lib.vmar, 0, initrd, 0, initrd_size, .{});
-        const initrd_map = initrd_map_ptr[0..initrd_size];
-
-        const elf = (try shared.ustar.lookup(initrd_map, "other-thing")) orelse @panic("cant find other thing");
-        var reader: std.Io.Reader = .fixed(elf);
-
-        const header = try std.elf.Header.read(&reader);
-        if (!header.is_64) return error.NotSupported;
-        if (header.machine != .X86_64) return error.NotSupported;
-        if (header.type != .EXEC) return error.NotSupported;
-
-        const min_load_addr = 4096;
-        const page_size = 4096;
-        for (0..header.phnum) |i| {
-            reader.seek = header.phoff + i * header.phentsize;
-            const ph = try reader.takeStruct(std.elf.Elf64.Phdr, header.endian);
-            if (ph.type != .LOAD) continue;
-            if (ph.filesz > ph.memsz) return error.BadElf;
-            if (ph.memsz == 0) continue;
-            if (ph.vaddr < min_load_addr) return error.NotSupported;
-            if (ph.flags.W and ph.flags.X) return error.NotSupported;
-
-            const first_page = ph.vaddr / page_size;
-            const offset_from_page = ph.vaddr % page_size;
-
-            const vmo = try lib.syscall.vmoCreate(ph.memsz + offset_from_page);
-            defer lib.syscall.handleClose(vmo) catch unreachable;
-
-            try lib.syscall.vmoWrite(vmo, offset_from_page, elf[ph.offset..][0..ph.filesz]);
-
-            _ = try lib.syscall.vmarMap(vmar, first_page * page_size, vmo, 0, ph.memsz + offset_from_page, .{
-                .placement = .fixed,
-                .perm = if (ph.flags.W) .rw else if (ph.flags.X) .rx else .ro,
-            });
-        }
-
-        const stack_size = 32 * 1024;
-        const stack_vmo = try lib.syscall.vmoCreate(stack_size);
-        defer lib.syscall.handleClose(stack_vmo) catch unreachable;
-        const stack = try lib.syscall.vmarMap(vmar, 0, stack_vmo, 0, stack_size, .{ .perm = .rw });
-
-        const args_vmo = try lib.syscall.vmoCreate(16 * 1024);
-        defer lib.syscall.handleClose(args_vmo) catch unreachable;
-
-        var child_handles: [3]Handle = undefined;
-        try lib.syscall.processTransferHandles(
-            proc,
-            &.{
-                .{
-                    .op = .duplicate,
-                    .handle = args_vmo,
-                    .rights = .basic_ro,
-                },
-                .{
-                    .op = .duplicate,
-                    .handle = vmar,
-                    .rights = .basic_rwx,
-                },
-                .{
-                    .op = .duplicate,
-                    .handle = lib.klog,
-                    .rights = .basic_wo,
-                },
-            },
-            &child_handles,
-        );
-
-        const args_header: abi.proc_args.Header = .{
-            .vmar = child_handles[1],
-            .klog = child_handles[2],
-            .initrd = .invalid,
-            .resource_offset = 0,
-            .resource_count = 0,
-        };
-        try lib.syscall.vmoWrite(args_vmo, 0, std.mem.asBytes(&args_header));
-
-        const thread = try lib.syscall.threadCreate(proc);
-        defer lib.syscall.handleClose(thread) catch unreachable;
-        try lib.syscall.threadStart(thread, &.{
-            .ip = header.entry,
-            .sp = @intFromPtr(stack.ptr) + stack.len - 8,
-            .args = .{ @backingInt(child_handles[0]), 0, 0, 0, 0, 0 },
-        });
-    }
-
     const disk = getDrive(.{
         .io_base = 0x1f0,
         .kind = .master,
@@ -201,95 +209,8 @@ pub fn main(initrd: Handle) !void {
     }
 
     std.log.info("ext2 superblock:{s}", .{writer.buffered()});
-
-    const last_entry = try lib.syscall.klogDisableBackend(serial_backend);
-
-    while (true) {
-        var read_buffer: [abi.syscall.max_klog_entry]u8 align(@alignOf(abi.syscall.KLogEntry)) = undefined;
-        const header: *abi.syscall.KLogEntry = @ptrCast(&read_buffer);
-        const len = lib.syscall.klogRead(lib.klog, &read_buffer) catch |err| return switch (err) {
-            error.IsEmpty => {
-                lib.syscall.sleepNs(std.time.ns_per_ms);
-                continue;
-            },
-            else => |x| x,
-        };
-
-        if (header.id < last_entry) continue;
-        const scope = std.mem.sliceTo(@as([]const u8, &header.scope), 0);
-        const t: std.Io.Terminal = .{ .writer = &serial_writer, .mode = .escape_codes };
-
-        t.setColor(.reset) catch {};
-        t.setColor(switch (header.flags.level) {
-            .err => .red,
-            .warn => .yellow,
-            .info => .green,
-            .debug => .magenta,
-        }) catch {};
-
-        t.setColor(.bold) catch {};
-        try t.writer.writeAll(@tagName(header.flags.level));
-        t.setColor(.reset) catch {};
-        t.setColor(.dim) catch {};
-        t.setColor(.bold) catch {};
-        if (scope.len != 0) try t.writer.print("({s})", .{scope});
-        try t.writer.writeAll(": ");
-        t.setColor(.reset) catch {};
-
-        try t.writer.writeAll(read_buffer[@sizeOf(abi.syscall.KLogEntry)..][0..len]);
-        try t.writer.writeAll("\n");
-        if (header.flags.truncated) {
-            t.setColor(.reset) catch {};
-            t.setColor(.dim) catch {};
-            t.writer.print("(message truncated)\n", .{}) catch {};
-        }
-    }
-
     lib.syscall.threadExit();
 }
-
-fn isTransmitEmpty() bool {
-    return in(u8, 0x3f8 + 5) & 0x20 > 0;
-}
-
-pub fn writeByte(byte: u8) void {
-    while (!isTransmitEmpty()) {
-        std.atomic.spinLoopHint();
-    }
-
-    outb(0x3f8, byte);
-}
-
-pub fn writeStr(str: []const u8) void {
-    for (str) |c| switch (c) {
-        '\n' => write("\r\n"),
-        else => writeByte(c),
-    };
-}
-
-pub fn write(data: []const u8) void {
-    for (data) |byte| writeByte(byte);
-}
-
-fn drain(this: *std.Io.Writer, data: []const []const u8, splat: usize) !usize {
-    this.end = 0;
-    var written: usize = 0;
-
-    for (data[0 .. data.len - 1]) |x| {
-        writeStr(x);
-        written += x.len;
-    }
-
-    const pattern = data[data.len - 1];
-    for (0..splat) |_| {
-        writeStr(pattern);
-        written += pattern.len;
-    }
-
-    return written;
-}
-
-var serial_writer: std.Io.Writer = .{ .vtable = &.{ .drain = &drain }, .buffer = &.{} };
 
 fn outb(port: u16, data: u8) void {
     asm volatile (

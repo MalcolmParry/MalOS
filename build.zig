@@ -115,11 +115,11 @@ fn addBuildStep(b: *Build, optimize: std.lang.Optimize, target: Build.ResolvedTa
         }),
     });
 
-    const other_thing = b.addExecutable(.{
-        .name = "other_thing",
+    const serial = b.addExecutable(.{
+        .name = "serial",
         .use_llvm = true,
         .root_module = b.createModule(.{
-            .root_source_file = b.path("user/other_thing.zig"),
+            .root_source_file = b.path("user/serial.zig"),
             .target = user_target,
             .optimize = optimize,
             .pic = false,
@@ -131,7 +131,7 @@ fn addBuildStep(b: *Build, optimize: std.lang.Optimize, target: Build.ResolvedTa
 
     const initrd_dir = b.addWriteFiles();
     _ = initrd_dir.addCopyFile(init.getEmittedBin(), "init");
-    _ = initrd_dir.addCopyFile(other_thing.getEmittedBin(), "other-thing");
+    _ = initrd_dir.addCopyFile(serial.getEmittedBin(), "serial");
 
     const initrd_tar = b.addSystemCommand(&.{
         "tar",

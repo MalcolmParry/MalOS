@@ -37,6 +37,17 @@ pub fn panic(str: []const u8, ret_addr: ?usize) noreturn {
     syscall.threadExit();
 }
 
+pub fn getResource(kind: abi.syscall.ResourceKind, base: u64, len: u64) ?abi.proc_args.Resource {
+    for (resources) |resource| {
+        if (resource.kind != kind) continue;
+        if (resource.base > base) continue;
+        if (resource.base + resource.len < base + len) continue;
+        return resource;
+    }
+
+    return null;
+}
+
 comptime {
     if (!@hasDecl(@import("root"), "_start"))
         @export(&@import("start.zig")._start, .{ .name = "_start" });
