@@ -268,7 +268,7 @@ pub fn vmoGetSize(vmo: abi.Handle) !usize {
     };
 }
 
-pub fn vmarMap(vmar: abi.Handle, vmar_offset: usize, vmo: abi.Handle, vmo_offset: usize, len: usize, opts: abi.VmarMapOpts) ![*]u8 {
+pub fn vmarMap(vmar: abi.Handle, vmar_offset: usize, vmo: abi.Handle, vmo_offset: usize, len: usize, opts: abi.VmarMapOpts) ![]align(std.heap.page_size_min) u8 {
     const result = syscall(.{
         @backingInt(abi.Syscall.vmar_map),
         @backingInt(vmar),
@@ -280,7 +280,7 @@ pub fn vmarMap(vmar: abi.Handle, vmar_offset: usize, vmo: abi.Handle, vmo_offset
     });
 
     return switch (try readStatus(result[0])) {
-        .success => @ptrFromInt(result[1]),
+        .success => @as([*]align(std.heap.page_size_min) u8, @ptrFromInt(result[1]))[0..len],
         .bad_handle => error.BadHandle,
         .bad_handle_kind => error.BadHandleKind,
         .no_right => error.NoRight,

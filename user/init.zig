@@ -1,7 +1,8 @@
 const std = @import("std");
 const lib = @import("lib");
-const abi = @import("abi").syscall;
+const abi = @import("abi");
 const shared = @import("shared");
+const Handle = abi.syscall.Handle;
 
 pub const panic = std.debug.FullPanic(lib.panic);
 pub const std_options: std.Options = .{
@@ -12,7 +13,18 @@ comptime {
     _ = lib;
 }
 
-pub fn main(initrd: abi.Handle, serial_backend: abi.Handle, ioports: abi.Handle) !void {
+pub fn main(initrd: Handle) !void {
+    const serial_backend = blk: for (lib.resources) |resource| {
+        if (resource.kind == .klog_backend_serial) break :blk resource.handle;
+    } else @panic("no serial backend resource");
+
+    const ioports = blk: for (lib.resources) |resource| {
+        if (resource.kind != .x86_ioports) continue;
+        if (resource.base != 0) continue;
+        if (resource.len < 65536) continue;
+        break :blk resource.handle;
+    } else @panic("no ioports resource");
+
     const initrd_size = try lib.syscall.vmoGetSize(initrd);
     try lib.syscall.x86IoPortsAcquire(ioports, 0x3f8, 8);
     try lib.syscall.x86IoPortsAcquire(ioports, 0x1f0, 8);
@@ -113,25 +125,49 @@ pub fn main(initrd: abi.Handle, serial_backend: abi.Handle, ioports: abi.Handle)
         const stack_size = 32 * 1024;
         const stack_vmo = try lib.syscall.vmoCreate(stack_size);
         defer lib.syscall.handleClose(stack_vmo) catch unreachable;
-        const stack_base = try lib.syscall.vmarMap(vmar, 0, stack_vmo, 0, stack_size, .{ .perm = .rw });
+        const stack = try lib.syscall.vmarMap(vmar, 0, stack_vmo, 0, stack_size, .{ .perm = .rw });
 
-        var klog_handle: abi.Handle = undefined;
+        const args_vmo = try lib.syscall.vmoCreate(16 * 1024);
+        defer lib.syscall.handleClose(args_vmo) catch unreachable;
+
+        var child_handles: [3]Handle = undefined;
         try lib.syscall.processTransferHandles(
             proc,
-            &.{.{
-                .op = .duplicate,
-                .handle = lib.klog,
-                .rights = .{ .same = true },
-            }},
-            (&klog_handle)[0..1],
+            &.{
+                .{
+                    .op = .duplicate,
+                    .handle = args_vmo,
+                    .rights = .basic_ro,
+                },
+                .{
+                    .op = .duplicate,
+                    .handle = vmar,
+                    .rights = .basic_rwx,
+                },
+                .{
+                    .op = .duplicate,
+                    .handle = lib.klog,
+                    .rights = .basic_wo,
+                },
+            },
+            &child_handles,
         );
+
+        const args_header: abi.proc_args.Header = .{
+            .vmar = child_handles[1],
+            .klog = child_handles[2],
+            .initrd = .invalid,
+            .resource_offset = 0,
+            .resource_count = 0,
+        };
+        try lib.syscall.vmoWrite(args_vmo, 0, std.mem.asBytes(&args_header));
 
         const thread = try lib.syscall.threadCreate(proc);
         defer lib.syscall.handleClose(thread) catch unreachable;
         try lib.syscall.threadStart(thread, &.{
             .ip = header.entry,
-            .sp = @intFromPtr(stack_base) + stack_size - 8,
-            .args = .{ @backingInt(klog_handle), 0, 0, 0, 0, 0 },
+            .sp = @intFromPtr(stack.ptr) + stack.len - 8,
+            .args = .{ @backingInt(child_handles[0]), 0, 0, 0, 0, 0 },
         });
     }
 
@@ -147,7 +183,7 @@ pub fn main(initrd: abi.Handle, serial_backend: abi.Handle, ioports: abi.Handle)
     const groups_per_line = 8;
     const lines = (sector_size * 2) / bytes_per_group / groups_per_line;
 
-    var buffer: [abi.max_klog_msg]u8 = undefined;
+    var buffer: [abi.syscall.max_klog_msg]u8 = undefined;
     var writer: std.Io.Writer = .fixed(&buffer);
 
     var offset: usize = 0;
@@ -169,8 +205,8 @@ pub fn main(initrd: abi.Handle, serial_backend: abi.Handle, ioports: abi.Handle)
     const last_entry = try lib.syscall.klogDisableBackend(serial_backend);
 
     while (true) {
-        var read_buffer: [abi.max_klog_entry]u8 align(@alignOf(abi.KLogEntry)) = undefined;
-        const header: *abi.KLogEntry = @ptrCast(&read_buffer);
+        var read_buffer: [abi.syscall.max_klog_entry]u8 align(@alignOf(abi.syscall.KLogEntry)) = undefined;
+        const header: *abi.syscall.KLogEntry = @ptrCast(&read_buffer);
         const len = lib.syscall.klogRead(lib.klog, &read_buffer) catch |err| return switch (err) {
             error.IsEmpty => {
                 lib.syscall.sleepNs(std.time.ns_per_ms);
@@ -200,7 +236,7 @@ pub fn main(initrd: abi.Handle, serial_backend: abi.Handle, ioports: abi.Handle)
         try t.writer.writeAll(": ");
         t.setColor(.reset) catch {};
 
-        try t.writer.writeAll(read_buffer[@sizeOf(abi.KLogEntry)..][0..len]);
+        try t.writer.writeAll(read_buffer[@sizeOf(abi.syscall.KLogEntry)..][0..len]);
         try t.writer.writeAll("\n");
         if (header.flags.truncated) {
             t.setColor(.reset) catch {};

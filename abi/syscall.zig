@@ -89,6 +89,19 @@ pub const Rights = packed struct(u32) {
     unused: u25 = 0,
     same: bool = false,
 
+    pub const ro: Rights = .{ .read = true };
+    pub const rw: Rights = .{ .read = true, .write = true };
+    pub const rx: Rights = .{ .read = true, .exec = true };
+    pub const rwx: Rights = .{ .read = true, .write = true, .exec = true };
+    pub const wo: Rights = .{ .write = true };
+
+    pub const basic: Rights = .{ .duplicate = true, .transfer = true };
+    pub const basic_ro = basic.merge(ro);
+    pub const basic_rw = basic.merge(rw);
+    pub const basic_rx = basic.merge(rx);
+    pub const basic_rwx = basic.merge(rwx);
+    pub const basic_wo = basic.merge(wo);
+
     const Backing = u32;
     pub fn fromUsize(int: usize) !Rights {
         if (int > std.math.maxInt(Backing)) return error.BadArg;
@@ -109,6 +122,10 @@ pub const Rights = packed struct(u32) {
 
     pub fn intersect(left: Rights, right: Rights) Rights {
         return @bitCast(@as(Backing, @bitCast(left)) & @as(Backing, @bitCast(right)));
+    }
+
+    pub fn merge(left: Rights, right: Rights) Rights {
+        return @bitCast(@as(Backing, @bitCast(left)) | @as(Backing, @bitCast(right)));
     }
 
     pub fn hasAll(left: Rights, right: Rights) bool {

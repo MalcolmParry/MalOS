@@ -13,6 +13,7 @@ const Process = @import("proc/Process.zig");
 const Thread = @import("proc/Thread.zig");
 const Resource = @import("object/Resource.zig");
 const virt_layout = @import("mem/virt_layout.zig");
+const abi = @import("abi");
 
 pub const debug = @import("debug.zig");
 pub const panic = std.debug.FullPanic(debug.panic);
@@ -82,47 +83,58 @@ fn init(initrd: []const u8, initrd_vmo: *Vmo) !noreturn {
     const klog = try KLog.create();
     const klog_h = try proc.handle_table.putLocked(.{
         .obj = &klog.obj,
-        .rights = .{
-            .duplicate = true,
-            .transfer = true,
-            .write = true,
-            .read = true,
-        },
+        .rights = .basic_rw,
     });
 
     const initrd_h = try proc.handle_table.putLocked(.{
         .obj = &initrd_vmo.obj,
-        .rights = .{
-            .duplicate = true,
-            .transfer = true,
-            .read = true,
-            .exec = true,
-        },
+        .rights = .basic_rx,
     });
 
     proc.vmar.obj.acquire();
     const vmar_h = try proc.handle_table.putLocked(.{
         .obj = &proc.vmar.obj,
-        .rights = .{
-            .duplicate = true,
-            .transfer = true,
-            .read = true,
-            .write = true,
-            .exec = true,
-        },
+        .rights = .basic_rwx,
     });
 
     const serial_backend = try Resource.create(.klog_backend_serial);
     const serial_backend_h = try proc.handle_table.putLocked(.{
         .obj = &serial_backend.obj,
-        .rights = .{ .duplicate = true, .transfer = true },
+        .rights = .basic,
     });
 
     const ioports = try Resource.create(.x86_ioports);
     ioports.len = 65536;
     const ioports_h = try proc.handle_table.putLocked(.{
         .obj = &ioports.obj,
-        .rights = .{ .duplicate = true, .transfer = true },
+        .rights = .basic,
+    });
+
+    const resources = [_]abi.proc_args.Resource{
+        .{ .handle = serial_backend_h, .kind = .klog_backend_serial, .base = 0, .len = 0 },
+        .{ .handle = ioports_h, .kind = .x86_ioports, .base = 0, .len = 65536 },
+    };
+
+    var args_buffer: [1024]u8 = @splat(0);
+    const header: *align(1) abi.proc_args.Header = @ptrCast(&args_buffer);
+
+    header.* = .{
+        .vmar = vmar_h,
+        .initrd = initrd_h,
+        .klog = klog_h,
+        .resource_offset = std.mem.alignForward(u32, @sizeOf(abi.proc_args.Header), @alignOf(abi.proc_args.Resource)),
+        .resource_count = resources.len,
+    };
+
+    const resource_bytes = std.mem.asBytes(&resources);
+    @memcpy(args_buffer[header.resource_offset..][0..resource_bytes.len], resource_bytes);
+
+    const args_vmo = try Vmo.create(args_buffer.len);
+    try args_vmo.write(0, &args_buffer);
+
+    const args_vmo_h = try proc.handle_table.putLocked(.{
+        .obj = &args_vmo.obj,
+        .rights = .basic_ro,
     });
 
     const init_elf = try ustar.lookup(initrd, "init") orelse return error.InitNotFound;
@@ -139,7 +151,7 @@ fn init(initrd: []const u8, initrd_vmo: *Vmo) !noreturn {
 
     var state = arch.cpu.getUserThreadFrame(.{
         .entry = result.entry,
-        .args = .{ @backingInt(klog_h), @backingInt(initrd_h), @backingInt(vmar_h), @backingInt(serial_backend_h), @backingInt(ioports_h), 0 },
+        .args = .{ @backingInt(args_vmo_h), 0, 0, 0, 0, 0 },
         .sp = stack_addr * mem.page_size + stack_size - 8,
     });
 

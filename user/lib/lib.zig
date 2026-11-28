@@ -1,10 +1,12 @@
 const std = @import("std");
-const abi = @import("abi").syscall;
+pub const abi = @import("abi");
+pub const Handle = abi.syscall.Handle;
 
 pub const syscall = @import("syscall.zig");
 
-pub var klog: abi.Handle = undefined;
-pub var vmar: abi.Handle = undefined;
+pub var resources: []const abi.proc_args.Resource = &.{};
+pub var klog: Handle = .invalid;
+pub var vmar: Handle = .invalid;
 
 pub fn log(
     comptime level: std.log.Level,
@@ -12,12 +14,12 @@ pub fn log(
     comptime format: []const u8,
     args: anytype,
 ) void {
-    var buffer: [abi.max_klog_msg]u8 = undefined;
+    var buffer: [abi.syscall.max_klog_msg]u8 = undefined;
     var writer: std.Io.Writer = .fixed(&buffer);
     writer.print(format, args) catch {};
     _ = scope;
 
-    const abi_level: abi.KLogEntry.Level = switch (level) {
+    const abi_level: abi.syscall.KLogEntry.Level = switch (level) {
         .err => .err,
         .warn => .warn,
         .info => .info,

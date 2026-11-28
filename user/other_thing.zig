@@ -6,8 +6,10 @@ pub const std_options: std.Options = .{
     .logFn = lib.log,
 };
 
-pub export fn _start(klog_i: usize) callconv(.{ .x86_64_sysv = .{} }) noreturn {
-    lib.klog = .fromUsizeUnsafe(klog_i);
+comptime {
+    _ = lib;
+}
+
+pub fn main(_: lib.Handle) void {
     std.log.info("hello world from other process", .{});
-    lib.syscall.threadExit();
 }
